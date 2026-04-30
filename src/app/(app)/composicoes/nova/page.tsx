@@ -83,6 +83,7 @@ export default function NovaComposicaoPage() {
       );
       if (itensErr) throw itensErr;
 
+      router.refresh();
       router.push(`/composicoes/${comp.id}`);
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';

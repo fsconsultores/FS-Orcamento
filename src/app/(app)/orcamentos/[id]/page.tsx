@@ -1,9 +1,14 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { calcularCustoComposicao, formatCurrency, formatNumber } from '@/lib/costs';
+import { formatCurrency, formatNumber } from '@/lib/costs';
 import { AdicionarItemForm } from './adicionar-item-form';
 import { RemoverItemButton } from './remover-item-button';
+import { EditarItemButton } from './editar-item-button';
+import type { Orcamento } from '@/lib/supabase/types';
+
+type ItemOrc = { id: string; quantidade: number; bdi_especifico: number | null; composicao_id: string };
+type CustoComp = { id: string; codigo: string; descricao: string; unidade: string; custo_unitario: number };
 
 export default async function OrcamentoDetailPage({
   params,
@@ -12,65 +17,39 @@ export default async function OrcamentoDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const sb = supabase as any;
 
-  const [orcResult, itensResult, composicoesResult] = await Promise.all([
-    supabase.from('tabela_orcamentos').select('*').eq('id', id).single(),
-    supabase
-      .from('tabela_itens_orcamento')
-      .select(`
-        *,
-        tabela_composicoes (
-          id,
-          codigo,
-          descricao,
-          unidade,
-          tabela_itens_composicao (
-            indice,
-            tabela_insumos ( preco_base )
-          )
-        )
-      `)
+  const [rawOrc, rawItens, rawCustos] = await Promise.all([
+    sb.from('tabela_orcamentos').select('*').eq('id', id).single(),
+    sb.from('tabela_itens_orcamento')
+      .select('id, quantidade, bdi_especifico, composicao_id')
       .eq('orcamento_id', id)
       .order('created_at'),
-    supabase.from('tabela_composicoes').select('id, codigo, descricao, unidade').order('codigo'),
+    sb.from('vw_custo_composicao')
+      .select('id, codigo, descricao, unidade, custo_unitario')
+      .order('codigo'),
   ]);
 
-  if (orcResult.error || !orcResult.data) notFound();
+  if (rawOrc?.error || !rawOrc?.data) notFound();
 
-  const orcamento = orcResult.data;
-  const itens = (itensResult.data ?? []) as Array<{
-    id: string;
-    quantidade: number;
-    bdi_especifico: number | null;
-    tabela_composicoes: {
-      id: string;
-      codigo: string;
-      descricao: string;
-      unidade: string;
-      tabela_itens_composicao: Array<{
-        indice: number;
-        tabela_insumos: { preco_base: number } | null;
-      }>;
-    } | null;
-  }>;
+  const orcamento = rawOrc.data as Orcamento;
+  const itens = (rawItens?.data ?? []) as ItemOrc[];
+  const custosMap = Object.fromEntries(
+    ((rawCustos?.data ?? []) as CustoComp[]).map((c) => [c.id, c])
+  );
 
   let totalSemBdi = 0;
   let totalComBdi = 0;
 
   const itensCalculados = itens.map((item) => {
-    const comp = item.tabela_composicoes;
-    const itensComp = comp?.tabela_itens_composicao ?? [];
-    const custoUnit = calcularCustoComposicao(
-      itensComp
-        .filter((i) => i.tabela_insumos)
-        .map((i) => ({ indice: i.indice, insumo: i.tabela_insumos! }))
-    );
+    const comp = custosMap[item.composicao_id] ?? null;
+    const custoUnit = comp?.custo_unitario ?? 0;
     const bdi = item.bdi_especifico ?? orcamento.bdi_global;
     const semBdi = item.quantidade * custoUnit;
     const comBdi = semBdi * (1 + bdi / 100);
     totalSemBdi += semBdi;
     totalComBdi += comBdi;
-    return { ...item, custoUnit, semBdi, comBdi, bdi };
+    return { ...item, comp, custoUnit, semBdi, comBdi, bdi };
   });
 
   return (
@@ -86,10 +65,18 @@ export default async function OrcamentoDetailPage({
             {new Date(orcamento.data).toLocaleDateString('pt-BR')} · BDI global {orcamento.bdi_global}%
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-400">Total com BDI</p>
-          <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalComBdi)}</p>
-          <p className="text-xs text-gray-400">Sem BDI: {formatCurrency(totalSemBdi)}</p>
+        <div className="flex items-start gap-3">
+          <div className="text-right">
+            <p className="text-xs text-gray-400">Total com BDI</p>
+            <p className="text-2xl font-bold text-gray-900">{formatCurrency(totalComBdi)}</p>
+            <p className="text-xs text-gray-400">Sem BDI: {formatCurrency(totalSemBdi)}</p>
+          </div>
+          <Link
+            href={`/orcamentos/${id}/editar`}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Editar
+          </Link>
         </div>
       </div>
 
@@ -113,10 +100,10 @@ export default async function OrcamentoDetailPage({
             {itensCalculados.map((item) => (
               <tr key={item.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900">{item.tabela_composicoes?.descricao}</p>
-                  <p className="text-xs text-gray-400">{item.tabela_composicoes?.codigo}</p>
+                  <p className="font-medium text-gray-900">{item.comp?.descricao}</p>
+                  <p className="text-xs text-gray-400">{item.comp?.codigo}</p>
                 </td>
-                <td className="px-4 py-3 text-gray-600">{item.tabela_composicoes?.unidade}</td>
+                <td className="px-4 py-3 text-gray-600">{item.comp?.unidade}</td>
                 <td className="px-4 py-3 text-right text-gray-700">{formatNumber(item.quantidade, 2)}</td>
                 <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(item.custoUnit)}</td>
                 <td className="px-4 py-3 text-right text-gray-500">
@@ -129,7 +116,15 @@ export default async function OrcamentoDetailPage({
                   {formatCurrency(item.comBdi)}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <RemoverItemButton itemId={item.id} orcamentoId={id} />
+                  <div className="flex flex-col items-end gap-1">
+                    <EditarItemButton
+                      itemId={item.id}
+                      quantidade={item.quantidade}
+                      bdiEspecifico={item.bdi_especifico}
+                      bdiGlobal={orcamento.bdi_global}
+                    />
+                    <RemoverItemButton itemId={item.id} orcamentoId={id} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -160,7 +155,7 @@ export default async function OrcamentoDetailPage({
       <AdicionarItemForm
         orcamentoId={id}
         bdiGlobal={orcamento.bdi_global}
-        composicoes={composicoesResult.data ?? []}
+        composicoes={(rawCustos?.data ?? []) as CustoComp[]}
       />
     </div>
   );

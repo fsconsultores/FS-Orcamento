@@ -10,13 +10,34 @@ export interface Database {
           preco_base: number;
           fonte: string | null;
           data_referencia: string | null;
+          grupo: string | null;
+          observacao: string | null;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['tabela_insumos']['Row'], 'id' | 'created_at'> & {
+        Insert: {
           id?: string;
+          codigo: string;
+          descricao: string;
+          unidade: string;
+          preco_base?: number;
+          fonte?: string | null;
+          data_referencia?: string | null;
+          grupo?: string | null;
+          observacao?: string | null;
           created_at?: string;
         };
-        Update: Partial<Database['public']['Tables']['tabela_insumos']['Insert']>;
+        Update: {
+          id?: string;
+          codigo?: string;
+          descricao?: string;
+          unidade?: string;
+          preco_base?: number;
+          fonte?: string | null;
+          data_referencia?: string | null;
+          grupo?: string | null;
+          observacao?: string | null;
+          created_at?: string;
+        };
       };
       tabela_composicoes: {
         Row: {
@@ -26,11 +47,20 @@ export interface Database {
           unidade: string;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['tabela_composicoes']['Row'], 'id' | 'created_at'> & {
+        Insert: {
           id?: string;
+          codigo: string;
+          descricao: string;
+          unidade: string;
           created_at?: string;
         };
-        Update: Partial<Database['public']['Tables']['tabela_composicoes']['Insert']>;
+        Update: {
+          id?: string;
+          codigo?: string;
+          descricao?: string;
+          unidade?: string;
+          created_at?: string;
+        };
       };
       tabela_itens_composicao: {
         Row: {
@@ -40,11 +70,20 @@ export interface Database {
           indice: number;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['tabela_itens_composicao']['Row'], 'id' | 'created_at'> & {
+        Insert: {
           id?: string;
+          composicao_id: string;
+          insumo_id: string;
+          indice: number;
           created_at?: string;
         };
-        Update: Partial<Database['public']['Tables']['tabela_itens_composicao']['Insert']>;
+        Update: {
+          id?: string;
+          composicao_id?: string;
+          insumo_id?: string;
+          indice?: number;
+          created_at?: string;
+        };
       };
       tabela_orcamentos: {
         Row: {
@@ -56,11 +95,24 @@ export interface Database {
           bdi_global: number;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['tabela_orcamentos']['Row'], 'id' | 'created_at'> & {
+        Insert: {
           id?: string;
+          user_id: string;
+          nome_obra: string;
+          cliente?: string | null;
+          data?: string;
+          bdi_global?: number;
           created_at?: string;
         };
-        Update: Partial<Database['public']['Tables']['tabela_orcamentos']['Insert']>;
+        Update: {
+          id?: string;
+          user_id?: string;
+          nome_obra?: string;
+          cliente?: string | null;
+          data?: string;
+          bdi_global?: number;
+          created_at?: string;
+        };
       };
       tabela_itens_orcamento: {
         Row: {
@@ -71,11 +123,22 @@ export interface Database {
           bdi_especifico: number | null;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['tabela_itens_orcamento']['Row'], 'id' | 'created_at'> & {
+        Insert: {
           id?: string;
+          orcamento_id: string;
+          composicao_id: string;
+          quantidade: number;
+          bdi_especifico?: number | null;
           created_at?: string;
         };
-        Update: Partial<Database['public']['Tables']['tabela_itens_orcamento']['Insert']>;
+        Update: {
+          id?: string;
+          orcamento_id?: string;
+          composicao_id?: string;
+          quantidade?: number;
+          bdi_especifico?: number | null;
+          created_at?: string;
+        };
       };
     };
     Views: Record<string, never>;

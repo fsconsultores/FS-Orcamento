@@ -1,7 +1,6 @@
-import type { ItemComposicao, Insumo, ItemOrcamento, Orcamento } from './supabase/types';
 
 export function calcularCustoComposicao(
-  itens: (ItemComposicao & { insumo: Pick<Insumo, 'preco_base'> })[]
+  itens: { indice: number; insumo: { preco_base: number } }[]
 ): number {
   return itens.reduce((acc, item) => acc + item.indice * item.insumo.preco_base, 0);
 }
