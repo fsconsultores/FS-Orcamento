@@ -20,7 +20,7 @@ export default async function OrcamentoDetailPage({
   const sb = supabase as any;
 
   const [rawOrc, rawItens, rawCustos] = await Promise.all([
-    sb.from('tabela_orcamentos').select('*').eq('id', id).single(),
+    sb.from('tabela_orcamentos').select('id, nome_obra, cliente, data, bdi_global, codigo').eq('id', id).single(),
     sb.from('tabela_itens_orcamento')
       .select('id, quantidade, bdi_especifico, composicao_id')
       .eq('orcamento_id', id)

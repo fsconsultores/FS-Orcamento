@@ -13,7 +13,7 @@ export default async function InsumosPage({
   const { q } = await searchParams;
   const supabase = await createClient();
 
-  let query = supabase.from('tabela_insumos').select('*').order('codigo');
+  let query = supabase.from('tabela_insumos').select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia').order('codigo');
   if (q) {
     query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
   }

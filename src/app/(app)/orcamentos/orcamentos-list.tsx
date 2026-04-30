@@ -1,10 +1,6 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
-import { formatCurrency } from '@/lib/costs';
-import { EditableCell } from '@/components/editable-cell';
 
 type OrcRow = {
   id: string;
@@ -12,6 +8,7 @@ type OrcRow = {
   cliente: string | null;
   data: string;
   bdi_global: number;
+  codigo: string;
   tabela_itens_orcamento: { id: string }[];
 };
 
@@ -20,39 +17,8 @@ interface Props {
   totaisMap: Record<string, number>;
 }
 
-export function OrcamentosGrid({ initialOrcamentos, totaisMap }: Props) {
-  const [orcamentos, setOrcamentos] = useState(initialOrcamentos);
-
-  async function save(id: string, field: string, raw: string): Promise<void> {
-    let val: string | number | null = raw;
-    if (field === 'bdi_global') {
-      const n = parseFloat(raw);
-      if (isNaN(n) || n < 0) throw new Error('BDI inválido');
-      val = n;
-    }
-    if (field === 'cliente') val = raw.trim() || null;
-    if (field === 'nome_obra' && !raw.trim()) throw new Error('Nome obrigatório');
-
-    console.log('[orcamentos] update', { id, field, val });
-    const sb = createClient() as any;
-    const { data, error } = await sb
-      .from('tabela_orcamentos')
-      .update({ [field]: val })
-      .eq('id', id)
-      .select('id');
-    if (error) {
-      console.error('[orcamentos] update error', error);
-      throw error;
-    }
-    if (!data?.length) {
-      console.error('[orcamentos] update bloqueado por RLS — 0 linhas', { id, field });
-      throw new Error('Sem permissão para atualizar este orçamento.');
-    }
-    console.log('[orcamentos] update ok', { id, field, val });
-    setOrcamentos(prev => prev.map(o => o.id !== id ? o : { ...o, [field]: val }));
-  }
-
-  if (orcamentos.length === 0) {
+export function OrcamentosGrid({ initialOrcamentos }: Props) {
+  if (initialOrcamentos.length === 0) {
     return (
       <div className="rounded-xl border bg-white p-12 text-center shadow-sm">
         <p className="text-gray-400">Nenhum orçamento criado.</p>
@@ -64,48 +30,55 @@ export function OrcamentosGrid({ initialOrcamentos, totaisMap }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {orcamentos.map((orc) => (
-        <div key={orc.id} className="rounded-xl border bg-white p-5 shadow-sm hover:border-blue-100 transition-colors">
-          <EditableCell
-            value={orc.nome_obra}
-            onSave={(v) => save(orc.id, 'nome_obra', v)}
-            className="font-semibold text-gray-900 truncate"
-          />
-          <EditableCell
-            value={orc.cliente ?? ''}
-            display={orc.cliente ?? undefined}
-            onSave={(v) => save(orc.id, 'cliente', v)}
-            className="mt-0.5 text-sm text-gray-500 truncate"
-          />
-          <Link href={`/orcamentos/${orc.id}`} className="mt-3 block group">
-            <p className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-              {formatCurrency(totaisMap[orc.id] ?? 0)}
-            </p>
-          </Link>
-          <div className="mt-3 flex items-center justify-between text-xs text-gray-400">
-            <span>{orc.tabela_itens_orcamento.length} item(ns)</span>
-            <span className="flex items-center gap-1">
-              BDI{' '}
-              <EditableCell
-                value={String(orc.bdi_global)}
-                display={`${orc.bdi_global}%`}
-                type="number"
-                min="0"
-                step="0.01"
-                onSave={(v) => save(orc.id, 'bdi_global', v)}
-                className="text-xs text-gray-400"
-              />
-            </span>
-            <Link
-              href={`/orcamentos/${orc.id}`}
-              className="hover:underline hover:text-blue-600 transition-colors"
-            >
-              {new Date(orc.data).toLocaleDateString('pt-BR')}
-            </Link>
-          </div>
-        </div>
-      ))}
+    <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <th className="px-4 py-3">Código</th>
+            <th className="px-4 py-3">Nome da Obra</th>
+            <th className="px-4 py-3">Cliente</th>
+            <th className="px-4 py-3 text-center">BDI</th>
+            <th className="px-4 py-3 text-center">Itens</th>
+            <th className="px-4 py-3">Data de Inclusão</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {initialOrcamentos.map((orc) => (
+            <tr key={orc.id} className="cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all">
+              <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {orc.codigo}
+                </Link>
+              </td>
+              <td className="px-4 py-3 font-medium text-gray-900">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {orc.nome_obra}
+                </Link>
+              </td>
+              <td className="px-4 py-3 text-gray-600">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {orc.cliente ?? '—'}
+                </Link>
+              </td>
+              <td className="px-4 py-3 text-center text-gray-700">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {orc.bdi_global}%
+                </Link>
+              </td>
+              <td className="px-4 py-3 text-center text-gray-600">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {orc.tabela_itens_orcamento.length}
+                </Link>
+              </td>
+              <td className="px-4 py-3 text-gray-500">
+                <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
+                  {new Date(orc.data).toLocaleDateString('pt-BR')}
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

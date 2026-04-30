@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-type Composicao = { id: string; codigo: string; descricao: string; unidade: string };
+type Composicao = { id: string; codigo: string; descricao: string; unidade: string; custo_unitario: number };
 
 export function AdicionarItemForm({
   orcamentoId,
@@ -18,24 +18,51 @@ export function AdicionarItemForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    composicao_id: '',
-    quantidade: '',
-    bdi_especifico: '',
-  });
+  const [busca, setBusca] = useState('');
+  const [selectedComp, setSelectedComp] = useState<Composicao | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [quantidade, setQuantidade] = useState('');
+  const [bdiEspecifico, setBdiEspecifico] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  function update(field: keyof typeof form, value: string) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const filtradas = busca.trim()
+    ? composicoes.filter(
+        (c) =>
+          c.codigo.toLowerCase().includes(busca.toLowerCase()) ||
+          c.descricao.toLowerCase().includes(busca.toLowerCase())
+      ).slice(0, 12)
+    : composicoes.slice(0, 12);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function selectComp(c: Composicao) {
+    setSelectedComp(c);
+    setBusca(`${c.codigo} — ${c.descricao}`);
+    setShowDropdown(false);
+  }
+
+  function handleBuscaChange(value: string) {
+    setBusca(value);
+    setSelectedComp(null);
+    setShowDropdown(true);
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!form.composicao_id) { setError('Selecione uma composição.'); return; }
-    const qtd = parseFloat(form.quantidade);
+    if (!selectedComp) { setError('Selecione uma composição.'); return; }
+    const qtd = parseFloat(quantidade);
     if (isNaN(qtd) || qtd <= 0) { setError('Quantidade inválida.'); return; }
-    const bdiEsp = form.bdi_especifico !== '' ? parseFloat(form.bdi_especifico) : null;
+    const bdiEsp = bdiEspecifico !== '' ? parseFloat(bdiEspecifico) : null;
     if (bdiEsp !== null && (isNaN(bdiEsp) || bdiEsp < 0)) { setError('BDI específico inválido.'); return; }
 
     setLoading(true);
@@ -43,12 +70,15 @@ export function AdicionarItemForm({
       const supabase = createClient();
       const { error: dbError } = await supabase.from('tabela_itens_orcamento').insert({
         orcamento_id: orcamentoId,
-        composicao_id: form.composicao_id,
+        composicao_id: selectedComp.id,
         quantidade: qtd,
         bdi_especifico: bdiEsp,
       });
       if (dbError) throw dbError;
-      setForm({ composicao_id: '', quantidade: '', bdi_especifico: '' });
+      setBusca('');
+      setSelectedComp(null);
+      setQuantidade('');
+      setBdiEspecifico('');
       router.refresh();
     } catch {
       setError('Erro ao adicionar item.');
@@ -57,26 +87,61 @@ export function AdicionarItemForm({
     }
   }
 
+  const custoPreview =
+    selectedComp && quantidade && !isNaN(parseFloat(quantidade))
+      ? selectedComp.custo_unitario * parseFloat(quantidade)
+      : null;
+
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
-      <h2 className="mb-4 font-semibold text-gray-900">Adicionar item</h2>
+      <h2 className="mb-4 font-semibold text-gray-900">Adicionar composição</h2>
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[220px] space-y-1">
+
+        {/* Busca de composição */}
+        <div className="flex-1 min-w-[260px] space-y-1" ref={dropdownRef}>
           <label className="text-xs font-medium text-gray-600">Composição *</label>
-          <select
-            value={form.composicao_id}
-            onChange={(e) => update('composicao_id', e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          >
-            <option value="">Selecione...</option>
-            {composicoes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.codigo} — {c.descricao} ({c.unidade})
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => handleBuscaChange(e.target.value)}
+              onFocus={() => setShowDropdown(true)}
+              placeholder="Buscar por código ou descrição..."
+              autoComplete="off"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            />
+            {showDropdown && filtradas.length > 0 && (
+              <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg">
+                {filtradas.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onMouseDown={() => selectComp(c)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50"
+                  >
+                    <span>
+                      <span className="font-mono text-xs text-gray-400 mr-2">{c.codigo}</span>
+                      {c.descricao}
+                    </span>
+                    <span className="ml-3 shrink-0 text-xs text-gray-400">{c.unidade}</span>
+                  </button>
+                ))}
+                {busca && filtradas.length === 12 && (
+                  <p className="px-3 py-1.5 text-xs text-gray-400">Refinando busca para ver mais...</p>
+                )}
+              </div>
+            )}
+          </div>
+          {selectedComp && (
+            <p className="text-xs text-gray-500">
+              Custo unit.: <span className="font-medium text-gray-700">
+                {selectedComp.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span> / {selectedComp.unidade}
+            </p>
+          )}
         </div>
 
+        {/* Quantidade */}
         <div className="w-28 space-y-1">
           <label className="text-xs font-medium text-gray-600">Quantidade *</label>
           <input
@@ -84,34 +149,45 @@ export function AdicionarItemForm({
             min="0.0001"
             step="any"
             placeholder="0,00"
-            value={form.quantidade}
-            onChange={(e) => update('quantidade', e.target.value)}
+            value={quantidade}
+            onChange={(e) => setQuantidade(e.target.value)}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
 
+        {/* BDI específico */}
         <div className="w-32 space-y-1">
           <label className="text-xs font-medium text-gray-600">
-            BDI espec. (%) <span className="text-gray-400">padrão: {bdiGlobal}%</span>
+            BDI espec. <span className="text-gray-400">(padrão: {bdiGlobal}%)</span>
           </label>
           <input
             type="number"
             min="0"
             step="0.01"
             placeholder={`${bdiGlobal}`}
-            value={form.bdi_especifico}
-            onChange={(e) => update('bdi_especifico', e.target.value)}
+            value={bdiEspecifico}
+            onChange={(e) => setBdiEspecifico(e.target.value)}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Adicionando...' : 'Adicionar'}
-        </button>
+        <div className="space-y-1">
+          {custoPreview !== null && (
+            <p className="text-xs text-gray-500">
+              Subtotal:{' '}
+              <span className="font-semibold text-gray-800">
+                {custoPreview.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Adicionando...' : 'Adicionar'}
+          </button>
+        </div>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>

@@ -14,6 +14,7 @@ export default function NovoOrcamentoPage() {
     cliente: '',
     data: new Date().toISOString().split('T')[0],
     bdi_global: '25',
+    codigo: '0',
   });
 
   function update(field: keyof typeof form, value: string) {
@@ -48,6 +49,7 @@ export default function NovoOrcamentoPage() {
           cliente: form.cliente.trim() || null,
           data: form.data,
           bdi_global: bdi,
+          codigo: form.codigo,
         })
         .select('id')
         .single();
@@ -83,7 +85,20 @@ export default function NovoOrcamentoPage() {
             placeholder="Ex: Residência Unifamiliar - Rua das Flores"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
+      
+          <label htmlFor="codigo" className="text-sm font-medium text-gray-700">
+            Código *
+          </label>
+          <input
+            id="codigo"
+            required
+            value={form.codigo}
+            onChange={(e) => update('codigo', e.target.value)}
+            placeholder="Código"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          />
         </div>
+        
 
         <div className="space-y-1">
           <label htmlFor="cliente" className="text-sm font-medium text-gray-700">

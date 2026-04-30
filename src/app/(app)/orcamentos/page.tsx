@@ -10,6 +10,7 @@ type OrcRow = {
   cliente: string | null;
   data: string;
   bdi_global: number;
+  codigo: string;
   tabela_itens_orcamento: { id: string }[];
 };
 
@@ -23,7 +24,7 @@ export default async function OrcamentosPage({
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id)')
+    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo')
     .order('created_at', { ascending: false });
 
   if (q) {

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/dashboard', label: 'Ínicio' },
   { href: '/orcamentos', label: 'Orçamentos' },
   { href: '/composicoes', label: 'Composições' },
   { href: '/insumos', label: 'Insumos' },
@@ -23,39 +23,51 @@ export function Nav({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <nav className="border-b bg-white">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <div className="flex items-center gap-6">
-          <span className="font-bold text-blue-600">Orçamento FS</span>
-          <div className="flex gap-1">
-            {NAV_ITEMS.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(item.href + '/');
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    active
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">{userEmail}</span>
-          <button
-            onClick={handleLogout}
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-          >
-            Sair
-          </button>
-        </div>
+    <aside className="fixed left-0 top-0 h-full w-64 border-r bg-white flex flex-col">
+      {/* Logo */}
+      <div className="px-6 py-4 border-b">
+        <Link className="font-bold text-blue-600 text-lg"
+          href="/dashboard"
+          >Orçamento FS
+        </Link>
       </div>
-    </nav>
+
+      {/* Menu */}
+      <nav className="flex-1 px-4 py-4 space-y-1">
+        {NAV_ITEMS.map((item) => {
+          const active =
+            pathname === item.href ||
+            pathname.startsWith(item.href + '/');
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href as any}
+              className={`block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Footer user */}
+      <div className="border-t p-4 space-y-2">
+        <div className="text-xs text-gray-500 truncate">
+          {userEmail}
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="w-full rounded-md border px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          Sair
+        </button>
+      </div>
+    </aside>
   );
 }

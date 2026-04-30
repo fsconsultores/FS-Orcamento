@@ -141,6 +141,27 @@ export interface Database {
         };
       };
     };
+      folders: {
+        Row: { id: string; name: string; user_id: string; created_at: string };
+        Insert: { id?: string; name: string; user_id: string; created_at?: string };
+        Update: { id?: string; name?: string; user_id?: string; created_at?: string };
+      };
+      projects: {
+        Row: { id: string; name: string; folder_id: string; created_at: string };
+        Insert: { id?: string; name: string; folder_id: string; created_at?: string };
+        Update: { id?: string; name?: string; folder_id?: string; created_at?: string };
+      };
+      budgets: {
+        Row: { id: string; name: string; project_id: string; created_at: string };
+        Insert: { id?: string; name: string; project_id: string; created_at?: string };
+        Update: { id?: string; name?: string; project_id?: string; created_at?: string };
+      };
+      budget_items: {
+        Row: { id: string; name: string; quantity: number; unit_cost: number; budget_id: string; created_at: string };
+        Insert: { id?: string; name: string; quantity: number; unit_cost: number; budget_id: string; created_at?: string };
+        Update: { id?: string; name?: string; quantity?: number; unit_cost?: number; budget_id?: string; created_at?: string };
+      };
+    };
     Views: Record<string, never>;
     Functions: Record<string, never>;
     Enums: Record<string, never>;
