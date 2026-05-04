@@ -8,7 +8,16 @@ import { EditarItemButton } from './editar-item-button';
 import type { Orcamento } from '@/lib/supabase/types';
 
 type ItemOrc = { id: string; quantidade: number; bdi_especifico: number | null; composicao_id: string };
-type CustoComp = { id: string; codigo: string; descricao: string; unidade: string; custo_unitario: number };
+type CustoComp = {
+  id: string;
+  codigo: string;
+  descricao: string;
+  unidade: string;
+  custo_unitario: number;
+  base_id: string | null;
+  orgao: string | null;
+  tipo_base: string | null;
+};
 
 export default async function OrcamentoDetailPage({
   params,
@@ -26,7 +35,7 @@ export default async function OrcamentoDetailPage({
       .eq('orcamento_id', id)
       .order('created_at'),
     sb.from('vw_custo_composicao')
-      .select('id, codigo, descricao, unidade, custo_unitario')
+      .select('id, codigo, descricao, unidade, custo_unitario, base_id, orgao, tipo_base')
       .order('codigo'),
   ]);
 

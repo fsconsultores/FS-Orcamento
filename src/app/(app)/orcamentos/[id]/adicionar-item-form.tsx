@@ -1,10 +1,20 @@
 'use client';
 
-import { useState, useRef, useEffect, FormEvent } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { baseLabelFromOrgao } from '@/components/base-filter';
 
-type Composicao = { id: string; codigo: string; descricao: string; unidade: string; custo_unitario: number };
+type Composicao = {
+  id: string;
+  codigo: string;
+  descricao: string;
+  unidade: string;
+  custo_unitario: number;
+  base_id: string | null;
+  orgao: string | null;
+  tipo_base: string | null;
+};
 
 export function AdicionarItemForm({
   orcamentoId,
@@ -23,15 +33,29 @@ export function AdicionarItemForm({
   const [showDropdown, setShowDropdown] = useState(false);
   const [quantidade, setQuantidade] = useState('');
   const [bdiEspecifico, setBdiEspecifico] = useState('');
+  const [orgaoFiltro, setOrgaoFiltro] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const filtradas = busca.trim()
-    ? composicoes.filter(
+  // Órgãos distintos presentes nas composições recebidas
+  const orgaosDisponiveis = Array.from(
+    new Set(composicoes.filter((c) => c.orgao).map((c) => c.orgao as string))
+  ).sort();
+
+  const filtradas = (() => {
+    let lista = composicoes;
+    if (orgaoFiltro) {
+      lista = lista.filter((c) => c.orgao === orgaoFiltro);
+    }
+    if (busca.trim()) {
+      const q = busca.toLowerCase();
+      lista = lista.filter(
         (c) =>
-          c.codigo.toLowerCase().includes(busca.toLowerCase()) ||
-          c.descricao.toLowerCase().includes(busca.toLowerCase())
-      ).slice(0, 12)
-    : composicoes.slice(0, 12);
+          c.codigo.toLowerCase().includes(q) ||
+          c.descricao.toLowerCase().includes(q)
+      );
+    }
+    return lista.slice(0, 12);
+  })();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -55,7 +79,7 @@ export function AdicionarItemForm({
     setShowDropdown(true);
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
@@ -95,6 +119,38 @@ export function AdicionarItemForm({
   return (
     <div className="rounded-xl border bg-white p-5 shadow-sm">
       <h2 className="mb-4 font-semibold text-gray-900">Adicionar composição</h2>
+
+      {/* Filtro por base/órgão */}
+      {orgaosDisponiveis.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOrgaoFiltro('')}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              orgaoFiltro === ''
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+            }`}
+          >
+            Todas
+          </button>
+          {orgaosDisponiveis.map((o) => (
+            <button
+              key={o}
+              type="button"
+              onClick={() => setOrgaoFiltro(orgaoFiltro === o ? '' : o)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                orgaoFiltro === o
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+              }`}
+            >
+              {baseLabelFromOrgao(o)}
+            </button>
+          ))}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
 
         {/* Busca de composição */}
@@ -119,14 +175,21 @@ export function AdicionarItemForm({
                     onMouseDown={() => selectComp(c)}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50"
                   >
-                    <span>
-                      <span className="font-mono text-xs text-gray-400 mr-2">{c.codigo}</span>
-                      {c.descricao}
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xs text-gray-400 shrink-0">{c.codigo}</span>
+                      <span className="truncate">{c.descricao}</span>
                     </span>
-                    <span className="ml-3 shrink-0 text-xs text-gray-400">{c.unidade}</span>
+                    <span className="ml-3 flex items-center gap-1.5 shrink-0">
+                      {c.orgao && (
+                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {baseLabelFromOrgao(c.orgao)}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">{c.unidade}</span>
+                    </span>
                   </button>
                 ))}
-                {busca && filtradas.length === 12 && (
+                {(busca || orgaoFiltro) && filtradas.length === 12 && (
                   <p className="px-3 py-1.5 text-xs text-gray-400">Refinando busca para ver mais...</p>
                 )}
               </div>
@@ -137,6 +200,9 @@ export function AdicionarItemForm({
               Custo unit.: <span className="font-medium text-gray-700">
                 {selectedComp.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </span> / {selectedComp.unidade}
+              {selectedComp.orgao && (
+                <span className="ml-2 text-gray-400">· {baseLabelFromOrgao(selectedComp.orgao)}</span>
+              )}
             </p>
           )}
         </div>

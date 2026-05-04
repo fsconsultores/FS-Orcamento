@@ -2,47 +2,97 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
+import { BaseFilter } from '@/components/base-filter';
+import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
-import type { Insumo } from '@/lib/supabase/types';
+import type { InsumoComBase } from '@/lib/supabase/types';
+
+
+
 
 export default async function InsumosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, orgao } = await searchParams;
   const supabase = await createClient();
+  const sb = supabase as any;
 
-  let query = supabase.from('tabela_insumos').select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia').order('codigo');
+  // Bases disponíveis para o filtro
+  const { data: basesRaw } = await sb
+    .from('tabela_bases')
+    .select('id, nome, orgao, tipo_base')
+    .order('tipo_base')
+    .order('orgao');
+
+  const bases = (basesRaw ?? []) as { id: string; nome: string; orgao: string; tipo_base: string }[];
+
+  // Resolver base_id para o filtro de órgão selecionado
+  let baseIdFiltro: string | null = null;
+  if (orgao && orgao !== 'SEM_BASE') {
+    const match = bases.find((b) => b.orgao === orgao);
+    if (match) baseIdFiltro = match.id;
+  }
+
+  let query = sb
+    .from('tabela_insumos')
+    .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, tabela_bases(orgao, tipo_base)')
+    .order('codigo');
+
   if (q) {
     query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
   }
 
+  if (orgao === 'SEM_BASE') {
+    query = query.is('base_id', null);
+  } else if (baseIdFiltro) {
+    query = query.eq('base_id', baseIdFiltro);
+  }
+
   const { data: insumos, error } = await query;
   if (error) throw error;
+
+  const baseOptions = bases.map((b) => ({
+    orgao: b.orgao,
+    label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
+  }));
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Insumos</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Biblioteca de materiais e mão de obra
-          </p>
+          <p className="mt-1 text-sm text-gray-500">Biblioteca de materiais e mão de obra</p>
         </div>
-        <Link
-          href="/insumos/novo"
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Novo insumo
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href={"/insumos/importar" as any}
+            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Importar CSV
+          </Link>
+          <Link
+            href="/insumos/novo"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Novo insumo
+          </Link>
+        </div>
       </div>
 
-      <Suspense>
-        <SearchInput placeholder="Buscar por código ou descrição..." />
-      </Suspense>
+      <div className="space-y-2">
+        <Suspense>
+          <SearchInput placeholder="Buscar por código ou descrição..." />
+        </Suspense>
+        {baseOptions.length > 0 && (
+          <Suspense>
+            <BaseFilter bases={baseOptions} />
+          </Suspense>
+        )}
+      </div>
 
-      <InsumosTable initialInsumos={(insumos ?? []) as Insumo[]} />
+      <InsumosTable initialInsumos={(insumos ?? []) as InsumoComBase[]} />
     </div>
   );
 }

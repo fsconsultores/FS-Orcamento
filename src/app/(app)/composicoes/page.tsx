@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
+import { BaseFilter, baseLabelFromOrgao } from '@/components/base-filter';
 import { ComposicoesTable } from './composicoes-table';
 
 type ComposicaoView = {
@@ -9,29 +10,59 @@ type ComposicaoView = {
   codigo: string;
   descricao: string;
   unidade: string;
+  base_id: string | null;
+  orgao: string | null;
+  tipo_base: string | null;
   custo_unitario: number;
 };
 
 export default async function ComposicoesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string }>;
 }) {
-  const { q } = await searchParams;
-  const sb = (await createClient()) as any;
+  const { q, orgao } = await searchParams;
+  const supabase = await createClient();
+  const sb = supabase as any;
+
+  // Bases disponíveis para o filtro
+  const { data: basesRaw } = await sb
+    .from('tabela_bases')
+    .select('id, nome, orgao, tipo_base')
+    .order('tipo_base')
+    .order('orgao');
+
+  const bases = (basesRaw ?? []) as { id: string; nome: string; orgao: string; tipo_base: string }[];
+
+  let baseIdFiltro: string | null = null;
+  if (orgao && orgao !== 'SEM_BASE') {
+    const match = bases.find((b) => b.orgao === orgao);
+    if (match) baseIdFiltro = match.id;
+  }
 
   let query = sb
     .from('vw_custo_composicao')
-    .select('id, codigo, descricao, unidade, custo_unitario')
+    .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario')
     .order('codigo');
 
   if (q) {
     query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
   }
 
+  if (orgao === 'SEM_BASE') {
+    query = query.is('base_id', null);
+  } else if (baseIdFiltro) {
+    query = query.eq('base_id', baseIdFiltro);
+  }
+
   const raw = await query;
   if (raw.error) throw raw.error;
   const composicoes = (raw.data ?? []) as ComposicaoView[];
+
+  const baseOptions = bases.map((b) => ({
+    orgao: b.orgao,
+    label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
+  }));
 
   return (
     <div className="space-y-6">
@@ -48,9 +79,16 @@ export default async function ComposicoesPage({
         </Link>
       </div>
 
-      <Suspense>
-        <SearchInput placeholder="Buscar por código ou descrição..." />
-      </Suspense>
+      <div className="space-y-2">
+        <Suspense>
+          <SearchInput placeholder="Buscar por código ou descrição..." />
+        </Suspense>
+        {baseOptions.length > 0 && (
+          <Suspense>
+            <BaseFilter bases={baseOptions} />
+          </Suspense>
+        )}
+      </div>
 
       <ComposicoesTable initialComposicoes={composicoes} />
     </div>

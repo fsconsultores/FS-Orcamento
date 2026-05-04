@@ -72,6 +72,11 @@ export default function NovoInsumoPage() {
     setLoading(true);
     try {
       const sb = createClient() as any;
+
+      // Obtém ou cria a base própria do usuário
+      const { data: baseId, error: baseErr } = await sb.rpc('get_or_create_propria_base');
+      if (baseErr) throw baseErr;
+
       const { error: dbError } = await sb.from('tabela_insumos').insert({
         codigo: form.codigo.trim(),
         descricao: form.descricao.trim(),
@@ -80,14 +85,15 @@ export default function NovoInsumoPage() {
         preco_base: preco,
         data_referencia: form.data_referencia || null,
         observacao: form.observacao.trim() || null,
+        base_id: baseId,
       });
       if (dbError) throw dbError;
       router.refresh();
       router.push('/insumos');
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
-      if (msg.includes('tabela_insumos_codigo_key')) {
-        setError('Já existe um insumo com esse código.');
+      if (msg.includes('tabela_insumos_codigo')) {
+        setError('Já existe um insumo com esse código nesta base.');
       } else {
         setError('Erro ao salvar. Tente novamente.');
       }
@@ -105,6 +111,9 @@ export default function NovoInsumoPage() {
           ← Insumos
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-gray-900">Novo insumo</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Será salvo na sua base própria (editável por você).
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">

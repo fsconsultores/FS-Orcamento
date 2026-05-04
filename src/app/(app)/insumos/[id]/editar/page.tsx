@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { baseLabelFromOrgao } from '@/components/base-filter';
 
 const GRUPOS = [
   { value: 'E',  label: 'Equipamento' },
@@ -28,6 +29,7 @@ export default function EditarInsumoPage() {
   const [grupoOpen, setGrupoOpen] = useState(false);
   const [grupos, setGrupos] = useState<string[]>([]);
   const grupoRef = useRef<HTMLDivElement>(null);
+  const [baseInfo, setBaseInfo] = useState<{ orgao: string; tipo_base: string } | null>(null);
   const [form, setForm] = useState({
     codigo: '',
     descricao: '',
@@ -40,7 +42,11 @@ export default function EditarInsumoPage() {
   useEffect(() => {
     async function load() {
       const sb = createClient() as any;
-      const res = await sb.from('tabela_insumos').select('*').eq('id', id).single();
+      const res = await sb
+        .from('tabela_insumos')
+        .select('*, tabela_bases(orgao, tipo_base)')
+        .eq('id', id)
+        .single();
       if (res.error || !res.data) {
         setError('Insumo não encontrado.');
         setFetching(false);
@@ -56,6 +62,7 @@ export default function EditarInsumoPage() {
         observacao: d.observacao ?? '',
       });
       setGrupos(d.grupo ? d.grupo.split(',') : []);
+      setBaseInfo(d.tabela_bases ?? null);
       setFetching(false);
     }
     load();
@@ -99,20 +106,19 @@ export default function EditarInsumoPage() {
         data_referencia: form.data_referencia || null,
         observacao: form.observacao.trim() || null,
       };
-      console.log('[insumos/editar] update', { id, payload });
       const { data: updated, error: dbError } = await sb
         .from('tabela_insumos')
         .update(payload)
         .eq('id', id)
         .select('id');
-      if (dbError) { console.error('[insumos/editar] error', dbError); throw dbError; }
-      if (!updated?.length) throw new Error('RLS bloqueou o update — aplique a migration de políticas.');
+      if (dbError) throw dbError;
+      if (!updated?.length) throw new Error('RLS bloqueou o update.');
       router.refresh();
       router.push('/insumos');
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
-      setError(msg.includes('tabela_insumos_codigo_key')
-        ? 'Já existe um insumo com esse código.'
+      setError(msg.includes('tabela_insumos_codigo')
+        ? 'Já existe um insumo com esse código nesta base.'
         : 'Erro ao salvar. Tente novamente.');
       setLoading(false);
     }
@@ -138,56 +144,82 @@ export default function EditarInsumoPage() {
 
   if (fetching) return <div className="py-20 text-center text-sm text-gray-400">Carregando...</div>;
 
+  const isExterna = baseInfo?.tipo_base === 'externa';
   const grupoLabel = grupos.length === 0 ? 'Selecione...' : grupos.join(', ');
+  const inputClass = (disabled: boolean) =>
+    `w-full rounded-md border px-3 py-2 text-sm outline-none ${
+      disabled
+        ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
+        : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+    }`;
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-start justify-between">
         <div>
           <Link href="/insumos" className="text-sm text-blue-600 hover:underline">← Insumos</Link>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900">Editar insumo</h1>
+          <h1 className="mt-2 text-2xl font-bold text-gray-900">
+            {isExterna ? 'Visualizar insumo' : 'Editar insumo'}
+          </h1>
+          {baseInfo && (
+            <p className="mt-1 text-xs text-gray-500">
+              Base: <span className="font-medium">{baseLabelFromOrgao(baseInfo.orgao)}</span>
+              {isExterna && ' · somente leitura'}
+            </p>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={loading}
-          className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-        >
-          Excluir
-        </button>
+        {!isExterna && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={loading}
+            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            Excluir
+          </button>
+        )}
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {isExterna && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Este insumo pertence à base externa <strong>{baseInfo?.orgao}</strong> e não pode ser editado.
+          Para criar uma versão personalizada, use <Link href="/insumos/novo" className="underline">Novo insumo</Link>.
+        </div>
+      )}
+
+      <form onSubmit={isExterna ? (e) => e.preventDefault() : handleSubmit} className="space-y-5">
         <div className="rounded-xl border bg-white p-5 shadow-sm space-y-4">
           <h2 className="font-semibold text-gray-900">Identificação</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Código *</label>
+              <label className="text-sm font-medium text-gray-700">Código</label>
               <input
-                required
+                required={!isExterna}
                 value={form.codigo}
                 onChange={(e) => update('codigo', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                disabled={isExterna}
+                className={inputClass(isExterna)}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Unidade *</label>
+              <label className="text-sm font-medium text-gray-700">Unidade</label>
               <input
-                required
+                required={!isExterna}
                 value={form.unidade}
                 onChange={(e) => update('unidade', e.target.value)}
-                placeholder="kg, m², un, h"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                disabled={isExterna}
+                className={inputClass(isExterna)}
               />
             </div>
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Descrição *</label>
+            <label className="text-sm font-medium text-gray-700">Descrição</label>
             <input
-              required
+              required={!isExterna}
               value={form.descricao}
               onChange={(e) => update('descricao', e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              disabled={isExterna}
+              className={inputClass(isExterna)}
             />
           </div>
           <div className="space-y-1" ref={grupoRef}>
@@ -195,15 +227,22 @@ export default function EditarInsumoPage() {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setGrupoOpen(o => !o)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-left outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 flex items-center justify-between bg-white"
+                disabled={isExterna}
+                onClick={() => !isExterna && setGrupoOpen(o => !o)}
+                className={`w-full rounded-md border px-3 py-2 text-sm text-left flex items-center justify-between ${
+                  isExterna
+                    ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
+                    : 'border-gray-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-white'
+                }`}
               >
                 <span className={grupos.length === 0 ? 'text-gray-400' : 'text-gray-900'}>{grupoLabel}</span>
-                <svg className={`h-4 w-4 text-gray-400 transition-transform ${grupoOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                {!isExterna && (
+                  <svg className={`h-4 w-4 text-gray-400 transition-transform ${grupoOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                )}
               </button>
-              {grupoOpen && (
+              {grupoOpen && !isExterna && (
                 <div className="absolute z-10 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg py-1">
                   {GRUPOS.map((g) => (
                     <label key={g.value} className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer select-none">
@@ -227,16 +266,17 @@ export default function EditarInsumoPage() {
           <h2 className="font-semibold text-gray-900">Custo e referência</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Custo (R$) *</label>
+              <label className="text-sm font-medium text-gray-700">Custo (R$)</label>
               <input
-                required
+                required={!isExterna}
                 type="number"
                 min="0"
                 step="0.0001"
                 placeholder="0,0000"
                 value={form.preco_base}
                 onChange={(e) => update('preco_base', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                disabled={isExterna}
+                className={inputClass(isExterna)}
               />
             </div>
             <div className="space-y-1">
@@ -245,7 +285,8 @@ export default function EditarInsumoPage() {
                 type="date"
                 value={form.data_referencia}
                 onChange={(e) => update('data_referencia', e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                disabled={isExterna}
+                className={inputClass(isExterna)}
               />
             </div>
           </div>
@@ -255,8 +296,9 @@ export default function EditarInsumoPage() {
               rows={2}
               value={form.observacao}
               onChange={(e) => update('observacao', e.target.value)}
+              disabled={isExterna}
               placeholder="Informações adicionais"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none"
+              className={`${inputClass(isExterna)} resize-none`}
             />
           </div>
         </div>
@@ -264,15 +306,17 @@ export default function EditarInsumoPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex gap-3">
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Salvando...' : 'Salvar alterações'}
-          </button>
+          {!isExterna && (
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+          )}
           <Link href="/insumos" className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            Cancelar
+            {isExterna ? 'Voltar' : 'Cancelar'}
           </Link>
         </div>
       </form>

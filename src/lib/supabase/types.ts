@@ -9,6 +9,33 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      tabela_bases: {
+        Row: {
+          id: string
+          nome: string
+          orgao: string
+          tipo_base: 'externa' | 'propria'
+          user_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string | undefined
+          nome: string
+          orgao: string
+          tipo_base: 'externa' | 'propria'
+          user_id?: string | null | undefined
+          created_at?: string | undefined
+        }
+        Update: {
+          id?: string | undefined
+          nome?: string | undefined
+          orgao?: string | undefined
+          tipo_base?: 'externa' | 'propria' | undefined
+          user_id?: string | null | undefined
+          created_at?: string | undefined
+        }
+        Relationships: []
+      }
       tabela_insumos: {
         Row: {
           id: string
@@ -20,6 +47,7 @@ export type Database = {
           data_referencia: string | null
           grupo: string | null
           observacao: string | null
+          base_id: string | null
           created_at: string
         }
         Insert: {
@@ -32,6 +60,7 @@ export type Database = {
           data_referencia?: string | null | undefined
           grupo?: string | null | undefined
           observacao?: string | null | undefined
+          base_id?: string | null | undefined
           created_at?: string | undefined
         }
         Update: {
@@ -44,6 +73,7 @@ export type Database = {
           data_referencia?: string | null | undefined
           grupo?: string | null | undefined
           observacao?: string | null | undefined
+          base_id?: string | null | undefined
           created_at?: string | undefined
         }
         Relationships: []
@@ -54,6 +84,7 @@ export type Database = {
           codigo: string
           descricao: string
           unidade: string
+          base_id: string | null
           created_at: string
         }
         Insert: {
@@ -61,6 +92,7 @@ export type Database = {
           codigo: string
           descricao: string
           unidade: string
+          base_id?: string | null | undefined
           created_at?: string | undefined
         }
         Update: {
@@ -68,6 +100,7 @@ export type Database = {
           codigo?: string | undefined
           descricao?: string | undefined
           unidade?: string | undefined
+          base_id?: string | null | undefined
           created_at?: string | undefined
         }
         Relationships: []
@@ -218,6 +251,9 @@ export type Database = {
           codigo: string | null
           descricao: string | null
           unidade: string | null
+          base_id: string | null
+          orgao: string | null
+          tipo_base: string | null
           custo_unitario: number | null
         }
         Relationships: []
@@ -231,7 +267,10 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      get_or_create_propria_base: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
@@ -242,13 +281,24 @@ export type Database = {
   }
 }
 
+export type Base = Database['public']['Tables']['tabela_bases']['Row']
 export type Insumo = Database['public']['Tables']['tabela_insumos']['Row']
 export type Composicao = Database['public']['Tables']['tabela_composicoes']['Row']
 export type ItemComposicao = Database['public']['Tables']['tabela_itens_composicao']['Row']
 export type Orcamento = Database['public']['Tables']['tabela_orcamentos']['Row']
 export type ItemOrcamento = Database['public']['Tables']['tabela_itens_orcamento']['Row']
 
+export type InsumoComBase = Insumo & {
+  tabela_bases: { orgao: string; tipo_base: string } | null
+}
+
 export type ComposicaoComCusto = Composicao & { custo_unitario: number }
+
+export type ComposicaoComBase = Composicao & {
+  custo_unitario: number
+  orgao: string | null
+  tipo_base: string | null
+}
 
 export type ItemOrcamentoComDetalhe = ItemOrcamento & {
   composicao: ComposicaoComCusto
