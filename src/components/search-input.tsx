@@ -22,7 +22,7 @@ export function SearchInput({ placeholder = 'Buscar...' }: Props) {
       params.delete('q');
     }
     startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}`);
+      router.replace(`${pathname}?${params.toString()}` as any);
     });
   }
 
