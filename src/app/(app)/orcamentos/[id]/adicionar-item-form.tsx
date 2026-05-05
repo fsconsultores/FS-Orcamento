@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { baseLabelFromOrgao } from '@/components/base-filter';
+import { baseLabelFromOrgao } from '@/components/base-labels';
 
 type Composicao = {
   id: string;

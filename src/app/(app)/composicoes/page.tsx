@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
-import { BaseFilter, baseLabelFromOrgao } from '@/components/base-filter';
+import { BaseFilter } from '@/components/base-filter';
+import {  baseLabelFromOrgao } from '@/components/base-labels';
 import { ComposicoesTable } from './composicoes-table';
 
 type ComposicaoView = {

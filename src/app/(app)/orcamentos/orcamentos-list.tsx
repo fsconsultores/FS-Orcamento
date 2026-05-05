@@ -10,6 +10,7 @@ type OrcRow = {
   bdi_global: number;
   codigo: string;
   tabela_itens_orcamento: { id: string }[];
+  ultimo_acesso: string | null;
 };
 
 interface Props {
@@ -39,7 +40,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
             <th className="px-4 py-3">Cliente</th>
             <th className="px-4 py-3 text-center">BDI</th>
             <th className="px-4 py-3 text-center">Itens</th>
-            <th className="px-4 py-3">Data de Inclusão</th>
+            <th className="px-4 py-3">Último Acesso</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -72,7 +73,9 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
               </td>
               <td className="px-4 py-3 text-gray-500">
                 <Link href={`/orcamentos/${orc.id}`} className="block w-full h-full">
-                  {new Date(orc.data).toLocaleDateString('pt-BR')}
+                  {orc.ultimo_acesso
+                    ? new Date(orc.ultimo_acesso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+                    : '—'}
                 </Link>
               </td>
             </tr>

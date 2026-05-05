@@ -41,6 +41,8 @@ export default async function OrcamentoDetailPage({
 
   if (rawOrc?.error || !rawOrc?.data) notFound();
 
+  await sb.from('tabela_orcamentos').update({ ultimo_acesso: new Date().toISOString() }).eq('id', id);
+
   const orcamento = rawOrc.data as Orcamento;
   const itens = (rawItens?.data ?? []) as ItemOrc[];
   const custosMap = Object.fromEntries(

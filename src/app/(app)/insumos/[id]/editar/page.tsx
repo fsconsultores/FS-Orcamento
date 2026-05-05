@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { baseLabelFromOrgao } from '@/components/base-filter';
+import { baseLabelFromOrgao } from '@/components/base-labels';
 
 const GRUPOS = [
   { value: 'E',  label: 'Equipamento' },

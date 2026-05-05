@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/costs';
-import { baseLabelFromOrgao } from '@/components/base-filter';
+import { baseLabelFromOrgao } from '@/components/base-labels';
 
 type InsumoRow = { id: string; codigo: string; descricao: string; unidade: string; preco_base: number };
 type ItemForm = { insumo_id: string; indice: string };
