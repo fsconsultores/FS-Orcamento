@@ -13,6 +13,7 @@ type ComposicaoRow = {
   orgao: string | null;
   tipo_base: string | null;
   custo_unitario: number;
+  base_origem: string | null;
 };
 
 export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: ComposicaoRow[] }) {
@@ -49,9 +50,13 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
                   {c.unidade}
                 </Link>
               </td>
-              <td className="px-3 py-1.5 w-24">
+              <td className="px-3 py-1.5 w-32">
                 <Link href={`/composicoes/${c.id}`} className="block w-full h-full">
-                  {c.orgao ? (
+                  {c.base_origem && c.tipo_base === 'propria' ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
+                      {c.base_origem}
+                    </span>
+                  ) : c.orgao ? (
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(c.tipo_base)}`}
                     >

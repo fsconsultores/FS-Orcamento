@@ -85,11 +85,18 @@ export default  async function DashboardPage({searchParams,
           </Link>
         </div>
       </div>
+        <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">Acessados recentemente</h2>
+          <Link href="/orcamentos" className="text-sm text-blue-600 hover:underline">
+            Ver todos →
+          </Link>
+        </div>
         <Suspense>
-                <SearchInput placeholder="Buscar por obra ou cliente..." />
-              </Suspense>
-        
-              <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} />
+          <SearchInput placeholder="Buscar por obra ou cliente..." />
+        </Suspense>
+        <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} />
+      </div>
       
     </div>
   );

@@ -6,8 +6,8 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/costs';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+import { InsumoAutocomplete, InsumoRow } from '@/components/insumo-autocomplete';
 
-type InsumoRow = { id: string; codigo: string; descricao: string; unidade: string; preco_base: number };
 type ItemForm = { insumo_id: string; indice: string };
 
 export default function EditarComposicaoPage() {
@@ -16,7 +16,7 @@ export default function EditarComposicaoPage() {
   const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [insumos, setInsumos] = useState<InsumoRow[]>([]);
+  const [insumoPrecos, setInsumoPrecos] = useState<Record<string, number>>({});
   const [baseInfo, setBaseInfo] = useState<{ orgao: string; tipo_base: string } | null>(null);
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '' });
   const [itens, setItens] = useState<ItemForm[]>([{ insumo_id: '', indice: '' }]);
@@ -24,29 +24,43 @@ export default function EditarComposicaoPage() {
   useEffect(() => {
     async function load() {
       const sb = createClient() as any;
-      const [compRes, insRes] = await Promise.all([
-        sb
-          .from('tabela_composicoes')
-          .select(`*, tabela_bases(orgao, tipo_base), tabela_itens_composicao(insumo_id, indice)`)
-          .eq('id', id)
-          .single(),
-        sb.from('tabela_insumos').select('id, codigo, descricao, unidade, preco_base').order('codigo'),
-      ]);
+      const compRes = await sb
+        .from('tabela_composicoes')
+        .select(`*, tabela_bases(orgao, tipo_base), tabela_itens_composicao(insumo_id, indice)`)
+        .eq('id', id)
+        .single();
+
       if (compRes.error || !compRes.data) {
         setError('Composição não encontrada.');
         setFetching(false);
         return;
       }
+
       const comp = compRes.data;
       setForm({ codigo: comp.codigo, descricao: comp.descricao, unidade: comp.unidade });
       setBaseInfo(comp.tabela_bases ?? null);
+
       const existingItens = (comp.tabela_itens_composicao ?? []) as { insumo_id: string; indice: number }[];
       setItens(
         existingItens.length > 0
           ? existingItens.map(i => ({ insumo_id: i.insumo_id, indice: String(i.indice) }))
           : [{ insumo_id: '', indice: '' }]
       );
-      setInsumos(insRes.data ?? []);
+
+      // Fetch preco_base only for insumos already in this composition
+      const insumoIds = existingItens.map(i => i.insumo_id).filter(Boolean);
+      if (insumoIds.length > 0) {
+        const { data: insData } = await sb
+          .from('tabela_insumos')
+          .select('id, preco_base')
+          .in('id', insumoIds);
+        const precos: Record<string, number> = {};
+        (insData ?? []).forEach((ins: { id: string; preco_base: number }) => {
+          precos[ins.id] = ins.preco_base;
+        });
+        setInsumoPrecos(precos);
+      }
+
       setFetching(false);
     }
     load();
@@ -56,8 +70,15 @@ export default function EditarComposicaoPage() {
     setForm(prev => ({ ...prev, [field]: value }));
   }
 
-  function updateItem(index: number, field: keyof ItemForm, value: string) {
-    setItens(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  function updateIndice(index: number, value: string) {
+    setItens(prev => prev.map((item, i) => i === index ? { ...item, indice: value } : item));
+  }
+
+  function selectInsumo(index: number, insumoId: string, row: InsumoRow | null) {
+    setItens(prev => prev.map((item, i) => i === index ? { ...item, insumo_id: insumoId } : item));
+    if (insumoId && row) {
+      setInsumoPrecos(prev => ({ ...prev, [insumoId]: row.preco_base }));
+    }
   }
 
   function addItem() {
@@ -69,10 +90,10 @@ export default function EditarComposicaoPage() {
   }
 
   const custoPreview = itens.reduce((sum, item) => {
-    const ins = insumos.find(i => i.id === item.insumo_id);
+    const preco = insumoPrecos[item.insumo_id];
     const idx = parseFloat(item.indice);
-    if (!ins || isNaN(idx) || idx <= 0) return sum;
-    return sum + ins.preco_base * idx;
+    if (!preco || isNaN(idx) || idx <= 0) return sum;
+    return sum + preco * idx;
   }, 0);
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
@@ -107,7 +128,7 @@ export default function EditarComposicaoPage() {
       if (delErr) throw delErr;
 
       const { error: insErr } = await sb.from('tabela_itens_composicao').insert(
-        itensValidos.map((item: { insumo_id: string; indice: string }) => ({
+        itensValidos.map((item: ItemForm) => ({
           composicao_id: id,
           insumo_id: item.insumo_id,
           indice: parseFloat(item.indice),
@@ -252,19 +273,11 @@ export default function EditarComposicaoPage() {
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   {index === 0 && <label className="text-xs font-medium text-gray-600">Insumo</label>}
-                  <select
+                  <InsumoAutocomplete
                     value={item.insumo_id}
-                    onChange={(e) => updateItem(index, 'insumo_id', e.target.value)}
+                    onChange={(id, row) => selectInsumo(index, id, row)}
                     disabled={isExterna}
-                    className={inputClass(isExterna)}
-                  >
-                    <option value="">Selecione...</option>
-                    {insumos.map((ins) => (
-                      <option key={ins.id} value={ins.id}>
-                        {ins.codigo} — {ins.descricao} ({ins.unidade})
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div className="w-28 space-y-1">
                   {index === 0 && <label className="text-xs font-medium text-gray-600">Índice</label>}
@@ -274,7 +287,7 @@ export default function EditarComposicaoPage() {
                     step="any"
                     placeholder="0.0000"
                     value={item.indice}
-                    onChange={(e) => updateItem(index, 'indice', e.target.value)}
+                    onChange={(e) => updateIndice(index, e.target.value)}
                     disabled={isExterna}
                     className={inputClass(isExterna)}
                   />

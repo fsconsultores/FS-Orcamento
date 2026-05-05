@@ -4,6 +4,7 @@ import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { logAction } from '@/lib/log';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
@@ -55,6 +56,13 @@ export default function NovoOrcamentoPage() {
         .single();
 
       if (dbError) throw dbError;
+
+      await logAction(supabase, {
+        usuario: user.email ?? '',
+        tipo: 'sucesso',
+        acao: 'criar_orcamento',
+        mensagem: `Orçamento "${form.nome_obra.trim()}" criado com sucesso`,
+      });
 
       router.push(`/orcamentos/${data.id}`);
     } catch {

@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/orcamentos', label: 'Orçamentos' },
   { href: '/composicoes', label: 'Composições' },
   { href: '/insumos', label: 'Insumos' },
+  { href: '/logs', label: 'Logs do Sistema' },
 ];
 
 export function Nav({ userEmail }: { userEmail: string }) {

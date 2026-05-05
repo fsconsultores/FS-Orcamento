@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
-import { BaseFilter } from '@/components/base-filter';
+import { BaseFilter, BaseOrigemFilter } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
 import type { InsumoComBase } from '@/lib/supabase/types';
@@ -13,9 +13,9 @@ import type { InsumoComBase } from '@/lib/supabase/types';
 export default async function InsumosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; orgao?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string; origem?: string }>;
 }) {
-  const { q, orgao } = await searchParams;
+  const { q, orgao, origem } = await searchParams;
   const supabase = await createClient();
   const sb = supabase as any;
 
@@ -37,7 +37,7 @@ export default async function InsumosPage({
 
   let query = sb
     .from('tabela_insumos')
-    .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, tabela_bases(orgao, tipo_base)')
+    .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
     .order('codigo');
 
   if (q) {
@@ -48,6 +48,10 @@ export default async function InsumosPage({
     query = query.is('base_id', null);
   } else if (baseIdFiltro) {
     query = query.eq('base_id', baseIdFiltro);
+  }
+
+  if (origem) {
+    query = query.eq('base_origem', origem);
   }
 
   const { data: insumos, error } = await query;
@@ -90,6 +94,9 @@ export default async function InsumosPage({
             <BaseFilter bases={baseOptions} />
           </Suspense>
         )}
+        <Suspense>
+          <BaseOrigemFilter />
+        </Suspense>
       </div>
 
       <InsumosTable initialInsumos={(insumos ?? []) as InsumoComBase[]} />

@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
-import { BaseFilter } from '@/components/base-filter';
-import {  baseLabelFromOrgao } from '@/components/base-labels';
+import { BaseFilter, BaseOrigemFilter } from '@/components/base-filter';
+import { baseLabelFromOrgao } from '@/components/base-labels';
 import { ComposicoesTable } from './composicoes-table';
 
 type ComposicaoView = {
@@ -15,14 +15,15 @@ type ComposicaoView = {
   orgao: string | null;
   tipo_base: string | null;
   custo_unitario: number;
+  base_origem: string | null;
 };
 
 export default async function ComposicoesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; orgao?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string; origem?: string }>;
 }) {
-  const { q, orgao } = await searchParams;
+  const { q, orgao, origem } = await searchParams;
   const supabase = await createClient();
   const sb = supabase as any;
 
@@ -43,7 +44,7 @@ export default async function ComposicoesPage({
 
   let query = sb
     .from('vw_custo_composicao')
-    .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario')
+    .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem')
     .order('codigo');
 
   if (q) {
@@ -54,6 +55,10 @@ export default async function ComposicoesPage({
     query = query.is('base_id', null);
   } else if (baseIdFiltro) {
     query = query.eq('base_id', baseIdFiltro);
+  }
+
+  if (origem) {
+    query = query.eq('base_origem', origem);
   }
 
   const raw = await query;
@@ -72,12 +77,20 @@ export default async function ComposicoesPage({
           <h1 className="text-2xl font-bold text-gray-900">Composições</h1>
           <p className="mt-1 text-sm text-gray-500">Biblioteca de serviços</p>
         </div>
-        <Link
-          href="/composicoes/nova"
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Nova composição
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/composicoes/importar"
+            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Importar CSV
+          </Link>
+          <Link
+            href="/composicoes/nova"
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Nova composição
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -89,6 +102,9 @@ export default async function ComposicoesPage({
             <BaseFilter bases={baseOptions} />
           </Suspense>
         )}
+        <Suspense>
+          <BaseOrigemFilter />
+        </Suspense>
       </div>
 
       <ComposicoesTable initialComposicoes={composicoes} />

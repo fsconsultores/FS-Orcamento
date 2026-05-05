@@ -61,9 +61,13 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
                     {formatCurrency(ins.preco_base)}
                   </Link>
                 </td>
-                <td className="px-3 py-1.5 w-24">
+                <td className="px-3 py-1.5 w-32">
                   <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full">
-                    {ins.tabela_bases ? (
+                    {ins.base_origem && ins.tabela_bases?.tipo_base === 'propria' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
+                        {ins.base_origem}
+                      </span>
+                    ) : ins.tabela_bases ? (
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(ins.tabela_bases.tipo_base)}`}
                       >

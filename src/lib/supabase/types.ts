@@ -290,6 +290,7 @@ export type ItemOrcamento = Database['public']['Tables']['tabela_itens_orcamento
 
 export type InsumoComBase = Insumo & {
   tabela_bases: { orgao: string; tipo_base: string } | null
+  base_origem: string | null
 }
 
 export type ComposicaoComCusto = Composicao & { custo_unitario: number }

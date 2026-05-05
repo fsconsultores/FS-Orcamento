@@ -4,30 +4,16 @@ import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { InsumoAutocomplete } from '@/components/insumo-autocomplete';
 
-type InsumoRow = { id: string; codigo: string; descricao: string; unidade: string; preco_base: number };
 type ItemForm = { insumo_id: string; indice: string };
 
 export default function NovaComposicaoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [insumos, setInsumos] = useState<InsumoRow[]>([]);
-  const [buscandoInsumos, setBuscandoInsumos] = useState(false);
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '' });
   const [itens, setItens] = useState<ItemForm[]>([{ insumo_id: '', indice: '' }]);
-
-  async function loadInsumos() {
-    if (insumos.length > 0) return;
-    setBuscandoInsumos(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('tabela_insumos')
-      .select('id, codigo, descricao, unidade, preco_base')
-      .order('codigo');
-    setInsumos(data ?? []);
-    setBuscandoInsumos(false);
-  }
 
   function updateForm(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -147,7 +133,7 @@ export default function NovaComposicaoPage() {
             <h2 className="font-semibold text-gray-900">Insumos</h2>
             <button
               type="button"
-              onClick={() => { loadInsumos(); addItem(); }}
+              onClick={addItem}
               className="text-sm text-blue-600 hover:underline"
             >
               + Adicionar linha
@@ -159,19 +145,10 @@ export default function NovaComposicaoPage() {
               <div key={index} className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
                   {index === 0 && <label className="text-xs font-medium text-gray-600">Insumo</label>}
-                  <select
+                  <InsumoAutocomplete
                     value={item.insumo_id}
-                    onChange={(e) => updateItem(index, 'insumo_id', e.target.value)}
-                    onFocus={loadInsumos}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">{buscandoInsumos ? 'Carregando...' : 'Selecione...'}</option>
-                    {insumos.map((ins) => (
-                      <option key={ins.id} value={ins.id}>
-                        {ins.codigo} — {ins.descricao} ({ins.unidade})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(id) => updateItem(index, 'insumo_id', id)}
+                  />
                 </div>
                 <div className="w-28 space-y-1">
                   {index === 0 && <label className="text-xs font-medium text-gray-600">Índice</label>}

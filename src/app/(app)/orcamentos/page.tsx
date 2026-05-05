@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { OrcamentosGrid } from './orcamentos-list';
+import { Timestamp } from 'next/dist/server/lib/cache-handlers/types';
 
 type OrcRow = {
   id: string;
@@ -11,6 +12,7 @@ type OrcRow = {
   data: string;
   bdi_global: number;
   codigo: string;
+  ultimo_acesso: string | null;
   tabela_itens_orcamento: { id: string }[];
 };
 
@@ -24,7 +26,7 @@ export default async function OrcamentosPage({
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo')
+    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso')
     .order('created_at', { ascending: false });
 
   if (q) {

@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { BASES_ORIGEM, type BaseOrigem } from '@/components/base-filter';
 
 type RowParsed = {
   linha: number;
@@ -88,18 +89,24 @@ export default function ImportarInsumosPage() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState<{ ok: number; erros: number } | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [baseOrigem, setBaseOrigem] = useState<BaseOrigem>('PROPRIA');
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
+      const buffer = ev.target?.result as ArrayBuffer;
+      // Tenta UTF-8; se houver caractere de substituição (arquivo Windows-1252), redecodifica
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+      const text = utf8.includes('�')
+        ? new TextDecoder('windows-1252').decode(buffer)
+        : utf8;
       setRows(parseCsv(text));
       setResultado(null);
       setGlobalError(null);
     };
-    reader.readAsText(file, 'UTF-8');
+    reader.readAsArrayBuffer(file);
   }
 
   const validas = rows.filter((r) => !r.erro);
@@ -130,6 +137,7 @@ export default function ImportarInsumosPage() {
           data_referencia: r.data_referencia,
           observacao: r.observacao,
           base_id: baseId,
+          base_origem: baseOrigem,
         }));
 
         const { error: insErr, data } = await sb
@@ -184,6 +192,28 @@ export default function ImportarInsumosPage() {
           <li><strong>data_referencia</strong> — opcional, formato dd/mm/aaaa ou aaaa-mm-dd</li>
           <li><strong>observacao</strong> — opcional</li>
         </ul>
+      </div>
+
+      {/* Base de origem */}
+      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
+        <h2 className="font-semibold text-gray-900">Base de origem <span className="text-red-500">*</span></h2>
+        <div className="flex flex-wrap gap-2">
+          {BASES_ORIGEM.map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => setBaseOrigem(b)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                baseOrigem === b
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+              }`}
+            >
+              {b}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400">Origem declarada dos dados — salva em cada registro para filtragem e rastreabilidade.</p>
       </div>
 
       {/* Upload */}

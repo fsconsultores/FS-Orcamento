@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+import { logAction } from '@/lib/log';
 
 type Composicao = {
   id: string;
@@ -92,6 +93,7 @@ export function AdicionarItemForm({
     setLoading(true);
     try {
       const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
       const { error: dbError } = await supabase.from('tabela_itens_orcamento').insert({
         orcamento_id: orcamentoId,
         composicao_id: selectedComp.id,
@@ -99,13 +101,19 @@ export function AdicionarItemForm({
         bdi_especifico: bdiEsp,
       });
       if (dbError) throw dbError;
+      await logAction(supabase, {
+        usuario: user?.email ?? '',
+        tipo: 'sucesso',
+        acao: 'adicionar_item',
+        mensagem: `Item "${selectedComp.descricao}" adicionado ao orçamento`,
+      });
       setBusca('');
       setSelectedComp(null);
       setQuantidade('');
       setBdiEspecifico('');
       router.refresh();
     } catch {
-      setError('Erro ao adicionar item.');
+      setError('Erro ao adicionar item. Tente novamente.');
     } finally {
       setLoading(false);
     }
