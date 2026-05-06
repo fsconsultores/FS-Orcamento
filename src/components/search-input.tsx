@@ -1,29 +1,41 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useTransition } from 'react';
+import { useTransition, useRef } from 'react';
 
 interface Props {
   placeholder?: string;
+  param?: string;
+  debounce?: number;
 }
 
-export function SearchInput({ placeholder = 'Buscar...' }: Props) {
+export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce = 0 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function navigate(value: string) {
     const params = new URLSearchParams(searchParams.toString());
-    const value = e.target.value.trim();
     if (value) {
-      params.set('q', value);
+      params.set(param, value);
     } else {
-      params.delete('q');
+      params.delete(param);
     }
     startTransition(() => {
       router.replace(`${pathname}?${params.toString()}` as any);
     });
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value.trim();
+    if (debounce > 0) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => navigate(value), debounce);
+    } else {
+      navigate(value);
+    }
   }
 
   return (
@@ -38,7 +50,7 @@ export function SearchInput({ placeholder = 'Buscar...' }: Props) {
       </svg>
       <input
         type="search"
-        defaultValue={searchParams.get('q') ?? ''}
+        defaultValue={searchParams.get(param) ?? ''}
         onChange={handleChange}
         placeholder={placeholder}
         className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"

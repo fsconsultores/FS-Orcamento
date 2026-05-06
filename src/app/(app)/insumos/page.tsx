@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
-import { BaseFilter, BaseOrigemFilter } from '@/components/base-filter';
+import { BaseFilter } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
 import type { InsumoComBase } from '@/lib/supabase/types';
@@ -94,9 +94,6 @@ export default async function InsumosPage({
             <BaseFilter bases={baseOptions} />
           </Suspense>
         )}
-        <Suspense>
-          <BaseOrigemFilter />
-        </Suspense>
       </div>
 
       <InsumosTable initialInsumos={(insumos ?? []) as InsumoComBase[]} />

@@ -3,7 +3,6 @@ import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { OrcamentosGrid } from './orcamentos-list';
-import { Timestamp } from 'next/dist/server/lib/cache-handlers/types';
 
 type OrcRow = {
   id: string;
@@ -29,8 +28,9 @@ export default async function OrcamentosPage({
     .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso')
     .order('created_at', { ascending: false });
 
+  // Um único filtro cobre nome_obra, cliente e codigo ao mesmo tempo
   if (q) {
-    orcQuery = orcQuery.or(`nome_obra.ilike.%${q}%,cliente.ilike.%${q}%`);
+    orcQuery = orcQuery.or(`nome_obra.ilike.%${q}%,cliente.ilike.%${q}%,codigo.ilike.%${q}%`);
   }
 
   const [rawOrc, rawTot] = await Promise.all([
@@ -60,7 +60,7 @@ export default async function OrcamentosPage({
       </div>
 
       <Suspense>
-        <SearchInput placeholder="Buscar por obra ou cliente..." />
+        <SearchInput placeholder="Buscar por obra, cliente ou código..." debounce={300} />
       </Suspense>
 
       <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} />

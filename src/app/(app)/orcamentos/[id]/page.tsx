@@ -7,16 +7,20 @@ import { RemoverItemButton } from './remover-item-button';
 import { EditarItemButton } from './editar-item-button';
 import type { Orcamento } from '@/lib/supabase/types';
 
-type ItemOrc = { id: string; quantidade: number; bdi_especifico: number | null; composicao_id: string };
+type ItemOrc = {
+  id: string;
+  quantidade: number;
+  bdi_especifico: number | null;
+  composicao_id: string | null;
+  orcamento_composicao_id: string | null;
+};
 type CustoComp = {
   id: string;
   codigo: string;
   descricao: string;
   unidade: string;
   custo_unitario: number;
-  base_id: string | null;
   orgao: string | null;
-  tipo_base: string | null;
 };
 
 export default async function OrcamentoDetailPage({
@@ -28,15 +32,13 @@ export default async function OrcamentoDetailPage({
   const supabase = await createClient();
   const sb = supabase as any;
 
-  const [rawOrc, rawItens, rawCustos] = await Promise.all([
+  // Busca orçamento e itens em paralelo
+  const [rawOrc, rawItens] = await Promise.all([
     sb.from('tabela_orcamentos').select('id, nome_obra, cliente, data, bdi_global, codigo').eq('id', id).single(),
     sb.from('tabela_itens_orcamento')
-      .select('id, quantidade, bdi_especifico, composicao_id')
+      .select('id, quantidade, bdi_especifico, composicao_id, orcamento_composicao_id')
       .eq('orcamento_id', id)
       .order('created_at'),
-    sb.from('vw_custo_composicao')
-      .select('id, codigo, descricao, unidade, custo_unitario, base_id, orgao, tipo_base')
-      .order('codigo'),
   ]);
 
   if (rawOrc?.error || !rawOrc?.data) notFound();
@@ -45,15 +47,47 @@ export default async function OrcamentoDetailPage({
 
   const orcamento = rawOrc.data as Orcamento;
   const itens = (rawItens?.data ?? []) as ItemOrc[];
-  const custosMap = Object.fromEntries(
-    ((rawCustos?.data ?? []) as CustoComp[]).map((c) => [c.id, c])
-  );
+
+  // IDs por tipo de composição
+  const sharedIds  = [...new Set(itens.map(i => i.composicao_id).filter(Boolean))] as string[];
+  const proprioIds = [...new Set(itens.map(i => i.orcamento_composicao_id).filter(Boolean))] as string[];
+
+  // Busca custos de composições da biblioteca e próprias do orçamento em paralelo
+  const [rawShared, rawProprias] = await Promise.all([
+    sharedIds.length > 0
+      ? sb.from('vw_custo_composicao').select('id, codigo, descricao, unidade, custo_unitario, orgao').in('id', sharedIds)
+      : { data: [] },
+    proprioIds.length > 0
+      ? sb.from('orcamento_composicoes').select('id, codigo, descricao, unidade, base').in('id', proprioIds)
+      : { data: [] },
+  ]);
+
+  // Calcula custo das composições próprias a partir dos insumos vinculados
+  let proprCustoMap: Record<string, number> = {};
+  if (proprioIds.length > 0) {
+    const { data: insData } = await sb
+      .from('orcamento_insumos')
+      .select('composicao_id, custo')
+      .in('composicao_id', proprioIds);
+    for (const ins of insData ?? []) {
+      proprCustoMap[ins.composicao_id] = (proprCustoMap[ins.composicao_id] ?? 0) + (ins.custo ?? 0);
+    }
+  }
+
+  const custosMap: Record<string, CustoComp> = {
+    ...Object.fromEntries((rawShared?.data ?? []).map((c: CustoComp) => [c.id, c])),
+    ...Object.fromEntries((rawProprias?.data ?? []).map((c: any) => [c.id, {
+      id: c.id, codigo: c.codigo, descricao: c.descricao, unidade: c.unidade,
+      custo_unitario: proprCustoMap[c.id] ?? 0, orgao: c.base ?? null,
+    } as CustoComp])),
+  };
 
   let totalSemBdi = 0;
   let totalComBdi = 0;
 
   const itensCalculados = itens.map((item) => {
-    const comp = custosMap[item.composicao_id] ?? null;
+    const compId = item.composicao_id ?? item.orcamento_composicao_id ?? '';
+    const comp = custosMap[compId] ?? null;
     const custoUnit = comp?.custo_unitario ?? 0;
     const bdi = item.bdi_especifico ?? orcamento.bdi_global;
     const semBdi = item.quantidade * custoUnit;
@@ -67,10 +101,7 @@ export default async function OrcamentoDetailPage({
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <Link href="/orcamentos" className="text-sm text-blue-600 hover:underline">
-            ← Orçamentos
-          </Link>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900">{orcamento.nome_obra}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{orcamento.nome_obra}</h1>
           <p className="mt-1 text-sm text-gray-500">
             {orcamento.cliente && <span>{orcamento.cliente} · </span>}
             {new Date(orcamento.data).toLocaleDateString('pt-BR')} · BDI global {orcamento.bdi_global}%
@@ -166,7 +197,6 @@ export default async function OrcamentoDetailPage({
       <AdicionarItemForm
         orcamentoId={id}
         bdiGlobal={orcamento.bdi_global}
-        composicoes={(rawCustos?.data ?? []) as CustoComp[]}
       />
     </div>
   );
