@@ -5,6 +5,7 @@ import { SearchInput } from '@/components/search-input';
 import { BaseFilter} from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { ComposicoesTable } from './composicoes-table';
+import { ExportComposicoesButton } from '@/components/export-composicoes-button';
 
 type ComposicaoView = {
   id: string;
@@ -78,12 +79,7 @@ export default async function ComposicoesPage({
           <p className="mt-1 text-sm text-gray-500">Biblioteca de serviços</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/composicoes/importar"
-            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Importar CSV
-          </Link>
+          <ExportComposicoesButton composicoes={composicoes} />
           <Link
             href="/composicoes/nova"
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"

@@ -167,13 +167,7 @@ export default function EditarComposicaoPage() {
 
   if (fetching) return <div className="py-20 text-center text-sm text-gray-400">Carregando...</div>;
 
-  const isExterna = baseInfo?.tipo_base === 'externa';
-  const inputClass = (disabled: boolean) =>
-    `w-full rounded-md border px-3 py-2 text-sm outline-none ${
-      disabled
-        ? 'border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed'
-        : 'border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
-    }`;
+  const inputClass = `w-full rounded-md border px-3 py-2 text-sm outline-none border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20`;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -182,67 +176,53 @@ export default function EditarComposicaoPage() {
           <Link href={`/composicoes/${id}`} className="text-sm text-blue-600 hover:underline">
             ← Composição
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900">
-            {isExterna ? 'Visualizar composição' : 'Editar composição'}
-          </h1>
+          <h1 className="mt-2 text-2xl font-bold text-gray-900">Editar composição</h1>
           {baseInfo && (
             <p className="mt-1 text-xs text-gray-500">
               Base: <span className="font-medium">{baseLabelFromOrgao(baseInfo.orgao)}</span>
-              {isExterna && ' · somente leitura'}
             </p>
           )}
         </div>
-        {!isExterna && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={loading}
-            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
-            Excluir
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={loading}
+          className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+        >
+          Excluir
+        </button>
       </div>
 
-      {isExterna && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Esta composição pertence à base externa <strong>{baseInfo?.orgao}</strong> e não pode ser editada.
-        </div>
-      )}
-
-      <form onSubmit={isExterna ? (e) => e.preventDefault() : handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5">
         <div className="rounded-xl border bg-white p-5 shadow-sm space-y-4">
           <h2 className="font-semibold text-gray-900">Dados gerais</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Código</label>
               <input
-                required={!isExterna}
+                required
                 value={form.codigo}
                 onChange={(e) => updateForm('codigo', e.target.value)}
-                disabled={isExterna}
-                className={inputClass(isExterna)}
+                className={inputClass}
               />
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Unidade</label>
               <input
-                required={!isExterna}
+                required
                 value={form.unidade}
                 onChange={(e) => updateForm('unidade', e.target.value)}
-                disabled={isExterna}
-                className={inputClass(isExterna)}
+                className={inputClass}
               />
             </div>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Descrição</label>
             <input
-              required={!isExterna}
+              required
               value={form.descricao}
               onChange={(e) => updateForm('descricao', e.target.value)}
-              disabled={isExterna}
-              className={inputClass(isExterna)}
+              className={inputClass}
             />
           </div>
         </div>
@@ -256,15 +236,13 @@ export default function EditarComposicaoPage() {
                   Custo: <span className="text-blue-600">{formatCurrency(custoPreview)}</span>
                 </span>
               )}
-              {!isExterna && (
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="text-sm text-blue-600 hover:underline"
-                >
-                  + Adicionar linha
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={addItem}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                + Adicionar linha
+              </button>
             </div>
           </div>
 
@@ -276,7 +254,6 @@ export default function EditarComposicaoPage() {
                   <InsumoAutocomplete
                     value={item.insumo_id}
                     onChange={(id, row) => selectInsumo(index, id, row)}
-                    disabled={isExterna}
                   />
                 </div>
                 <div className="w-28 space-y-1">
@@ -288,11 +265,10 @@ export default function EditarComposicaoPage() {
                     placeholder="0.0000"
                     value={item.indice}
                     onChange={(e) => updateIndice(index, e.target.value)}
-                    disabled={isExterna}
-                    className={inputClass(isExterna)}
+                    className={inputClass}
                   />
                 </div>
-                {itens.length > 1 && !isExterna && (
+                {itens.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeItem(index)}
@@ -309,17 +285,15 @@ export default function EditarComposicaoPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex gap-3">
-          {!isExterna && (
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Salvando...' : 'Salvar alterações'}
-            </button>
-          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Salvando...' : 'Salvar alterações'}
+          </button>
           <Link href={`/composicoes/${id}`} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            {isExterna ? 'Voltar' : 'Cancelar'}
+            Cancelar
           </Link>
         </div>
       </form>

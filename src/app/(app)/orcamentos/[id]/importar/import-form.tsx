@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, Fragment } from 'react'
 import { importarInsumos, importarComposicoes } from './import-action'
 import type { ImportComposicaoRow, ImportInsumoRow, ImportResult } from './import-action'
 
@@ -435,8 +435,8 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {preview.slice(0, 50).map((comp, ci) => (
-                  <>
-                    <tr key={`c-${ci}`} className="bg-blue-50">
+                  <Fragment key={ci}>
+                    <tr className="bg-blue-50">
                       <td className="px-3 py-2 font-semibold text-blue-700">Composição</td>
                       <td className="px-3 py-2 font-mono text-blue-700">{comp.codigo}</td>
                       <td className="px-3 py-2 font-medium text-blue-800">{comp.descricao}</td>
@@ -457,13 +457,13 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
                       </tr>
                     ))}
                     {comp.insumos.length > 5 && (
-                      <tr key={`more-${ci}`}>
+                      <tr>
                         <td colSpan={5} className="px-3 py-1 text-xs text-gray-400 pl-10 italic">
                           ...e mais {comp.insumos.length - 5} insumo(s)
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
                 {preview.length > 50 && (
                   <tr>

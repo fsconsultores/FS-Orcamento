@@ -5,6 +5,7 @@ import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
+import { ExportXlsxButton } from '@/components/export-xlsx-button';
 import type { InsumoComBase } from '@/lib/supabase/types';
 
 
@@ -70,12 +71,21 @@ export default async function InsumosPage({
           <p className="mt-1 text-sm text-gray-500">Biblioteca de materiais e mão de obra</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href={"/insumos/importar" as any}
-            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Importar CSV
-          </Link>
+          <ExportXlsxButton
+            rows={(insumos ?? []).map((ins: InsumoComBase) => ({
+              'Código': ins.codigo,
+              'Descrição': ins.descricao,
+              'Grupo': ins.grupo ?? '',
+              'Unidade': ins.unidade,
+              'Custo': ins.preco_base,
+              'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
+              'Data Ref.': ins.data_referencia
+                ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
+                : '',
+            }))}
+            sheetName="Insumos"
+            fileName="insumos.xlsx"
+          />
           <Link
             href="/insumos/novo"
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"

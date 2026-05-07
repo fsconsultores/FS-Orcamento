@@ -199,6 +199,26 @@ async function importarEmLote(
   }
   const insumosReutilizados = codeToId.size;
 
+  // 3b. Atualizar descricao, unidade e grupo dos insumos já existentes
+  //     (preserva preco_base que o usuário pode ter ajustado)
+  const codigosExistentes = todosCodigosIns.filter((c) => codeToId.has(c));
+  for (let i = 0; i < codigosExistentes.length; i += 100) {
+    const lote = codigosExistentes.slice(i, i + 100).map((codigo) => {
+      const item = insumosPorCodigo.get(codigo)!;
+      return {
+        id: codeToId.get(codigo)!,
+        descricao: item.ins_descricao,
+        unidade: item.ins_unidade,
+        grupo: item.grupo,
+        base_origem: baseOrigem,
+      };
+    });
+    const { error: updErr } = await sbAny
+      .from('tabela_insumos')
+      .upsert(lote, { onConflict: 'id', ignoreDuplicates: false });
+    if (updErr) throw new Error('Erro ao atualizar insumos existentes.');
+  }
+
   // 4. Criar TODOS os insumos ausentes com fonte = 'BASE_PROPRIA'
   //    Após este passo, codeToId terá 100% dos códigos do CSV — sem exceção.
   const codigosAusentes = todosCodigosIns.filter((c) => !codeToId.has(c));

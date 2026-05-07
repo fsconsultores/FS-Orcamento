@@ -7,14 +7,58 @@ export async function getInsumosByOrcamento(
   supabase: SupabaseClient,
   orcamentoId: string
 ): Promise<OrcamentoInsumo[]> {
-  const { data, error } = await supabase
+  // 1. IDs das composições deste orçamento
+  const { data: comps } = await supabase
+    .from('orcamento_composicoes')
+    .select('id')
+    .eq('orcamento_id', orcamentoId)
+  const compIds = ((comps ?? []) as { id: string }[]).map(c => c.id)
+
+  // 2. Todos os insumos vinculados a composições deste orçamento
+  //    Paginado em lotes de 100 para não exceder o limite de URL do PostgREST
+  //    (sem filtro de orcamento_id — captura dados com orcamento_id inconsistente)
+  let porComp: OrcamentoInsumo[] = []
+  for (let i = 0; i < compIds.length; i += 100) {
+    const { data } = await supabase
+      .from(TABLE)
+      .select('*')
+      .in('composicao_id', compIds.slice(i, i + 100))
+      .order('codigo')
+    porComp.push(...((data ?? []) as OrcamentoInsumo[]))
+  }
+
+  // Auto-correção: atualiza orcamento_id incorreto para garantir consistência futura
+  if (porComp.length > 0) {
+    const idsErrados = porComp
+      .filter(ins => ins.orcamento_id !== orcamentoId)
+      .map(ins => ins.id)
+    if (idsErrados.length > 0) {
+      for (let i = 0; i < idsErrados.length; i += 500) {
+        await supabase
+          .from(TABLE)
+          .update({ orcamento_id: orcamentoId })
+          .in('id', idsErrados.slice(i, i + 500))
+      }
+    }
+  }
+
+  // 3. Todos os insumos com orcamento_id correto (inclui avulsos)
+  const { data: todos, error } = await supabase
     .from(TABLE)
     .select('*')
     .eq('orcamento_id', orcamentoId)
     .order('codigo')
-
   if (error) throw new Error(`Erro ao buscar insumos: ${error.message}`)
-  return data as OrcamentoInsumo[]
+
+  // porComp primeiro → garante que insumos de composições aparecem.
+  // todos depois → adiciona avulsos e demais com orcamento_id correto.
+  const seen = new Set<string>()
+  return [...porComp, ...(todos as OrcamentoInsumo[])].filter(ins => {
+    const key = ins.codigo ?? ''
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export async function createInsumo(

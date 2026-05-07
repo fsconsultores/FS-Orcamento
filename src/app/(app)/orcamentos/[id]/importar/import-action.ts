@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { createComposicao, createInsumo } from '@/lib/orcamento'
 
 export interface ImportInsumoRow {
   codigo: string
@@ -28,31 +27,33 @@ export interface ImportResult {
   erros: string[]
 }
 
-// Importação de insumos avulsos (sem composição pai)
+// Importação de insumos avulsos — batch insert
 export async function importarInsumos(
   orcamentoId: string,
   insumos: ImportInsumoRow[]
 ): Promise<ImportResult> {
   const supabase = await createClient()
   const sb = supabase as any
-
   const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
 
-  for (const ins of insumos) {
-    try {
-      await createInsumo(sb, orcamentoId, {
-        composicao_id: null,
-        codigo: ins.codigo,
-        descricao: ins.descricao,
-        unidade: ins.unidade,
-        custo: ins.custo,
-        grupo: ins.grupo,
-        base: ins.base,
-        data_ref: ins.data_ref,
-      })
-      result.insumosCriados++
-    } catch (err) {
-      result.erros.push(`Insumo "${ins.descricao}": ${err instanceof Error ? err.message : String(err)}`)
+  const rows = insumos.map(ins => ({
+    orcamento_id: orcamentoId,
+    composicao_id: null,
+    codigo: ins.codigo,
+    descricao: ins.descricao,
+    unidade: ins.unidade,
+    custo: ins.custo,
+    grupo: ins.grupo,
+    base: ins.base,
+    data_ref: ins.data_ref,
+  }))
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await sb.from('orcamento_insumos').insert(rows.slice(i, i + 500))
+    if (error) {
+      result.erros.push(`Lote ${i / 500 + 1}: ${error.message}`)
+    } else {
+      result.insumosCriados += Math.min(500, rows.length - i)
     }
   }
 
@@ -60,46 +61,92 @@ export async function importarInsumos(
   return result
 }
 
-// Importação de composições com seus insumos vinculados
+// Importação de composições com seus insumos — batch insert
 export async function importarComposicoes(
   orcamentoId: string,
   rows: ImportComposicaoRow[]
 ): Promise<ImportResult> {
   const supabase = await createClient()
   const sb = supabase as any
-
   const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
 
-  for (const comp of rows) {
-    try {
-      const novaComp = await createComposicao(sb, orcamentoId, {
-        codigo: comp.codigo,
-        descricao: comp.descricao,
-        unidade: comp.unidade,
-        base: comp.base,
-      })
-      result.composicoesCriadas++
+  const allCodigos = rows.map(c => c.codigo)
 
-      // Cria os insumos vinculados à composição (inclusive os que não existiam antes)
-      for (const ins of comp.insumos) {
-        try {
-          await createInsumo(sb, orcamentoId, {
-            composicao_id: novaComp.id,
-            codigo: ins.codigo,
-            descricao: ins.descricao,
-            unidade: ins.unidade,
-            custo: ins.custo,
-            grupo: ins.grupo,
-            base: ins.base,
-            data_ref: ins.data_ref,
-          })
-          result.insumosCriados++
-        } catch (err) {
-          result.erros.push(`Insumo "${ins.descricao}" (comp. ${comp.codigo}): ${err instanceof Error ? err.message : String(err)}`)
-        }
-      }
-    } catch (err) {
-      result.erros.push(`Composição "${comp.codigo}": ${err instanceof Error ? err.message : String(err)}`)
+  // 1. Verificar quais composições já existem para não criar duplicatas
+  const jaExistemIds = new Map<string, string>()
+  for (let i = 0; i < allCodigos.length; i += 500) {
+    const { data } = await sb
+      .from('orcamento_composicoes')
+      .select('id, codigo')
+      .eq('orcamento_id', orcamentoId)
+      .in('codigo', allCodigos.slice(i, i + 500))
+    for (const c of (data ?? []) as { id: string; codigo: string }[]) {
+      jaExistemIds.set(c.codigo, c.id)
+    }
+  }
+
+  // 2. Inserir apenas as composições que não existem ainda
+  const novas = rows.filter(r => !jaExistemIds.has(r.codigo))
+  const compRows = novas.map(c => ({
+    orcamento_id: orcamentoId,
+    codigo: c.codigo,
+    descricao: c.descricao,
+    unidade: c.unidade,
+    base: c.base,
+  }))
+
+  const codeToId = new Map(jaExistemIds)
+
+  for (let i = 0; i < compRows.length; i += 500) {
+    const { data, error } = await sb
+      .from('orcamento_composicoes')
+      .insert(compRows.slice(i, i + 500))
+      .select('id, codigo')
+    if (error) {
+      result.erros.push(`Composições lote ${i / 500 + 1}: ${error.message}`)
+      continue
+    }
+    for (const c of (data ?? []) as { id: string; codigo: string }[]) {
+      codeToId.set(c.codigo, c.id)
+    }
+    result.composicoesCriadas += (data ?? []).length
+  }
+
+  // 3. Montar todos os insumos com o composicao_id correto
+  //    Para composições já existentes: apaga os insumos antigos antes de reinserir
+  const idsExistentes = [...jaExistemIds.values()]
+  if (idsExistentes.length > 0) {
+    for (let i = 0; i < idsExistentes.length; i += 500) {
+      await sb
+        .from('orcamento_insumos')
+        .delete()
+        .in('composicao_id', idsExistentes.slice(i, i + 500))
+    }
+  }
+
+  const insumoRows = rows.flatMap(comp => {
+    const compId = codeToId.get(comp.codigo)
+    if (!compId) return []
+    return comp.insumos.map(ins => ({
+      orcamento_id: orcamentoId,
+      composicao_id: compId,
+      codigo: ins.codigo,
+      descricao: ins.descricao,
+      unidade: ins.unidade,
+      custo: ins.custo,
+      grupo: ins.grupo,
+      base: ins.base,
+      data_ref: ins.data_ref,
+    }))
+  })
+
+  // 4. Inserir todos os insumos em batch (até 500 por vez)
+  for (let i = 0; i < insumoRows.length; i += 500) {
+    const { error } = await sb.from('orcamento_insumos').insert(insumoRows.slice(i, i + 500))
+    if (error) {
+      result.erros.push(`Insumos lote ${i / 500 + 1}: ${error.message}`)
+    } else {
+      result.insumosCriados += Math.min(500, insumoRows.length - i)
     }
   }
 

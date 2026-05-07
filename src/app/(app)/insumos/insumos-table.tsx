@@ -1,12 +1,45 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { formatCurrency } from '@/lib/costs';
 import { baseBadgeClass } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import type { InsumoComBase } from '@/lib/supabase/types';
+import { createClient } from '@/lib/supabase/client';
 
 export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase[] }) {
+  const [insumos, setInsumos] = useState(initialInsumos);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  function startEdit(ins: InsumoComBase, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingId(ins.id);
+    setEditingValue(String(ins.preco_base));
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingValue('');
+  }
+
+  async function saveEdit(id: string) {
+    if (savingId) return;
+    const parsed = parseFloat(editingValue.replace(',', '.'));
+    if (isNaN(parsed) || parsed <= 0) { cancelEdit(); return; }
+    setSavingId(id);
+    setEditingId(null);
+    const sb = createClient() as any;
+    const { error } = await sb.from('tabela_insumos').update({ preco_base: parsed }).eq('id', id);
+    if (!error) {
+      setInsumos(prev => prev.map(ins => ins.id === id ? { ...ins, preco_base: parsed } : ins));
+    }
+    setSavingId(null);
+  }
+
   return (
     <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
       <table className="w-full text-sm">
@@ -22,78 +55,93 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
           </tr>
         </thead>
         <tbody className="divide-y">
-          {initialInsumos.map((ins) => {
-            const isExterna = ins.tabela_bases?.tipo_base === 'externa';
-            const rowClass = isExterna
-              ? 'hover:bg-gray-50 transition-all'
-              : 'cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all';
-
-            return (
-              <tr key={ins.id} className={rowClass}>
-                <td className="px-3 py-1.5 w-24">
-                  <Link
-                    href={`/insumos/${ins.id}/editar`}
-                    className="block w-full h-full font-mono text-xs text-gray-600"
+          {insumos.map((ins) => (
+            <tr
+              key={ins.id}
+              className="cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all"
+            >
+              <td className="px-3 py-1.5 w-24">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full font-mono text-xs text-gray-600">
+                  {ins.codigo}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-900">
+                  {ins.descricao}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5 w-36">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
+                  {ins.grupo ?? '—'}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5 w-20">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
+                  {ins.unidade}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5 w-36 text-right">
+                {editingId === ins.id ? (
+                  <input
+                    autoFocus
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onBlur={() => saveEdit(ins.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); saveEdit(ins.id); }
+                      if (e.key === 'Escape') cancelEdit();
+                    }}
+                    className="w-full text-right border border-blue-400 rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/40 bg-white"
+                  />
+                ) : (
+                  <button
+                    onClick={(e) => startEdit(ins, e)}
+                    title="Clique para editar o custo"
+                    className={`block w-full text-right font-medium tabular-nums ${
+                      savingId === ins.id
+                        ? 'text-gray-400 cursor-wait'
+                        : 'text-gray-900 hover:text-blue-600 hover:underline cursor-text'
+                    }`}
                   >
-                    {ins.codigo}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5">
-                  <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-900">
-                    {ins.descricao}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 w-36">
-                  <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
-                    {ins.grupo ?? '—'}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 w-20">
-                  <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
-                    {ins.unidade}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 w-32 text-right">
-                  <Link
-                    href={`/insumos/${ins.id}/editar`}
-                    className="block w-full h-full font-medium text-gray-900"
-                  >
-                    {formatCurrency(ins.preco_base)}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 w-32">
-                  <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full">
-                    {ins.base_origem && ins.tabela_bases?.tipo_base === 'propria' ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
-                        {ins.base_origem}
-                      </span>
-                    ) : ins.tabela_bases ? (
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(ins.tabela_bases.tipo_base)}`}
-                      >
-                        {ins.tabela_bases.tipo_base === 'externa' && (
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                          </svg>
-                        )}
-                        {baseLabelFromOrgao(ins.tabela_bases.orgao)}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </Link>
-                </td>
-                <td className="px-3 py-1.5 w-28">
-                  <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-500">
-                    {ins.data_referencia
-                      ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
-                      : '—'}
-                  </Link>
-                </td>
-              </tr>
-            );
-          })}
-          {initialInsumos.length === 0 && (
+                    {savingId === ins.id ? '…' : formatCurrency(ins.preco_base)}
+                  </button>
+                )}
+              </td>
+              <td className="px-3 py-1.5 w-32">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full">
+                  {ins.base_origem && ins.tabela_bases?.tipo_base === 'propria' ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
+                      {ins.base_origem}
+                    </span>
+                  ) : ins.tabela_bases ? (
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(ins.tabela_bases.tipo_base)}`}
+                    >
+                      {ins.tabela_bases.tipo_base === 'externa' && (
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                      )}
+                      {baseLabelFromOrgao(ins.tabela_bases.orgao)}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5 w-28">
+                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-500">
+                  {ins.data_referencia
+                    ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
+                    : '—'}
+                </Link>
+              </td>
+            </tr>
+          ))}
+          {insumos.length === 0 && (
             <tr>
               <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                 Nenhum insumo encontrado.

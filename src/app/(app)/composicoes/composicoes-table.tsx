@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { formatCurrency } from '@/lib/costs';
 import { baseBadgeClass } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+
 type ComposicaoRow = {
   id: string;
   codigo: string;
