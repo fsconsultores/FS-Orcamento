@@ -73,8 +73,8 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
       rows.push(current)
     }
 
-    // Adiciona insumo do tipo I (direto). Ignora C (composição auxiliar) — sem precificação aqui.
-    if (tipoItem === 'I' && descIns && current) {
+    // I = insumo direto, C = composição filha — ambos entram como item da composição pai.
+    if ((tipoItem === 'I' || tipoItem === 'C') && descIns && current) {
       current.insumos.push({
         codigo: codigoIns,
         descricao: descIns,

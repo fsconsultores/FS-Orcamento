@@ -37,7 +37,72 @@ export default async function OrcamentoComposicaoDetailPage({
     grupo: string | null
   }
 
-  const insumos = (insumosRaw ?? []) as InsumoRow[]
+  const insumosBase = (insumosRaw ?? []) as InsumoRow[]
+
+  // Resolve custo efetivo por código: avulso → composição filha → valor armazenado
+  const codigos = insumosBase.map((i) => i.codigo).filter(Boolean)
+  const precoMap = new Map<string, number>()
+
+  // 1. Avulsos
+  for (let i = 0; i < codigos.length; i += 500) {
+    const { data: avs } = await sb
+      .from('orcamento_insumos')
+      .select('codigo, custo')
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .in('codigo', codigos.slice(i, i + 500))
+    for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
+      precoMap.set(av.codigo, av.custo)
+    }
+  }
+
+  // 2. Composições filhas (tipo C): calcula custo_unitario delas para os códigos sem avulso
+  const codigosSemPreco = codigos.filter((c) => !precoMap.has(c))
+  if (codigosSemPreco.length > 0) {
+    const { data: childComps } = await sb
+      .from('orcamento_composicoes')
+      .select('id, codigo')
+      .eq('orcamento_id', orcamentoId)
+      .in('codigo', codigosSemPreco)
+
+    if (childComps?.length) {
+      const childIds = (childComps as { id: string; codigo: string }[]).map((c) => c.id)
+      const { data: childIns } = await sb
+        .from('orcamento_insumos')
+        .select('composicao_id, codigo, custo, indice')
+        .in('composicao_id', childIds)
+
+      // Avulsos dos insumos das composições filhas
+      const childCodigos = [...new Set((childIns ?? []).map((i: any) => i.codigo).filter(Boolean))]
+      const childAvulsoMap = new Map<string, number>()
+      for (let i = 0; i < childCodigos.length; i += 500) {
+        const { data: avs } = await sb
+          .from('orcamento_insumos')
+          .select('codigo, custo')
+          .eq('orcamento_id', orcamentoId)
+          .is('composicao_id', null)
+          .in('codigo', childCodigos.slice(i, i + 500))
+        for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
+          childAvulsoMap.set(av.codigo, av.custo)
+        }
+      }
+
+      for (const comp of childComps as { id: string; codigo: string }[]) {
+        const seus = (childIns ?? []).filter((i: any) => i.composicao_id === comp.id)
+        const custo = seus.reduce((s: number, i: any) => {
+          const c = childAvulsoMap.has(i.codigo) ? childAvulsoMap.get(i.codigo)! : (i.custo ?? 0)
+          return s + c * (i.indice ?? 1)
+        }, 0)
+        precoMap.set(comp.codigo, custo)
+      }
+    }
+  }
+
+  const insumos = insumosBase.map((ins) => ({
+    ...ins,
+    custo: precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : ins.custo,
+  }))
+
   const custoTotal = insumos.reduce((s, i) => s + (i.custo ?? 0) * (i.indice ?? 1), 0)
 
   return (

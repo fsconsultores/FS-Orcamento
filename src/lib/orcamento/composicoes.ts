@@ -18,27 +18,62 @@ export async function getComposicoesByOrcamento(
 
   if (composicoes.length === 0) return []
 
-  // Calcula custo_unitario = Σ(custo × indice) por composição
-  // Paginado em lotes de 100 para não exceder limite de URL do PostgREST
+  // Calcula custo_unitario = Σ(custo_efetivo × indice) por composição.
+  // custo_efetivo: usa o custo do avulso (composicao_id IS NULL) com o mesmo código,
+  // pois avulsos representam a tabela de preços do orçamento.
   const compIds = composicoes.map((c) => c.id)
-  const allInsData: { composicao_id: string; custo: number; indice: number }[] = []
+  const allInsData: { composicao_id: string; codigo: string; custo: number; indice: number }[] = []
   for (let i = 0; i < compIds.length; i += 100) {
     const { data: lote } = await supabase
       .from('orcamento_insumos')
-      .select('composicao_id, custo, indice')
+      .select('composicao_id, codigo, custo, indice')
       .in('composicao_id', compIds.slice(i, i + 100))
-    allInsData.push(...((lote ?? []) as { composicao_id: string; custo: number; indice: number }[]))
+    allInsData.push(...((lote ?? []) as { composicao_id: string; codigo: string; custo: number; indice: number }[]))
   }
 
-  const custoMap: Record<string, number> = {}
-  for (const ins of allInsData) {
-    if (ins.composicao_id) {
-      const contribuicao = (ins.custo ?? 0) * (ins.indice ?? 1)
-      custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + contribuicao
+  // Busca custos dos avulsos para os códigos usados nas composições
+  const codigos = [...new Set(allInsData.map((i) => i.codigo).filter(Boolean))]
+  const precoMap = new Map<string, number>() // codigo → custo efetivo
+
+  for (let i = 0; i < codigos.length; i += 500) {
+    const { data: avs } = await supabase
+      .from('orcamento_insumos')
+      .select('codigo, custo')
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .in('codigo', codigos.slice(i, i + 500))
+    for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
+      precoMap.set(av.codigo, av.custo)
     }
   }
 
-  return composicoes.map((c) => ({ ...c, custo_unitario: custoMap[c.id] ?? 0 }))
+  // Para códigos sem avulso: verifica se é uma composição filha e usa o custo_unitario dela.
+  // Passo 1 — calcula custo_unitario de cada composição usando apenas precoMap (avulsos)
+  const custoMap: Record<string, number> = {}
+  for (const ins of allInsData) {
+    if (ins.composicao_id) {
+      const c = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
+      custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + c * (ins.indice ?? 1)
+    }
+  }
+
+  // Passo 2 — enriquece precoMap com custo_unitario das composições (para itens tipo C)
+  for (const c of composicoes) {
+    if (!precoMap.has(c.codigo) && custoMap[c.id] !== undefined) {
+      precoMap.set(c.codigo, custoMap[c.id])
+    }
+  }
+
+  // Passo 3 — recalcula com precoMap completo (avulsos + composições filhas)
+  const custoMapFinal: Record<string, number> = {}
+  for (const ins of allInsData) {
+    if (ins.composicao_id) {
+      const c = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
+      custoMapFinal[ins.composicao_id] = (custoMapFinal[ins.composicao_id] ?? 0) + c * (ins.indice ?? 1)
+    }
+  }
+
+  return composicoes.map((c) => ({ ...c, custo_unitario: custoMapFinal[c.id] ?? 0 }))
 }
 
 export async function createComposicao(
