@@ -166,6 +166,18 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
   return { rows, erros }
 }
 
+// ─── Parser CSV ──────────────────────────────────────────────────────────────
+function parseCsvText(text: string): unknown[][] {
+  const cleaned = text.replace(/^﻿/, '') // remove BOM
+  const lines = cleaned.split(/\r?\n/)
+  if (lines.length === 0) return []
+  const firstLine = lines[0]
+  const delimiter = firstLine.includes(';') ? ';' : ','
+  return lines
+    .map(line => line.split(delimiter))
+    .filter(cols => cols.some(c => c.trim() !== ''))
+}
+
 // ─── Utilitários ─────────────────────────────────────────────────────────────
 
 function ResultBox({ result }: { result: ImportResult }) {
@@ -204,6 +216,16 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
     const file = e.target.files?.[0]
     if (!file) return
     setResult(null); setPreview(null); setParseErros([])
+
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      const text = await file.text()
+      const data = parseCsvText(text)
+      const { rows, erros } = parseFlat(data)
+      setPreview(rows); setParseErros(erros)
+      setSheets([]); setWbRef(null); setSelectedSheet('')
+      return
+    }
+
     const ab = await file.arrayBuffer()
     const XLSX = await import('xlsx')
     const wb = XLSX.read(ab, { type: 'array' })
@@ -215,16 +237,10 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
   }
 
   function processSheet(wb: unknown, name: string) {
-    const XLSX = (window as any).__XLSX__ // already loaded; use dynamic version
-    // Re-parse with the selected sheet
-    const _wb = wb as { Sheets: Record<string, unknown>; SheetNames: string[] }
-    const ws = _wb.Sheets[name]
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const XLSX2 = (globalThis as any).__xlsx_module__
-    if (!ws) return
-
-    // Use sheetjs utils directly from module – we import dynamically at load time
     void import('xlsx').then(XLSX => {
+      const _wb = wb as { Sheets: Record<string, unknown>; SheetNames: string[] }
+      const ws = _wb.Sheets[name]
+      if (!ws) return
       const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
       const { rows, erros } = parseFlat(data)
       setPreview(rows); setParseErros(erros)
@@ -252,9 +268,9 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
   return (
     <div className="space-y-5">
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
-        <p className="text-sm text-gray-500 mb-2">Planilha <strong>.xlsx</strong> — cada linha = um insumo</p>
+        <p className="text-sm text-gray-500 mb-2">Planilha <strong>.xlsx</strong> ou <strong>.csv</strong> — cada linha = um insumo</p>
         <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, base, data_ref</em></p>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
           className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
       </div>
 

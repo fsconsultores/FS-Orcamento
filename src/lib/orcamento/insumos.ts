@@ -50,10 +50,14 @@ export async function getInsumosByOrcamento(
     .order('codigo')
   if (error) throw new Error(`Erro ao buscar insumos: ${error.message}`)
 
-  // porComp primeiro → garante que insumos de composições aparecem.
-  // todos depois → adiciona avulsos e demais com orcamento_id correto.
+  // Avulsos (composicao_id=null) têm custo explícito — devem ter prioridade na deduplicação.
+  // Insumos de composições (custo=0) só aparecem se não houver avulso com o mesmo código.
+  const todosArr = todos as OrcamentoInsumo[]
+  const avulsos = todosArr.filter(ins => ins.composicao_id === null)
+  const avulsosCodigos = new Set(avulsos.map(ins => ins.codigo ?? ''))
+  const compSemAvulso = porComp.filter(ins => !avulsosCodigos.has(ins.codigo ?? ''))
   const seen = new Set<string>()
-  return [...porComp, ...(todos as OrcamentoInsumo[])].filter(ins => {
+  return [...avulsos, ...compSemAvulso].filter(ins => {
     const key = ins.codigo ?? ''
     if (seen.has(key)) return false
     seen.add(key)

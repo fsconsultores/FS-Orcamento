@@ -28,7 +28,7 @@ export interface ImportResult {
   erros: string[]
 }
 
-// Importação de insumos avulsos — batch insert
+// Importação de insumos avulsos — importados sempre sobrescrevem os existentes
 export async function importarInsumos(
   orcamentoId: string,
   insumos: ImportInsumoRow[]
@@ -37,6 +37,19 @@ export async function importarInsumos(
   const sb = supabase as any
   const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
 
+  const allCodigos = insumos.map(ins => ins.codigo)
+
+  // 1. Apagar avulsos existentes com o mesmo código (importados têm prioridade)
+  for (let i = 0; i < allCodigos.length; i += 500) {
+    await sb
+      .from('orcamento_insumos')
+      .delete()
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .in('codigo', allCodigos.slice(i, i + 500))
+  }
+
+  // 2. Inserir todos os avulsos importados
   const rows = insumos.map(ins => ({
     orcamento_id: orcamentoId,
     composicao_id: null,
@@ -59,7 +72,40 @@ export async function importarInsumos(
     }
   }
 
+  // 3. Propagar custo para insumos de composições com o mesmo código
+  const custoMap = new Map<string, number>(insumos.map(ins => [ins.codigo, ins.custo]))
+
+  for (let i = 0; i < allCodigos.length; i += 500) {
+    const { data: compInsumos } = await sb
+      .from('orcamento_insumos')
+      .select('id, codigo')
+      .eq('orcamento_id', orcamentoId)
+      .not('composicao_id', 'is', null)
+      .in('codigo', allCodigos.slice(i, i + 500))
+
+    if (!compInsumos?.length) continue
+
+    // Agrupa ids pelo novo custo para fazer um update por valor único
+    const custoToIds = new Map<number, string[]>()
+    for (const ins of compInsumos as { id: string; codigo: string }[]) {
+      const novoCusto = custoMap.get(ins.codigo)
+      if (novoCusto === undefined) continue
+      if (!custoToIds.has(novoCusto)) custoToIds.set(novoCusto, [])
+      custoToIds.get(novoCusto)!.push(ins.id)
+    }
+
+    for (const [custo, ids] of custoToIds) {
+      for (let j = 0; j < ids.length; j += 500) {
+        await sb
+          .from('orcamento_insumos')
+          .update({ custo })
+          .in('id', ids.slice(j, j + 500))
+      }
+    }
+  }
+
   revalidatePath(`/orcamentos/${orcamentoId}/insumos`)
+  revalidatePath(`/orcamentos/${orcamentoId}/composicoes`)
   return result
 }
 
