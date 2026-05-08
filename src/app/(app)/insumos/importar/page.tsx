@@ -12,55 +12,79 @@ type RowParsed = {
   descricao: string;
   unidade: string;
   preco_base: number;
+  grupo: string | null;
+  fonte: string | null;
   data_referencia: string | null;
   observacao: string | null;
   erro: string | null;
 };
 
-const COLUNAS = ['codigo', 'descricao', 'unidade', 'preco_base', 'data_referencia', 'observacao'];
+const COL_ALIASES: Record<string, string[]> = {
+  codigo:          ['cod', 'codigo', 'código', 'cód', 'code'],
+  descricao:       ['descricao', 'descrição', 'descricaocomp', 'descriçãocomp', 'descricaocompleta',
+                    'descricaoabreviada', 'description', 'nome', 'name'],
+  unidade:         ['unidade', 'und', 'un', 'unit'],
+  preco_base:      ['preco_base', 'preco', 'preço', 'custo', 'custounit', 'custounitario',
+                    'valor', 'price', 'custo unit', 'r$ unit.', 'r$ unit', 'runit'],
+  grupo:           ['grupo', 'grupois', 'grupoinsumo', 'group', 'categoria', 'tipo'],
+  fonte:           ['origem', 'fonte', 'base', 'cotacao', 'cotação', 'source', 'fornecedor'],
+  data_referencia: ['data_referencia', 'dataref', 'data ref', 'datareferencia', 'ref'],
+  observacao:      ['observacao', 'observação', 'obs', 'nota', 'note'],
+};
+
+function normKey(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function detectCols(header: string[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  header.forEach((h, i) => {
+    const norm = normKey(h);
+    for (const [field, aliases] of Object.entries(COL_ALIASES)) {
+      if (!(field in map) && aliases.map(normKey).includes(norm)) {
+        map[field] = i;
+      }
+    }
+  });
+  return map;
+}
 
 function parseCsv(text: string): RowParsed[] {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
+  const cleaned = text.replace(/^﻿/, '');
+  const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length < 2) return [];
 
-  // Detectar delimitador (vírgula ou ponto-e-vírgula)
   const delim = lines[0].includes(';') ? ';' : ',';
+  const splitLine = (l: string) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
 
-  // Verificar se a primeira linha é cabeçalho
-  const header = lines[0].toLowerCase().split(delim).map((h) => h.trim().replace(/^"|"$/g, ''));
-  const isHeader = header.some((h) => COLUNAS.includes(h));
-  const dataLines = isHeader ? lines.slice(1) : lines;
+  const header = splitLine(lines[0]);
+  const cols = detectCols(header);
+  const hasHeader = 'codigo' in cols || 'descricao' in cols || 'unidade' in cols;
+  const dataLines = hasHeader ? lines.slice(1) : lines;
 
-  const indexOf = (col: string) => {
-    const idx = header.indexOf(col);
-    return isHeader && idx >= 0 ? idx : COLUNAS.indexOf(col);
-  };
+  const get = (row: string[], field: string) =>
+    field in cols ? (row[cols[field]] ?? '').trim() : '';
 
   return dataLines.map((line, i) => {
-    const cols = line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
-    const get = (col: string) => cols[indexOf(col)] ?? '';
-
-    const codigo = get('codigo');
-    const descricao = get('descricao');
-    const unidade = get('unidade');
-    const precoStr = get('preco_base').replace(',', '.');
+    const row = splitLine(line);
+    const codigo    = get(row, 'codigo');
+    const descricao = get(row, 'descricao');
+    const unidade   = get(row, 'unidade');
+    const precoStr  = get(row, 'preco_base').replace(/[R$\s]/g, '').replace(',', '.');
     const preco_base = parseFloat(precoStr);
-    const dataStr = get('data_referencia');
-    const observacao = get('observacao') || null;
+    const grupo     = get(row, 'grupo') || null;
+    const fonte     = get(row, 'fonte') || null;
+    const dataStr   = get(row, 'data_referencia');
+    const observacao = get(row, 'observacao') || null;
 
     let erro: string | null = null;
-    if (!codigo) erro = 'Código obrigatório';
+    if (!codigo)   erro = 'Código obrigatório';
     else if (!descricao) erro = 'Descrição obrigatória';
-    else if (!unidade) erro = 'Unidade obrigatória';
+    else if (!unidade)   erro = 'Unidade obrigatória';
     else if (isNaN(preco_base) || preco_base < 0) erro = 'Preço inválido';
 
     let data_referencia: string | null = null;
     if (dataStr) {
-      // Aceita dd/mm/yyyy ou yyyy-mm-dd
       if (/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) {
         data_referencia = dataStr;
       } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) {
@@ -70,11 +94,13 @@ function parseCsv(text: string): RowParsed[] {
     }
 
     return {
-      linha: i + (isHeader ? 2 : 1),
+      linha: i + (hasHeader ? 2 : 1),
       codigo,
       descricao,
       unidade,
       preco_base: isNaN(preco_base) ? 0 : preco_base,
+      grupo,
+      fonte,
       data_referencia,
       observacao,
       erro,
@@ -134,6 +160,8 @@ export default function ImportarInsumosPage() {
           descricao: r.descricao,
           unidade: r.unidade,
           preco_base: r.preco_base,
+          grupo: r.grupo,
+          fonte: r.fonte,
           data_referencia: r.data_referencia,
           observacao: r.observacao,
           base_id: baseId,
@@ -182,15 +210,15 @@ export default function ImportarInsumosPage() {
         <h2 className="font-semibold text-blue-900">Formato esperado</h2>
         <p className="text-sm text-blue-800">
           Arquivo CSV com delimitador <strong>vírgula (,)</strong> ou <strong>ponto-e-vírgula (;)</strong>.
-          Primeira linha pode ser cabeçalho ou dados diretos.
+          Os nomes das colunas são detectados automaticamente — compatível com formatos variados.
         </p>
         <p className="text-sm text-blue-700 font-mono bg-blue-100 rounded px-3 py-2">
-          codigo;descricao;unidade;preco_base;data_referencia;observacao
+          CÓD;DESCRIÇÃO;UND;PREÇO;GRUPO IS;ORIGEM
         </p>
         <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
-          <li><strong>codigo</strong>, <strong>descricao</strong>, <strong>unidade</strong> e <strong>preco_base</strong> — obrigatórios</li>
-          <li><strong>data_referencia</strong> — opcional, formato dd/mm/aaaa ou aaaa-mm-dd</li>
-          <li><strong>observacao</strong> — opcional</li>
+          <li><strong>Código</strong> (CÓD, Codigo…), <strong>Descrição</strong>, <strong>Unidade</strong> (UND, Und…) e <strong>Preço</strong> (PREÇO, Custo Unit., CustoUnitario…) — obrigatórios</li>
+          <li><strong>Grupo</strong> (GRUPO IS, GrupoInsumo…) e <strong>Origem</strong> (Origem, Cotação, Fonte…) — opcionais</li>
+          <li><strong>Data ref.</strong> — opcional, formato dd/mm/aaaa ou aaaa-mm-dd</li>
         </ul>
       </div>
 
@@ -260,7 +288,8 @@ export default function ImportarInsumosPage() {
                   <th className="px-3 py-2 text-left font-medium text-gray-600">Descrição</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600 w-16">Unid.</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-600 w-24">Preço</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-24">Data ref.</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-16">Grupo</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-28">Origem</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">Status</th>
                 </tr>
               </thead>
@@ -276,11 +305,8 @@ export default function ImportarInsumosPage() {
                         ? r.preco_base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                         : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="px-3 py-1.5 text-gray-500">
-                      {r.data_referencia
-                        ? new Date(r.data_referencia).toLocaleDateString('pt-BR')
-                        : <span className="text-gray-300">—</span>}
-                    </td>
+                    <td className="px-3 py-1.5 text-gray-500">{r.grupo ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-3 py-1.5 text-gray-500">{r.fonte ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-1.5">
                       {r.erro ? (
                         <span className="text-red-600 font-medium">{r.erro}</span>

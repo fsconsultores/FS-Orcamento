@@ -7,14 +7,16 @@ import type { ImportComposicaoRow, ImportInsumoRow, ImportResult } from './impor
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
 const COL_ALIASES: Record<string, string[]> = {
-  codigo:   ['codigo', 'código', 'cod', 'code'],
+  codigo:   ['cod', 'codigo', 'código', 'cód', 'code'],
   descricao:['descricao', 'descrição', 'descr', 'description', 'nome', 'name',
-             'descricaoabreviada', 'descrição abreviada', 'descricao abreviada'],
+             'descricaoabreviada', 'descriçãoabreviada', 'descricaocomp', 'descriçãocomp',
+             'descricaocompleta'],
   unidade:  ['unidade', 'und', 'un', 'unit'],
-  custo:    ['custo', 'preço', 'preco', 'price', 'valor', 'custo unitário'],
-  grupo:    ['grupo', 'group', 'categoria'],
-  base:     ['base', 'fonte', 'source'],
-  data_ref: ['data_ref', 'data ref', 'data referência', 'ref'],
+  custo:    ['custo', 'preço', 'preco', 'price', 'valor', 'custounit', 'custounitario',
+             'custo unit', 'r$ unit.', 'r$ unit', 'runit'],
+  grupo:    ['grupo', 'grupois', 'grupoinsumo', 'group', 'categoria', 'tipo'],
+  base:     ['base', 'fonte', 'origem', 'cotacao', 'cotação', 'source', 'fornecedor'],
+  data_ref: ['data_ref', 'dataref', 'data ref', 'datareferencia', 'data referência', 'ref'],
 }
 
 function parseNumber(val: unknown): number {

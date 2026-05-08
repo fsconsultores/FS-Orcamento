@@ -1,0 +1,1 @@
+ALTER TABLE tabela_insumos ADD COLUMN IF NOT EXISTS grupo TEXT;

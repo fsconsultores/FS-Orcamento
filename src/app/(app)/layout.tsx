@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { Nav } from '@/components/nav';
+import { SidebarShell } from '@/components/sidebar-shell';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -9,9 +9,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!user) redirect('/login');
 
   return (
-    <div className="min-h-screen bg-gray-50 pl-64">
-      <Nav userEmail={user.email ?? ''} />
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
-    </div>
+    <SidebarShell userEmail={user.email ?? ''}>
+      {children}
+    </SidebarShell>
   );
 }

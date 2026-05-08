@@ -9,6 +9,7 @@ interface Props {
 
 const TABS = [
   { suffix: '', label: 'Visão Geral' },
+  { suffix: 'planilha', label: 'Planilha' },
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'importar', label: 'Importar Excel' },
