@@ -22,7 +22,7 @@ export default async function OrcamentoComposicaoDetailPage({
 
   const { data: insumosRaw } = await sb
     .from('orcamento_insumos')
-    .select('id, codigo, descricao, unidade, custo, grupo')
+    .select('id, codigo, descricao, unidade, custo, indice, grupo')
     .eq('composicao_id', compId)
     .order('grupo')
     .order('descricao')
@@ -33,11 +33,12 @@ export default async function OrcamentoComposicaoDetailPage({
     descricao: string
     unidade: string
     custo: number
+    indice: number
     grupo: string | null
   }
 
   const insumos = (insumosRaw ?? []) as InsumoRow[]
-  const custoTotal = insumos.reduce((s, i) => s + (i.custo ?? 0), 0)
+  const custoTotal = insumos.reduce((s, i) => s + (i.custo ?? 0) * (i.indice ?? 1), 0)
 
   return (
     <div className="space-y-6">
@@ -81,6 +82,8 @@ export default async function OrcamentoComposicaoDetailPage({
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Insumo</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Grupo</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Unidade</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600">Preço unit.</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-600">Índice</th>
                 <th className="px-4 py-3 text-right font-medium text-gray-600">Custo</th>
               </tr>
             </thead>
@@ -91,15 +94,21 @@ export default async function OrcamentoComposicaoDetailPage({
                   <td className="px-4 py-3 text-gray-900">{ins.descricao}</td>
                   <td className="px-4 py-3 text-gray-500">{ins.grupo || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{ins.unidade}</td>
-                  <td className="px-4 py-3 text-right font-medium text-gray-900">
+                  <td className="px-4 py-3 text-right text-gray-700">
                     {formatCurrency(ins.custo ?? 0)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-500 tabular-nums">
+                    {(ins.indice ?? 1).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-gray-900">
+                    {formatCurrency((ins.custo ?? 0) * (ins.indice ?? 1))}
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot className="border-t bg-gray-50">
               <tr>
-                <td colSpan={4} className="px-4 py-3 text-right font-semibold text-gray-700">
+                <td colSpan={6} className="px-4 py-3 text-right font-semibold text-gray-700">
                   Total
                 </td>
                 <td className="px-4 py-3 text-right font-bold text-gray-900">

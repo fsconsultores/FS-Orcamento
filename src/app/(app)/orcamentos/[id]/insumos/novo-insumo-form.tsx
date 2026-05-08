@@ -17,6 +17,7 @@ const makeEmpty = (): CreateInsumoData => ({
   descricao: '',
   unidade: '',
   custo: 0,
+  indice: 1,
   grupo: null,
   base: null,
   data_ref: null,

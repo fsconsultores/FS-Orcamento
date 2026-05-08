@@ -61,6 +61,7 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
     const codigoIns   = String(row[6]  ?? '').trim()
     const descIns     = String(row[7]  ?? '').trim()
     const unidadeIns  = String(row[8]  ?? '').trim()
+    const indice      = parseFloat(String(row[9] ?? '1').replace(',', '.')) || 1
     const grupo       = String(row[10] ?? '').trim() || null
 
     // Linha completamente vazia — pula
@@ -78,7 +79,8 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
         codigo: codigoIns,
         descricao: descIns,
         unidade: unidadeIns,
-        custo: 0,   // base SUDECAP não traz preço unitário
+        custo: 0,
+        indice,
         grupo,
         base: null,
         data_ref: null,
@@ -126,6 +128,7 @@ function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
         descricao,
         unidade:  'unidade'  in cols ? String(row[cols.unidade]  ?? '').trim() : '',
         custo:    'custo'    in cols ? parseNumber(row[cols.custo])              : 0,
+        indice:   1,
         grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
         base:     'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
         data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,
@@ -154,6 +157,7 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
       descricao,
       unidade:  'unidade'  in cols ? String(row[cols.unidade]  ?? '').trim() : '',
       custo:    'custo'    in cols ? parseNumber(row[cols.custo])              : 0,
+      indice:   1,
       grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
       base:     'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
       data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,

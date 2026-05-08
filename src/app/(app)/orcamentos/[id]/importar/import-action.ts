@@ -8,6 +8,7 @@ export interface ImportInsumoRow {
   descricao: string
   unidade: string
   custo: number
+  indice: number
   grupo: string | null
   base: string | null
   data_ref: string | null
@@ -43,6 +44,7 @@ export async function importarInsumos(
     descricao: ins.descricao,
     unidade: ins.unidade,
     custo: ins.custo,
+    indice: ins.indice ?? 1,
     grupo: ins.grupo,
     base: ins.base,
     data_ref: ins.data_ref,
@@ -134,6 +136,7 @@ export async function importarComposicoes(
       descricao: ins.descricao,
       unidade: ins.unidade,
       custo: ins.custo,
+      indice: ins.indice ?? 1,
       grupo: ins.grupo,
       base: ins.base,
       data_ref: ins.data_ref,

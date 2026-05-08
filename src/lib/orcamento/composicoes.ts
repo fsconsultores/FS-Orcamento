@@ -18,16 +18,23 @@ export async function getComposicoesByOrcamento(
 
   if (composicoes.length === 0) return []
 
-  // Calcula custo_unitario somando insumos vinculados (composicao_id FK)
-  const { data: insData } = await supabase
-    .from('orcamento_insumos')
-    .select('composicao_id, custo')
-    .in('composicao_id', composicoes.map((c) => c.id))
+  // Calcula custo_unitario = Σ(custo × indice) por composição
+  // Paginado em lotes de 100 para não exceder limite de URL do PostgREST
+  const compIds = composicoes.map((c) => c.id)
+  const allInsData: { composicao_id: string; custo: number; indice: number }[] = []
+  for (let i = 0; i < compIds.length; i += 100) {
+    const { data: lote } = await supabase
+      .from('orcamento_insumos')
+      .select('composicao_id, custo, indice')
+      .in('composicao_id', compIds.slice(i, i + 100))
+    allInsData.push(...((lote ?? []) as { composicao_id: string; custo: number; indice: number }[]))
+  }
 
   const custoMap: Record<string, number> = {}
-  for (const ins of (insData ?? []) as { composicao_id: string; custo: number }[]) {
+  for (const ins of allInsData) {
     if (ins.composicao_id) {
-      custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + (ins.custo ?? 0)
+      const contribuicao = (ins.custo ?? 0) * (ins.indice ?? 1)
+      custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + contribuicao
     }
   }
 

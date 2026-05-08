@@ -9,6 +9,7 @@ export interface OrcamentoInsumo {
   descricao: string
   unidade: string
   custo: number
+  indice: number
   grupo: string | null
   base: string | null
   data_ref: string | null
