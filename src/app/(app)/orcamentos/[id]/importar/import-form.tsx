@@ -37,6 +37,18 @@ function detectCols(header: string[]): Record<string, number> {
   return map
 }
 
+// Find the row with the most recognized column names (handles files with title rows before the header)
+function findHeaderRow(data: unknown[][]): number {
+  let bestRow = 0
+  let bestScore = 0
+  for (let i = 0; i < Math.min(data.length, 20); i++) {
+    const row = (data[i] as unknown[]).map(String)
+    const score = Object.keys(detectCols(row)).length
+    if (score > bestScore) { bestScore = score; bestRow = i }
+  }
+  return bestRow
+}
+
 // Detecta se o arquivo está no formato SUDECAP/SINAPI:
 // cabeçalho tem colunas "TipoItemComposicao" e "DescricaoAbreviadaInsumo"
 function isSudecap(header: string[]): boolean {
@@ -97,7 +109,8 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
 // Linha com código = composição  |  linha sem código = insumo filho
 function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
   const erros: string[] = []
-  const header = (data[0] as unknown[]).map(String)
+  const headerIdx = findHeaderRow(data)
+  const header = (data[headerIdx] as unknown[]).map(String)
   const cols = detectCols(header)
   if (!('descricao' in cols)) {
     return { rows: [], erros: ['Coluna "descricao" não encontrada no cabeçalho.'] }
@@ -105,7 +118,7 @@ function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
 
-  for (let i = 1; i < data.length; i++) {
+  for (let i = headerIdx + 1; i < data.length; i++) {
     const row = data[i] as unknown[]
     const rawCodigo  = 'codigo' in cols ? String(row[cols.codigo] ?? '').trim() : ''
     const descricao  = String(row[cols.descricao] ?? '').trim()
@@ -144,13 +157,14 @@ function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
 function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[] } {
   const erros: string[] = []
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'] }
-  const header = (data[0] as unknown[]).map(String)
+  const headerIdx = findHeaderRow(data)
+  const header = (data[headerIdx] as unknown[]).map(String)
   const cols = detectCols(header)
   if (!('descricao' in cols)) {
     return { rows: [], erros: ['Coluna "descricao" não encontrada no cabeçalho.'] }
   }
   const rows: ImportInsumoRow[] = []
-  for (let i = 1; i < data.length; i++) {
+  for (let i = headerIdx + 1; i < data.length; i++) {
     const row = data[i] as unknown[]
     const descricao = String(row[cols.descricao] ?? '').trim()
     if (!descricao) continue

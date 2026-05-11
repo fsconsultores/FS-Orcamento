@@ -27,7 +27,7 @@ export type DuplicateResult = {
   itemCount: number
 }
 
-export async function duplicateOrcamento(orcamentoId: string): Promise<DuplicateResult> {
+export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string): Promise<DuplicateResult> {
   const supabase = await createClient()
   const sb = supabase as any
 
@@ -48,9 +48,10 @@ export async function duplicateOrcamento(orcamentoId: string): Promise<Duplicate
   }
 
   // 2. Cria o novo orçamento — retorna id e nome gerado
-  const { id: novoId, nome_obra: nomeNovo } = await criarNovoOrcamento(sb, user.id, orig)
+  const { id: novoId, nome_obra: nomeNovo } = await criarNovoOrcamento(sb, user.id, orig, novoCodigo)
 
-  // 3-5. Clona dados
+  // 3-6. Clona dados
+  await clonarEstrutura(sb, orcamentoId, novoId)
   await clonarItens(sb, orcamentoId, novoId)
   const compIdMap = await clonarComposicoes(sb, orcamentoId, novoId)
   await clonarInsumos(sb, orcamentoId, novoId, compIdMap)
@@ -63,7 +64,7 @@ export async function duplicateOrcamento(orcamentoId: string): Promise<Duplicate
     cliente: orig.cliente ?? null,
     data: orig.data,
     bdi_global: orig.bdi_global,
-    codigo: null,
+    codigo: novoCodigo,
     ultimo_acesso: null,
     itemCount: (orig.tabela_itens_orcamento as any[])?.length ?? 0,
   }
@@ -82,34 +83,70 @@ async function gerarNomeCopia(sb: any, userId: string, nomeOrig: string): Promis
 }
 
 async function criarNovoOrcamento(
-  sb: any, userId: string, orig: any
+  sb: any, userId: string, orig: any, codigo: string
 ): Promise<{ id: string; nome_obra: string }> {
   const nomeNovo = await gerarNomeCopia(sb, userId, orig.nome_obra)
 
-  const base = {
+  const row = {
     user_id: userId,
     nome_obra: nomeNovo,
     cliente: orig.cliente ?? null,
     data: orig.data,
     bdi_global: orig.bdi_global,
+    codigo,
   }
 
-  // Tenta com codigo null
-  const r1 = await sb.from('tabela_orcamentos').insert({ ...base, codigo: null }).select('id').single()
-  if (!r1.error) return { id: r1.data.id, nome_obra: nomeNovo }
-
-  // Se falhou por causa do codigo, tenta com '0'
-  if (r1.error.message?.toLowerCase().includes('codigo') ||
-      r1.error.message?.toLowerCase().includes('null') ||
-      r1.error.code === '23502') {
-    const r2 = await sb.from('tabela_orcamentos').insert({ ...base, codigo: '0' }).select('id').single()
-    if (!r2.error) return { id: r2.data.id, nome_obra: nomeNovo }
-    console.error('[duplicate] create r2:', r2.error)
-    throw new Error(`Erro ao criar orçamento: ${r2.error.message}`)
+  const { data, error } = await sb.from('tabela_orcamentos').insert(row).select('id').single()
+  if (error) {
+    console.error('[duplicate] create:', error)
+    throw new Error(`Erro ao criar orçamento: ${error.message}`)
   }
+  return { id: data.id, nome_obra: nomeNovo }
+}
 
-  console.error('[duplicate] create r1:', r1.error)
-  throw new Error(`Erro ao criar orçamento: ${r1.error.message}`)
+async function clonarEstrutura(sb: any, fromId: string, toId: string): Promise<void> {
+  const { data: rows } = await sb
+    .from('orcamento_estrutura')
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+    .eq('orcamento_id', fromId)
+    .order('nivel', { ascending: true })
+    .order('ordem', { ascending: true })
+
+  if (!rows?.length) return
+
+  const idMap: Record<string, string> = {}
+  const maxNivel: number = Math.max(...rows.map((r: any) => r.nivel))
+
+  for (let nivel = 1; nivel <= maxNivel; nivel++) {
+    const nivelRows = rows.filter((r: any) => r.nivel === nivel)
+    if (!nivelRows.length) continue
+
+    const toInsert = nivelRows.map((r: any) => ({
+      orcamento_id: toId,
+      parent_id: r.parent_id ? (idMap[r.parent_id] ?? null) : null,
+      numero: r.numero,
+      nivel: r.nivel,
+      codigo: r.codigo,
+      descricao: r.descricao,
+      unidade: r.unidade,
+      quantidade: r.quantidade,
+      custo_unitario: r.custo_unitario,
+      tipo: r.tipo,
+      ordem: r.ordem,
+    }))
+
+    const { data: inserted, error } = await sb
+      .from('orcamento_estrutura')
+      .insert(toInsert)
+      .select('id')
+
+    if (error) { console.error('[duplicate] clonarEstrutura nivel', nivel, error); continue }
+
+    // Mapeia IDs antigos → novos (Supabase retorna na mesma ordem da inserção)
+    nivelRows.forEach((r: any, i: number) => {
+      if (inserted?.[i]) idMap[r.id] = inserted[i].id
+    })
+  }
 }
 
 async function clonarItens(sb: any, fromId: string, toId: string): Promise<void> {
@@ -163,36 +200,26 @@ async function clonarInsumos(
   sb: any, fromId: string, toId: string, compIdMap: Record<string, string>
 ): Promise<void> {
   // Tenta buscar com composicao_id; faz fallback sem ela
-  const comColuna = await sb
+  const { data: insumos, error: fetchErr } = await sb
     .from('orcamento_insumos')
-    .select('codigo, descricao, unidade, custo, grupo, base, data_ref, composicao_id')
+    .select('codigo, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id')
     .eq('orcamento_id', fromId)
 
-  const insumos: any[] = comColuna.error
-    ? ((await sb.from('orcamento_insumos')
-        .select('codigo, descricao, unidade, custo, grupo, base, data_ref')
-        .eq('orcamento_id', fromId)).data ?? [])
-    : (comColuna.data ?? [])
+  if (fetchErr) console.error('[duplicate] clonarInsumos fetch:', fetchErr)
+  if (!insumos?.length) return
 
-  if (!insumos.length) return
-
-  const rows = insumos.map((i: any) => {
-    const row: any = {
-      orcamento_id: toId,
-      codigo: i.codigo,
-      descricao: i.descricao,
-      unidade: i.unidade,
-      custo: i.custo,
-      grupo: i.grupo,
-      base: i.base,
-      data_ref: i.data_ref,
-    }
-    // Só inclui composicao_id se estava presente no resultado E tem mapeamento
-    if (i.composicao_id != null) {
-      row.composicao_id = compIdMap[i.composicao_id] ?? null
-    }
-    return row
-  })
+  const rows = insumos.map((i: any) => ({
+    orcamento_id: toId,
+    codigo: i.codigo,
+    descricao: i.descricao,
+    unidade: i.unidade,
+    custo: i.custo,
+    indice: i.indice ?? 1,
+    grupo: i.grupo,
+    base: i.base,
+    data_ref: i.data_ref,
+    composicao_id: i.composicao_id != null ? (compIdMap[i.composicao_id] ?? null) : null,
+  }))
 
   const { error } = await sb.from('orcamento_insumos').insert(rows)
   if (error) console.error('[duplicate] clonarInsumos:', error)

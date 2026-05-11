@@ -344,22 +344,33 @@ export default function ImportarComposicoesPage() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [baseOrigem, setBaseOrigem] = useState<BaseOrigem>('PROPRIA');
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const buffer = ev.target?.result as ArrayBuffer;
-      // Tenta UTF-8; se houver caractere de substituição (arquivo Windows-1252), redecodifica
+    setResultado(null);
+    setGlobalError(null);
+
+    const buffer = await file.arrayBuffer();
+    const isXlsx = /\.(xlsx|xls)$/i.test(file.name);
+
+    let text: string;
+    if (isXlsx) {
+      try {
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: false });
+        // Usa a primeira planilha e converte para CSV com separador ponto-e-vírgula
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        text = XLSX.utils.sheet_to_csv(sheet, { FS: ';' });
+      } catch (err: unknown) {
+        setGlobalError('Não foi possível ler o arquivo XLSX: ' + ((err as { message?: string })?.message ?? ''));
+        return;
+      }
+    } else {
       const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-      const text = utf8.includes('�')
-        ? new TextDecoder('windows-1252').decode(buffer)
-        : utf8;
-      setRows(parseCsv(text));
-      setResultado(null);
-      setGlobalError(null);
-    };
-    reader.readAsArrayBuffer(file);
+      text = utf8.includes('�') ? new TextDecoder('windows-1252').decode(buffer) : utf8;
+    }
+
+    setRows(parseCsv(text));
   }
 
   const validas   = rows.filter((r) => r.status === 'ok');
@@ -423,7 +434,7 @@ export default function ImportarComposicoesPage() {
       <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-3">
         <h2 className="font-semibold text-blue-900">Formato esperado</h2>
         <p className="text-sm text-blue-800">
-          CSV com delimitador <strong>vírgula (,)</strong> ou <strong>ponto-e-vírgula (;)</strong>.
+          Arquivo <strong>XLSX</strong> (nativo SINAPI) ou <strong>CSV</strong> com delimitador vírgula (,) ou ponto-e-vírgula (;).
           Cada linha = um insumo de uma composição. Linhas sem <code className="bg-blue-100 px-1 rounded text-xs">CodigoInsumo</code> são ignoradas automaticamente.
         </p>
         <div className="overflow-x-auto">
@@ -480,7 +491,7 @@ export default function ImportarComposicoesPage() {
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,.txt"
+          accept=".csv,.txt,.xlsx,.xls"
           onChange={handleFile}
           className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded-md file:border file:border-gray-300 file:text-sm file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
         />

@@ -67,7 +67,7 @@ export default function EditarOrcamentoPage() {
         .eq('id', id);
       if (dbError) throw dbError;
       router.refresh();
-      router.push(`/orcamentos/${id}`);
+      router.push(`/orcamentos/${id}/planilha`);
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);
@@ -95,7 +95,7 @@ export default function EditarOrcamentoPage() {
     <div className="max-w-lg space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <Link href={`/orcamentos/${id}`} className="text-sm text-blue-600 hover:underline">
+          <Link href={`/orcamentos/${id}/planilha`} className="text-sm text-blue-600 hover:underline">
             ← Orçamento
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-gray-900">Editar orçamento</h1>
@@ -164,7 +164,7 @@ export default function EditarOrcamentoPage() {
           >
             {loading ? 'Salvando...' : 'Salvar alterações'}
           </button>
-          <Link href={`/orcamentos/${id}`} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          <Link href={`/orcamentos/${id}/planilha`} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
             Cancelar
           </Link>
         </div>

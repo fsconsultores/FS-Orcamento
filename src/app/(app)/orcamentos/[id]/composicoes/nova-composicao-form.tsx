@@ -37,13 +37,11 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
 
     try {
       const supabase = createClient()
-      await createComposicao(supabase as any, orcamentoId, form)
-      setForm(EMPTY)
-      setOpen(false)
-      router.refresh()
+      const nova = await createComposicao(supabase as any, orcamentoId, form)
+      // Navega para o detalhe com flag para abrir o formulário de insumos automaticamente
+      router.push(`/orcamentos/${orcamentoId}/composicoes/${nova.id}?addItem=1`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro inesperado')
-    } finally {
       setLoading(false)
     }
   }
@@ -135,7 +133,7 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
           disabled={loading}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? 'Salvando...' : 'Salvar Composição'}
+          {loading ? 'Criando...' : 'Criar e adicionar insumos →'}
         </button>
       </div>
     </form>

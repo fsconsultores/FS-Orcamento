@@ -27,7 +27,7 @@ export default  async function DashboardPage({searchParams,
     .limit(10);
 
   if (q) {
-    orcQuery = orcQuery.or(`nome_obra.ilike.%${q}%,cliente.ilike.%${q}%`);
+    orcQuery = orcQuery.or(`nome_obra.ilike.%${q}%,cliente.ilike.%${q}%,codigo.ilike.%${q}%`);
   }
   const [rawOrc, rawTot] = await Promise.all([
     orcQuery,
@@ -93,7 +93,7 @@ export default  async function DashboardPage({searchParams,
           </Link>
         </div>
         <Suspense>
-          <SearchInput placeholder="Buscar por obra ou cliente..." />
+          <SearchInput placeholder="Buscar por obra, cliente ou código..." />
         </Suspense>
         <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} />
       </div>

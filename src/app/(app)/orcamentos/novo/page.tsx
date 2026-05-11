@@ -57,14 +57,14 @@ export default function NovoOrcamentoPage() {
 
       if (dbError) throw dbError;
 
-      await logAction(supabase, {
+      // Navega imediatamente; log roda em background sem bloquear
+      router.push(`/orcamentos/${data.id}`);
+      logAction(supabase, {
         usuario: user.email ?? '',
         tipo: 'sucesso',
         acao: 'criar_orcamento',
         mensagem: `Orçamento "${form.nome_obra.trim()}" criado com sucesso`,
       });
-
-      router.push(`/orcamentos/${data.id}`);
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);

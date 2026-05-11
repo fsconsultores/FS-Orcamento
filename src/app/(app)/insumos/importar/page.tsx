@@ -205,6 +205,22 @@ export default function ImportarInsumosPage() {
         </p>
       </div>
 
+      {/* Atalho SINAPI */}
+      <Link
+        href="/insumos/importar/sinapi"
+        className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 hover:bg-blue-100 transition-colors"
+      >
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-blue-900">Importar tabela SINAPI (CSV / XLSX)</p>
+          <p className="text-xs text-blue-700 mt-0.5">
+            Importa a planilha mensal de preços da CEF (todos os estados). Selecione seu estado, filtre categorias e importe com um clique.
+          </p>
+        </div>
+        <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </Link>
+
       {/* Instruções */}
       <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-2">
         <h2 className="font-semibold text-blue-900">Formato esperado</h2>

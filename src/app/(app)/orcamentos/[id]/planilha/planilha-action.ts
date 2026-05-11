@@ -121,7 +121,14 @@ export async function importarEstrutura(
 export async function atualizarItemEstrutura(
   id: string,
   orcamentoId: string,
-  fields: { quantidade?: number; custo_unitario?: number; descricao?: string }
+  fields: {
+    numero?: string
+    codigo?: string | null
+    descricao?: string
+    unidade?: string | null
+    quantidade?: number | null
+    custo_unitario?: number | null
+  }
 ): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
@@ -139,6 +146,13 @@ export async function deletarItemEstrutura(
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 }
 
+export async function limparPlanilha(orcamentoId: string): Promise<void> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  await sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId)
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+}
+
 export interface SugestaoCodigo {
   codigo: string
   descricao: string
@@ -151,32 +165,126 @@ export async function buscarSugestoesCodigo(
   orcamentoId: string,
   query: string
 ): Promise<SugestaoCodigo[]> {
-  if (!query) return []
   const supabase = await createClient()
   const sb = supabase as any
-  const [{ data: insumos }, { data: composicoes }] = await Promise.all([
-    sb.from('orcamento_insumos')
-      .select('codigo, descricao, unidade, custo')
+  const t = query.trim()
+
+  // 1. Composições do orçamento
+  const compQ = t
+    ? sb.from('orcamento_composicoes').select('id, codigo, descricao, unidade')
+        .eq('orcamento_id', orcamentoId)
+        .or(`codigo.ilike.%${t}%,descricao.ilike.%${t}%`)
+        .order('codigo').limit(15)
+    : sb.from('orcamento_composicoes').select('id, codigo, descricao, unidade')
+        .eq('orcamento_id', orcamentoId)
+        .order('codigo').limit(15)
+
+  const { data: comps } = await compQ
+  if (!comps?.length) return []
+
+  // 2. Insumos vinculados às composições encontradas
+  const ids = comps.map((c: any) => c.id)
+  const { data: allIns } = await sb
+    .from('orcamento_insumos')
+    .select('composicao_id, codigo, custo, indice')
+    .in('composicao_id', ids)
+
+  // 3. Avulsos (tabela de preços do orçamento) para os códigos usados
+  const codigos = [...new Set((allIns ?? []).map((i: any) => i.codigo).filter(Boolean))]
+  const precoMap = new Map<string, number>()
+  if (codigos.length) {
+    const { data: avs } = await sb
+      .from('orcamento_insumos')
+      .select('codigo, custo')
       .eq('orcamento_id', orcamentoId)
-      .or(`codigo.ilike.%${query}%,descricao.ilike.%${query}%`)
-      .limit(10),
-    sb.from('orcamento_composicoes')
-      .select('codigo, descricao, unidade')
-      .eq('orcamento_id', orcamentoId)
-      .or(`codigo.ilike.%${query}%,descricao.ilike.%${query}%`)
-      .limit(10),
-  ])
-  const result: SugestaoCodigo[] = [
-    ...(insumos ?? []).map((i: any) => ({
-      codigo: i.codigo, descricao: i.descricao, unidade: i.unidade,
-      custo_unitario: i.custo, fonte: 'insumo' as const,
-    })),
-    ...(composicoes ?? []).map((c: any) => ({
-      codigo: c.codigo, descricao: c.descricao, unidade: c.unidade,
-      custo_unitario: null, fonte: 'composicao' as const,
-    })),
-  ]
-  return result.sort((a, b) => a.codigo.localeCompare(b.codigo)).slice(0, 15)
+      .is('composicao_id', null)
+      .in('codigo', codigos)
+    for (const av of avs ?? []) precoMap.set(av.codigo, av.custo ?? 0)
+  }
+
+  // 4. Passo 1: calcula com avulsos
+  const custoMap: Record<string, number> = {}
+  for (const ins of allIns ?? []) {
+    if (!ins.composicao_id) continue
+    const preco = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
+    custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + preco * (ins.indice ?? 1)
+  }
+
+  // 5. Enriquece precoMap com composições filhas calculadas
+  for (const c of comps) {
+    if (!precoMap.has(c.codigo) && custoMap[c.id] !== undefined)
+      precoMap.set(c.codigo, custoMap[c.id])
+  }
+
+  // 6. Passo 2: recalcula com precoMap completo (avulsos + composições filhas)
+  const custoFinal: Record<string, number> = {}
+  for (const ins of allIns ?? []) {
+    if (!ins.composicao_id) continue
+    const preco = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
+    custoFinal[ins.composicao_id] = (custoFinal[ins.composicao_id] ?? 0) + preco * (ins.indice ?? 1)
+  }
+
+  return comps.map((c: any) => ({
+    codigo: c.codigo,
+    descricao: c.descricao,
+    unidade: c.unidade,
+    custo_unitario: custoFinal[c.id] || null, // null se 0 (preços não cadastrados)
+    fonte: 'composicao' as const,
+  }))
+}
+
+export async function adicionarItemNaPosicao(
+  orcamentoId: string,
+  referenceId: string,
+  position: 'above' | 'below',
+): Promise<EstruturaItem> {
+  const supabase = await createClient()
+  const sb = supabase as any
+
+  const { data: ref } = await sb
+    .from('orcamento_estrutura')
+    .select('parent_id, nivel, ordem')
+    .eq('id', referenceId)
+    .single()
+
+  if (!ref) throw new Error('Item referência não encontrado')
+
+  const insertOrdem = position === 'above' ? ref.ordem : ref.ordem + 1
+
+  // Busca irmãos que precisam ser deslocados
+  let sibQ = sb.from('orcamento_estrutura')
+    .select('id, ordem')
+    .eq('orcamento_id', orcamentoId)
+    .gte('ordem', insertOrdem)
+  sibQ = ref.parent_id
+    ? sibQ.eq('parent_id', ref.parent_id)
+    : sibQ.is('parent_id', null)
+
+  const { data: siblings } = await sibQ
+
+  for (const sib of siblings ?? []) {
+    await sb.from('orcamento_estrutura').update({ ordem: sib.ordem + 1 }).eq('id', sib.id)
+  }
+
+  const { data } = await sb.from('orcamento_estrutura')
+    .insert({
+      orcamento_id: orcamentoId,
+      parent_id: ref.parent_id,
+      numero: '',
+      nivel: ref.nivel,
+      codigo: null,
+      descricao: 'Novo item',
+      unidade: null,
+      quantidade: null,
+      custo_unitario: null,
+      tipo: 'item',
+      ordem: insertOrdem,
+    })
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+    .single()
+
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  return data as EstruturaItem
 }
 
 export async function adicionarItemEstrutura(

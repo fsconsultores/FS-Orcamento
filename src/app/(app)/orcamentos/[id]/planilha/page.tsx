@@ -12,14 +12,20 @@ export default async function PlanilhaPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  const { data } = await sb
-    .from('orcamento_estrutura')
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
-    .eq('orcamento_id', orcamentoId)
-    .order('nivel', { ascending: true })
-    .order('ordem', { ascending: true })
+  const [{ data }, { data: orc }] = await Promise.all([
+    sb.from('orcamento_estrutura')
+      .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+      .eq('orcamento_id', orcamentoId)
+      .order('nivel', { ascending: true })
+      .order('ordem', { ascending: true }),
+    sb.from('tabela_orcamentos')
+      .select('nome_obra, codigo')
+      .eq('id', orcamentoId)
+      .single(),
+  ])
 
   const items: EstruturaItem[] = data ?? []
+  const nomeOrcamento: string = orc ? `${orc.codigo} - ${orc.nome_obra}` : orcamentoId
 
   return (
     <div className="space-y-4">
@@ -35,7 +41,7 @@ export default async function PlanilhaPage({
         <ImportPlanilhaForm orcamentoId={orcamentoId} />
       </div>
 
-      <PlanilhaView initialItems={items} orcamentoId={orcamentoId} />
+      <PlanilhaView initialItems={items} orcamentoId={orcamentoId} nomeOrcamento={nomeOrcamento} />
     </div>
   )
 }
