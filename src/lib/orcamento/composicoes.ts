@@ -7,14 +7,24 @@ export async function getComposicoesByOrcamento(
   supabase: SupabaseClient,
   orcamentoId: string
 ): Promise<OrcamentoComposicao[]> {
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('*')
-    .eq('orcamento_id', orcamentoId)
-    .order('codigo')
-
-  if (error) throw new Error(`Erro ao buscar composições: ${error.message}`)
-  const composicoes = (data ?? []) as Omit<OrcamentoComposicao, 'custo_unitario'>[]
+  const allData: Omit<OrcamentoComposicao, 'custo_unitario'>[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('orcamento_id', orcamentoId)
+        .order('codigo')
+        .range(start, start + BATCH - 1)
+      if (error) throw new Error(`Erro ao buscar composições: ${error.message}`)
+      allData.push(...(data as Omit<OrcamentoComposicao, 'custo_unitario'>[]))
+      if ((data?.length ?? 0) < BATCH) break
+      start += BATCH
+    }
+  }
+  const composicoes = allData
 
   if (composicoes.length === 0) return []
 

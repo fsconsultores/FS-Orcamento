@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
+import { ClientPagination } from '@/components/client-pagination'
+
+const PAGE_SIZE = 100
 
 interface ComposicoesModal {
   insumo: OrcamentoInsumo
@@ -20,6 +23,7 @@ export function OrcamentoInsumosTable({
 }) {
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -33,6 +37,10 @@ export function OrcamentoInsumosTable({
         ins.descricao.toLowerCase().includes(q)
       )
     : insumos
+
+  useEffect(() => { setCurrentPage(1) }, [q])
+
+  const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   function startEdit(ins: OrcamentoInsumo, e: React.MouseEvent) {
     e.preventDefault()
@@ -183,7 +191,7 @@ export function OrcamentoInsumosTable({
                 </td>
               </tr>
             ) : (
-              visible.map((insumo) => (
+              paged.map((insumo) => (
                 <tr key={insumo.id} className={`group hover:bg-gray-50 ${deletingId === insumo.id ? 'opacity-40' : ''}`}>
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">{insumo.codigo}</td>
                   <td className="px-4 py-3">{insumo.descricao}</td>
@@ -253,6 +261,13 @@ export function OrcamentoInsumosTable({
           </tbody>
         </table>
       </div>
+
+      <ClientPagination
+        total={visible.length}
+        page={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={setCurrentPage}
+      />
     </div>
 
     {composicoesModal && (

@@ -1,9 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
+import { ClientPagination } from '@/components/client-pagination'
+
+const PAGE_SIZE = 100
 
 export function ComposicoesTable({
   composicoes: initialComposicoes,
@@ -14,6 +17,7 @@ export function ComposicoesTable({
 }) {
   const [composicoes, setComposicoes] = useState(initialComposicoes)
   const [query, setQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const q = query.trim().toLowerCase()
@@ -24,6 +28,10 @@ export function ComposicoesTable({
           c.descricao.toLowerCase().includes(q)
       )
     : composicoes
+
+  useEffect(() => { setCurrentPage(1) }, [q])
+
+  const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   async function handleDelete(e: React.MouseEvent, id: string) {
     e.preventDefault()
@@ -80,7 +88,7 @@ export function ComposicoesTable({
                 </td>
               </tr>
             ) : (
-              visible.map((c) => (
+              paged.map((c) => (
                 <tr key={c.id}
                   className={`group cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all ${deletingId === c.id ? 'opacity-40' : ''}`}
                 >
@@ -121,6 +129,13 @@ export function ComposicoesTable({
           </tbody>
         </table>
       </div>
+
+      <ClientPagination
+        total={visible.length}
+        page={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={setCurrentPage}
+      />
     </div>
   )
 }

@@ -7,16 +7,25 @@ import type { ImportComposicaoRow, ImportInsumoRow, ImportResult } from './impor
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
 const COL_ALIASES: Record<string, string[]> = {
-  codigo:   ['cod', 'codigo', 'código', 'cód', 'code'],
-  descricao:['descricao', 'descrição', 'descr', 'description', 'nome', 'name',
-             'descricaoabreviada', 'descriçãoabreviada', 'descricaocomp', 'descriçãocomp',
-             'descricaocompleta'],
-  unidade:  ['unidade', 'und', 'un', 'unit'],
-  custo:    ['custo', 'preço', 'preco', 'price', 'valor', 'custounit', 'custounitario',
-             'custo unit', 'r$ unit.', 'r$ unit', 'runit'],
-  grupo:    ['grupo', 'grupois', 'grupoinsumo', 'group', 'categoria', 'tipo'],
-  base:     ['base', 'fonte', 'origem', 'cotacao', 'cotação', 'source', 'fornecedor'],
-  data_ref: ['data_ref', 'dataref', 'data ref', 'datareferencia', 'data referência', 'ref'],
+  codigo:   ['cod', 'codigo', 'code',
+             'codigodoinsumo', 'codigodoservico', 'codigodoitem',
+             'codigodacomposicao', 'coddacomposicao', 'codcomposicao'],
+  descricao:['descricao', 'descr', 'description', 'nome', 'name',
+             'descricaoabreviada', 'descricaocomp', 'descricaocompleta',
+             'descricaodoinsumo', 'descricaoabreviadainsumo', 'descricaoabreviadaitem',
+             'descricaodoservico', 'descricaodoitem',
+             'descricaodacomposicao', 'descricaocomposicao'],
+  unidade:  ['unidade', 'und', 'un', 'unit', 'unidadedemedida', 'unid',
+             'unidadedacomposicao', 'unidadedemedidadacomposicao'],
+  custo:    ['custo', 'preco', 'price', 'valor', 'custounit', 'custounitario',
+             'runit', 'mediana', 'medianadesonerado', 'medianadesonerada',
+             'medianaonaodesonerado', 'mediananaodesonerdo',
+             'precomediano', 'precomedianodesonerado', 'precomedianonaodesonerdo',
+             'custounitariodesonerado', 'custounitarionaodesonerdo',
+             'precototaldesonerado', 'precototal'],
+  grupo:    ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria', 'tipo'],
+  base:     ['base', 'fonte', 'origem', 'cotacao', 'source', 'fornecedor'],
+  data_ref: ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
 }
 
 function parseNumber(val: unknown): number {
@@ -25,12 +34,24 @@ function parseNumber(val: unknown): number {
   return parseFloat(s) || 0
 }
 
+function normCol(s: string): string {
+  return String(s ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim()
+    .replace(/[^a-z0-9]/g, '')
+}
+
 function detectCols(header: string[]): Record<string, number> {
   const map: Record<string, number> = {}
+  const normAliasCache: Record<string, string[]> = {}
+  for (const [field, aliases] of Object.entries(COL_ALIASES)) {
+    normAliasCache[field] = aliases.map(normCol)
+  }
   header.forEach((h, i) => {
-    const lower = String(h ?? '').toLowerCase().trim().replace(/[^a-z0-9]/g, '')
-    for (const [field, aliases] of Object.entries(COL_ALIASES)) {
-      const normAliases = aliases.map(a => a.replace(/[^a-z0-9]/g, ''))
+    const lower = normCol(h)
+    for (const [field, normAliases] of Object.entries(normAliasCache)) {
       if (normAliases.includes(lower) && !(field in map)) map[field] = i
     }
   })
@@ -177,6 +198,33 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
       grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
       base:     'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
       data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,
+    })
+  }
+  return { rows, erros }
+}
+
+// ─── Parser composições flat (cada linha = uma composição, sem sub-itens) ─────
+// Usado para abas CS* do SINAPI, onde a planilha é um catálogo plano de serviços.
+function parseFlatComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const erros: string[] = []
+  if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'] }
+  const headerIdx = findHeaderRow(data)
+  const header = (data[headerIdx] as unknown[]).map(String)
+  const cols = detectCols(header)
+  if (!('descricao' in cols)) {
+    return { rows: [], erros: ['Coluna "descricao" não encontrada no cabeçalho.'] }
+  }
+  const rows: ImportComposicaoRow[] = []
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const row = data[i] as unknown[]
+    const descricao = String(row[cols.descricao] ?? '').trim()
+    if (!descricao) continue
+    rows.push({
+      codigo:  'codigo'  in cols ? String(row[cols.codigo]  ?? '').trim() : '',
+      descricao,
+      unidade: 'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : '',
+      base:    'base'    in cols ? String(row[cols.base]    ?? '').trim() || null : null,
+      insumos: [],
     })
   }
   return { rows, erros }
@@ -518,19 +566,227 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
   )
 }
 
+// ─── Detecção de regimes SINAPI ───────────────────────────────────────────────
+
+interface SINAPIRegime {
+  suffix: string
+  isSheet: string | null
+  csSheet: string | null
+}
+
+function detectSINAPIRegimes(sheets: string[]): SINAPIRegime[] {
+  const isMap = new Map<string, string>()
+  const csMap = new Map<string, string>()
+  for (const s of sheets) {
+    const u = s.toUpperCase().trim()
+    if (/^IS[A-Z]+$/.test(u)) isMap.set(u.slice(2), s)
+    else if (/^CS[A-Z]+$/.test(u)) csMap.set(u.slice(2), s)
+  }
+  const suffixes = new Set([...isMap.keys(), ...csMap.keys()])
+  return [...suffixes].map(suffix => ({
+    suffix,
+    isSheet: isMap.get(suffix) ?? null,
+    csSheet: csMap.get(suffix) ?? null,
+  }))
+}
+
+// ─── Aba: Importar SINAPI ─────────────────────────────────────────────────────
+
+function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState('')
+  const [regimes, setRegimes] = useState<SINAPIRegime[]>([])
+  const [selectedSuffix, setSelectedSuffix] = useState<string | null>(null)
+  const [wbRef, setWbRef] = useState<unknown>(null)
+  const [previewCounts, setPreviewCounts] = useState<{ insumos: number; composicoes: number } | null>(null)
+  const [parseErros, setParseErros] = useState<string[]>([])
+  const [pendingData, setPendingData] = useState<{
+    insumos: ImportInsumoRow[]
+    composicoes: ImportComposicaoRow[]
+  } | null>(null)
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  function processSheetsFromWb(wb: unknown, regime: SINAPIRegime) {
+    void import('xlsx').then(XLSX => {
+      const _wb = wb as { Sheets: Record<string, unknown> }
+      const erros: string[] = []
+      let insumos: ImportInsumoRow[] = []
+      let composicoes: ImportComposicaoRow[] = []
+
+      if (regime.isSheet) {
+        const ws = _wb.Sheets[regime.isSheet]
+        if (ws) {
+          const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+          const r = parseFlat(data)
+          insumos = r.rows
+          erros.push(...r.erros.map(e => `[${regime.isSheet}] ${e}`))
+        }
+      }
+
+      if (regime.csSheet) {
+        const ws = _wb.Sheets[regime.csSheet]
+        if (ws) {
+          const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+          if (data.length >= 2) {
+            const header = (data[0] as unknown[]).map(String)
+            // SINAPI CS* sheets are flat catalogs (each row = one composition, no sub-items).
+            // Only use the SUDECAP parser when the sheet explicitly signals a hierarchical structure.
+            const r = isSudecap(header) ? parseSudecap(data) : parseFlatComposicoes(data)
+            composicoes = r.rows
+            erros.push(...r.erros.map(e => `[${regime.csSheet}] ${e}`))
+          }
+        }
+      }
+
+      setPendingData({ insumos, composicoes })
+      setPreviewCounts({ insumos: insumos.length, composicoes: composicoes.length })
+      setParseErros(erros)
+    })
+  }
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResult(null); setPreviewCounts(null); setParseErros([]); setPendingData(null)
+    setFileName(file.name)
+    const ab = await file.arrayBuffer()
+    const XLSX = await import('xlsx')
+    const wb = XLSX.read(ab, { type: 'array' })
+    setWbRef(wb)
+    const detected = detectSINAPIRegimes(wb.SheetNames)
+    setRegimes(detected)
+    if (detected.length > 0) {
+      setSelectedSuffix(detected[0].suffix)
+      processSheetsFromWb(wb, detected[0])
+    } else {
+      setSelectedSuffix(null)
+    }
+  }
+
+  function onRegimeChange(suffix: string) {
+    setSelectedSuffix(suffix)
+    setPreviewCounts(null); setPendingData(null); setParseErros([])
+    const regime = regimes.find(r => r.suffix === suffix)
+    if (regime && wbRef) processSheetsFromWb(wbRef, regime)
+  }
+
+  async function handleImport() {
+    if (!pendingData) return
+    setLoading(true)
+    const combined: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
+    try {
+      if (pendingData.insumos.length > 0) {
+        const r = await importarInsumos(orcamentoId, pendingData.insumos)
+        combined.insumosCriados += r.insumosCriados
+        combined.erros.push(...r.erros)
+      }
+      if (pendingData.composicoes.length > 0) {
+        const r = await importarComposicoes(orcamentoId, pendingData.composicoes)
+        combined.composicoesCriadas += r.composicoesCriadas
+        combined.insumosCriados += r.insumosCriados
+        combined.erros.push(...r.erros)
+      }
+      setResult(combined)
+      setPendingData(null); setPreviewCounts(null)
+      if (inputRef.current) inputRef.current.value = ''
+      setWbRef(null); setRegimes([]); setSelectedSuffix(null); setFileName('')
+    } catch (err) {
+      setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
+        <p className="text-sm text-gray-500 mb-1">Arquivo <strong>.xlsx</strong> da tabela de referência SINAPI</p>
+        <p className="text-xs text-gray-400 mb-4">Detecta automaticamente as abas IS* (insumos) e CS* (composições)</p>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+        {fileName && <p className="mt-2 text-xs text-gray-400">{fileName}</p>}
+      </div>
+
+      {fileName && regimes.length === 0 && (
+        <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+          Nenhuma aba SINAPI detectada (IS*/CS*). Use as abas "Importar Composições" ou "Importar Insumos Avulsos".
+        </p>
+      )}
+
+      {regimes.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">Regime de tributação:</p>
+          <div className="flex flex-wrap gap-2">
+            {regimes.map(r => (
+              <label key={r.suffix} className={`flex items-center gap-2 cursor-pointer rounded-lg border px-4 py-2.5 text-sm transition-colors ${
+                selectedSuffix === r.suffix
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+              }`}>
+                <input type="radio" name="regime" value={r.suffix}
+                  checked={selectedSuffix === r.suffix}
+                  onChange={() => onRegimeChange(r.suffix)}
+                  className="text-blue-600 accent-blue-600" />
+                <span className="font-mono">{r.suffix}</span>
+                <span className="text-xs text-gray-400 font-normal">
+                  {[r.isSheet, r.csSheet].filter(Boolean).join(' + ')}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {parseErros.length > 0 && (
+        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3">
+          <p className="text-xs font-semibold text-yellow-800 mb-1">Avisos:</p>
+          <ul className="text-xs text-yellow-700 space-y-0.5">
+            {parseErros.slice(0, 5).map((e, i) => <li key={i}>• {e}</li>)}
+          </ul>
+          {parseErros.length > 5 && (
+            <p className="text-xs text-yellow-600 mt-1">...e mais {parseErros.length - 5} avisos.</p>
+          )}
+        </div>
+      )}
+
+      {previewCounts && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium text-gray-800">Pronto para importar</p>
+            <p className="text-xs text-gray-500">
+              {previewCounts.insumos > 0 && <span>{previewCounts.insumos.toLocaleString('pt-BR')} insumo(s)</span>}
+              {previewCounts.insumos > 0 && previewCounts.composicoes > 0 && <span> · </span>}
+              {previewCounts.composicoes > 0 && <span>{previewCounts.composicoes.toLocaleString('pt-BR')} composição(ões)</span>}
+              {previewCounts.insumos === 0 && previewCounts.composicoes === 0 && <span className="text-yellow-600">Nenhum dado encontrado nas abas selecionadas.</span>}
+            </p>
+          </div>
+          {(previewCounts.insumos > 0 || previewCounts.composicoes > 0) && (
+            <button onClick={handleImport} disabled={loading}
+              className="shrink-0 rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {loading ? 'Importando...' : 'Confirmar Importação'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {result && <ResultBox result={result} />}
+    </div>
+  )
+}
+
 // ─── Form principal com abas ──────────────────────────────────────────────────
 
-type Tab = 'insumos' | 'composicoes'
+type Tab = 'sinapi' | 'composicoes' | 'insumos'
 
 export function ImportForm({ orcamentoId }: { orcamentoId: string }) {
-  const [tab, setTab] = useState<Tab>('composicoes')
+  const [tab, setTab] = useState<Tab>('sinapi')
 
   return (
     <div className="space-y-0">
       <div className="flex gap-0 border-b border-gray-200 mb-6">
         {([
-          { key: 'composicoes', label: 'Importar Composições' },
-          { key: 'insumos',     label: 'Importar Insumos Avulsos' },
+          { key: 'sinapi',      label: 'Importar SINAPI' },
+          { key: 'composicoes', label: 'Composições' },
+          { key: 'insumos',     label: 'Insumos Avulsos' },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -542,8 +798,9 @@ export function ImportForm({ orcamentoId }: { orcamentoId: string }) {
           </button>
         ))}
       </div>
-      {tab === 'composicoes' && <ImportarComposicoesTab orcamentoId={orcamentoId} />}
-      {tab === 'insumos'     && <ImportarInsumosTab     orcamentoId={orcamentoId} />}
+      {tab === 'sinapi'      && <ImportarSINAPITab       orcamentoId={orcamentoId} />}
+      {tab === 'composicoes' && <ImportarComposicoesTab  orcamentoId={orcamentoId} />}
+      {tab === 'insumos'     && <ImportarInsumosTab      orcamentoId={orcamentoId} />}
     </div>
   )
 }

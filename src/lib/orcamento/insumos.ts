@@ -42,17 +42,27 @@ export async function getInsumosByOrcamento(
     }
   }
 
-  // 3. Todos os insumos com orcamento_id correto (inclui avulsos)
-  const { data: todos, error } = await supabase
-    .from(TABLE)
-    .select('*')
-    .eq('orcamento_id', orcamentoId)
-    .order('codigo')
-  if (error) throw new Error(`Erro ao buscar insumos: ${error.message}`)
+  // 3. Todos os insumos com orcamento_id correto (inclui avulsos) — paginado para passar do limite de 1000
+  const todosArr: OrcamentoInsumo[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select('*')
+        .eq('orcamento_id', orcamentoId)
+        .order('codigo')
+        .range(start, start + BATCH - 1)
+      if (error) throw new Error(`Erro ao buscar insumos: ${error.message}`)
+      todosArr.push(...(data as OrcamentoInsumo[]))
+      if ((data?.length ?? 0) < BATCH) break
+      start += BATCH
+    }
+  }
 
   // Avulsos (composicao_id=null) têm custo explícito — devem ter prioridade na deduplicação.
   // Insumos de composições (custo=0) só aparecem se não houver avulso com o mesmo código.
-  const todosArr = todos as OrcamentoInsumo[]
   const avulsos = todosArr.filter(ins => ins.composicao_id === null)
   const avulsosCodigos = new Set(avulsos.map(ins => ins.codigo ?? ''))
   const compSemAvulso = porComp.filter(ins => !avulsosCodigos.has(ins.codigo ?? ''))
