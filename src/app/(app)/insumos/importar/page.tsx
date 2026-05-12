@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -116,6 +116,18 @@ export default function ImportarInsumosPage() {
   const [resultado, setResultado] = useState<{ ok: number; erros: number } | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [baseOrigem, setBaseOrigem] = useState<BaseOrigem>('PROPRIA');
+  const [targetBase, setTargetBase] = useState<{ id: string; orgao: string } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const baseId = params.get('baseId');
+    if (!baseId) return;
+    const sb = createClient() as any;
+    sb.from('tabela_bases').select('id, orgao').eq('id', baseId).single()
+      .then(({ data }: { data: { id: string; orgao: string } | null }) => {
+        if (data) setTargetBase(data);
+      });
+  }, []);
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -146,9 +158,15 @@ export default function ImportarInsumosPage() {
     try {
       const sb = createClient() as any;
 
-      // Obtém ou cria base própria
-      const { data: baseId, error: baseErr } = await sb.rpc('get_or_create_propria_base');
-      if (baseErr) throw baseErr;
+      // Usa base da URL se disponível, senão cria/obtém base própria
+      let baseId: string;
+      if (targetBase) {
+        baseId = targetBase.id;
+      } else {
+        const { data, error: baseErr } = await sb.rpc('get_or_create_propria_base');
+        if (baseErr) throw baseErr;
+        baseId = data;
+      }
 
       // Insere em lotes de 100
       let ok = 0;
@@ -201,9 +219,23 @@ export default function ImportarInsumosPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar insumos via CSV</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Os insumos serão importados para a sua base própria.
+          {targetBase
+            ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>.</>
+            : 'Os insumos serão importados para a sua base própria.'}
         </p>
       </div>
+
+      {targetBase && (
+        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+          <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M9 3h6M9 3v4m6-4v4" />
+          </svg>
+          <p className="text-sm text-blue-800">
+            Destino: <strong>{targetBase.orgao}</strong>
+          </p>
+          <Link href="/bases" className="ml-auto text-xs text-blue-600 hover:underline">← Bases</Link>
+        </div>
+      )}
 
       {/* Atalho SINAPI */}
       <Link

@@ -14,7 +14,7 @@ const NAV_ITEMS = [
 const ORCAMENTO_SUB_ITEMS = [
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
-  { suffix: 'importar', label: 'Importar Excel' },
+  { suffix: 'importar', label: 'Importar SINAPI' },
 ];
 
 function getOrcamentoId(pathname: string): string | null {
@@ -118,6 +118,34 @@ export function Nav({ userEmail, open = true, onToggle }: { userEmail: string; o
                 </Link>
               );
             })}
+          </div>
+        )}
+
+        {/* Biblioteca */}
+        <Link
+          href="/bases"
+          className={`block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            pathname.startsWith('/bases') || pathname.startsWith('/insumos') || pathname.startsWith('/composicoes')
+              ? 'bg-blue-50 text-blue-700'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+          }`}
+        >
+          Bases de Dados
+        </Link>
+
+        {(pathname.startsWith('/bases') || pathname.startsWith('/insumos') || pathname.startsWith('/composicoes')) && (
+          <div className="ml-3 border-l-2 border-blue-100 pl-3 space-y-0.5">
+            {[
+              { href: '/insumos', label: 'Insumos' },
+              { href: '/composicoes', label: 'Composições' },
+            ].map(({ href, label }) => (
+              <Link key={href} href={href as any}
+                className={`block rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  pathname.startsWith(href) ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                }`}>
+                {label}
+              </Link>
+            ))}
           </div>
         )}
 

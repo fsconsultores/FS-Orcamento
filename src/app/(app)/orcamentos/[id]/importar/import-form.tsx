@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useRef, Fragment } from 'react'
-import { importarInsumos, importarComposicoes } from './import-action'
-import type { ImportComposicaoRow, ImportInsumoRow, ImportResult } from './import-action'
+import { importarInsumos, importarComposicoes, importarDaBase } from './import-action'
+import type { ImportComposicaoRow, ImportInsumoRow, ImportResult, BaseInfo } from './import-action'
 
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
@@ -773,23 +773,136 @@ function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
   )
 }
 
+// ─── Aba: Importar da Base ────────────────────────────────────────────────────
+
+function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases: BaseInfo[] }) {
+  const [selectedId, setSelectedId] = useState<string>(bases[0]?.id ?? '')
+  const [opcoes, setOpcoes] = useState({ insumos: true, composicoes: true })
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<ImportResult | null>(null)
+
+  const base = bases.find(b => b.id === selectedId)
+
+  async function handleImport() {
+    if (!selectedId || (!opcoes.insumos && !opcoes.composicoes)) return
+    setLoading(true)
+    try {
+      const r = await importarDaBase(orcamentoId, selectedId, opcoes)
+      setResult(r)
+    } catch (err) {
+      setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (bases.length === 0) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
+        <p className="text-sm font-medium text-gray-700 mb-1">Nenhuma base cadastrada</p>
+        <p className="text-xs text-gray-500">
+          Importe insumos e composições na biblioteca global primeiro
+          (menu <strong>Insumos → Importar</strong> ou <strong>Composições → Importar</strong>).
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-gray-600">
+        Copia insumos e/ou composições de uma base global cadastrada diretamente para este orçamento.
+        Preços sempre atualizados a partir da base de referência.
+      </p>
+
+      {/* Seleção de base */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-gray-700">Base de referência:</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {bases.map(b => (
+            <label key={b.id} className={`flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors ${
+              selectedId === b.id
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}>
+              <input type="radio" name="base" value={b.id} checked={selectedId === b.id}
+                onChange={() => { setSelectedId(b.id); setResult(null) }}
+                className="mt-0.5 accent-blue-600" />
+              <div className="min-w-0">
+                <p className={`text-sm font-medium ${selectedId === b.id ? 'text-blue-700' : 'text-gray-800'}`}>
+                  {b.orgao}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {b.total_insumos > 0 && `${b.total_insumos.toLocaleString('pt-BR')} insumos`}
+                  {b.total_insumos > 0 && b.total_composicoes > 0 && ' · '}
+                  {b.total_composicoes > 0 && `${b.total_composicoes.toLocaleString('pt-BR')} composições`}
+                  {b.total_insumos === 0 && b.total_composicoes === 0 && 'Base vazia'}
+                </p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* O que importar */}
+      {base && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">Importar:</p>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input type="checkbox" checked={opcoes.insumos}
+                onChange={e => setOpcoes(o => ({ ...o, insumos: e.target.checked }))}
+                className="accent-blue-600" disabled={base.total_insumos === 0} />
+              <span className={base.total_insumos === 0 ? 'text-gray-400' : ''}>
+                Insumos {base.total_insumos > 0 && <span className="text-gray-400">({base.total_insumos.toLocaleString('pt-BR')})</span>}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+              <input type="checkbox" checked={opcoes.composicoes}
+                onChange={e => setOpcoes(o => ({ ...o, composicoes: e.target.checked }))}
+                className="accent-blue-600" disabled={base.total_composicoes === 0} />
+              <span className={base.total_composicoes === 0 ? 'text-gray-400' : ''}>
+                Composições {base.total_composicoes > 0 && <span className="text-gray-400">({base.total_composicoes.toLocaleString('pt-BR')})</span>}
+              </span>
+            </label>
+          </div>
+          <p className="text-xs text-gray-400">
+            Insumos já importados terão o preço atualizado da base. Composições já existentes são ignoradas.
+          </p>
+        </div>
+      )}
+
+      {!result && (
+        <button onClick={handleImport}
+          disabled={loading || !selectedId || (!opcoes.insumos && !opcoes.composicoes)}
+          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+          {loading ? 'Importando...' : 'Importar para este orçamento'}
+        </button>
+      )}
+
+      {result && <ResultBox result={result} />}
+    </div>
+  )
+}
+
 // ─── Form principal com abas ──────────────────────────────────────────────────
 
-type Tab = 'sinapi' | 'composicoes' | 'insumos'
+type Tab = 'base' | 'sinapi' | 'composicoes' | 'insumos'
 
-export function ImportForm({ orcamentoId }: { orcamentoId: string }) {
-  const [tab, setTab] = useState<Tab>('sinapi')
+export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases: BaseInfo[] }) {
+  const [tab, setTab] = useState<Tab>(bases.length > 0 ? 'base' : 'sinapi')
 
   return (
     <div className="space-y-0">
-      <div className="flex gap-0 border-b border-gray-200 mb-6">
+      <div className="flex gap-0 border-b border-gray-200 mb-6 overflow-x-auto">
         {([
-          { key: 'sinapi',      label: 'Importar SINAPI' },
+          { key: 'base',        label: 'Da Base Global' },
+          { key: 'sinapi',      label: 'SINAPI (arquivo)' },
           { key: 'composicoes', label: 'Composições' },
           { key: 'insumos',     label: 'Insumos Avulsos' },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -798,9 +911,10 @@ export function ImportForm({ orcamentoId }: { orcamentoId: string }) {
           </button>
         ))}
       </div>
-      {tab === 'sinapi'      && <ImportarSINAPITab       orcamentoId={orcamentoId} />}
-      {tab === 'composicoes' && <ImportarComposicoesTab  orcamentoId={orcamentoId} />}
-      {tab === 'insumos'     && <ImportarInsumosTab      orcamentoId={orcamentoId} />}
+      {tab === 'base'        && <ImportarDaBaseTab       orcamentoId={orcamentoId} bases={bases} />}
+      {tab === 'sinapi'      && <ImportarSINAPITab        orcamentoId={orcamentoId} />}
+      {tab === 'composicoes' && <ImportarComposicoesTab   orcamentoId={orcamentoId} />}
+      {tab === 'insumos'     && <ImportarInsumosTab       orcamentoId={orcamentoId} />}
     </div>
   )
 }

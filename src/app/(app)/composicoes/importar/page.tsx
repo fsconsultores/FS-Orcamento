@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -162,13 +162,20 @@ function agrupar(rows: RowParsed[]): ComposicaoGroup[] {
 async function importarEmLote(
   grupos: ComposicaoGroup[],
   sb: ReturnType<typeof createClient>,
-  baseOrigem: BaseOrigem
+  baseOrigem: BaseOrigem,
+  targetBaseId?: string | null
 ): Promise<ImportResult> {
   const sbAny = sb as any;
 
-  // 1. Obter base própria do usuário
-  const { data: baseId, error: baseErr } = await sbAny.rpc('get_or_create_propria_base');
-  if (baseErr) throw new Error('Não foi possível acessar sua base de dados. Tente novamente.');
+  // 1. Obter base (da URL se disponível, senão a base própria)
+  let baseId: string;
+  if (targetBaseId) {
+    baseId = targetBaseId;
+  } else {
+    const { data, error: baseErr } = await sbAny.rpc('get_or_create_propria_base');
+    if (baseErr) throw new Error('Não foi possível acessar sua base de dados. Tente novamente.');
+    baseId = data;
+  }
 
   // 2. Construir mapa código → dados do insumo com deduplicação imediata (O(1) lookup)
   //    Garante que o mesmo código, mesmo aparecendo em N composições, seja processado uma única vez.
@@ -342,6 +349,18 @@ export default function ImportarComposicoesPage() {
   const [loading, setLoading] = useState(false);
   const [resultado, setResultado] = useState<ImportResult | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [targetBase, setTargetBase] = useState<{ id: string; orgao: string } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const baseId = params.get('baseId');
+    if (!baseId) return;
+    const sb = createClient() as any;
+    sb.from('tabela_bases').select('id, orgao').eq('id', baseId).single()
+      .then(({ data }: { data: { id: string; orgao: string } | null }) => {
+        if (data) setTargetBase(data);
+      });
+  }, []);
   const [baseOrigem, setBaseOrigem] = useState<BaseOrigem>('PROPRIA');
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -387,7 +406,7 @@ export default function ImportarComposicoesPage() {
     try {
       const sb = createClient();
       const { data: { user } } = await sb.auth.getUser();
-      const result = await importarEmLote(grupos, sb, baseOrigem);
+      const result = await importarEmLote(grupos, sb, baseOrigem, targetBase?.id);
       setResultado(result);
 
       await logAction(sb, {
@@ -426,9 +445,23 @@ export default function ImportarComposicoesPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar composições via CSV</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são ignoradas.
+          {targetBase
+            ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>. Insumos ausentes são criados automaticamente.</>
+            : 'Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são ignoradas.'}
         </p>
       </div>
+
+      {targetBase && (
+        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+          <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M9 3h6M9 3v4m6-4v4" />
+          </svg>
+          <p className="text-sm text-blue-800">
+            Destino: <strong>{targetBase.orgao}</strong>
+          </p>
+          <Link href="/bases" className="ml-auto text-xs text-blue-600 hover:underline">← Bases</Link>
+        </div>
+      )}
 
       {/* Formato */}
       <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-3">

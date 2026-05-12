@@ -11,7 +11,7 @@ const TABS = [
   { suffix: 'planilha', label: 'Planilha' },
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
-  { suffix: 'importar', label: 'Importar Excel' },
+  { suffix: 'importar', label: 'Importar SINAPI' },
 ]
 
 export function OrcamentoSubNav({ orcamentoId }: Props) {

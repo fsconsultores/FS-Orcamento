@@ -203,3 +203,151 @@ export async function importarComposicoes(
   revalidatePath(`/orcamentos/${orcamentoId}/insumos`)
   return result
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bases globais
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BaseInfo {
+  id: string
+  nome: string
+  orgao: string
+  tipo_base: 'externa' | 'propria'
+  total_insumos: number
+  total_composicoes: number
+}
+
+export async function listBases(): Promise<BaseInfo[]> {
+  const supabase = await createClient()
+  const sb = supabase as any
+
+  const { data: bases } = await sb
+    .from('tabela_bases')
+    .select('id, nome, orgao, tipo_base')
+    .order('tipo_base')
+    .order('orgao')
+
+  if (!bases?.length) return []
+
+  const result: BaseInfo[] = await Promise.all(
+    (bases as { id: string; nome: string; orgao: string; tipo_base: 'externa' | 'propria' }[]).map(async (b) => {
+      const [{ count: ni }, { count: nc }] = await Promise.all([
+        sb.from('tabela_insumos').select('*', { count: 'exact', head: true }).eq('base_id', b.id),
+        sb.from('tabela_composicoes').select('*', { count: 'exact', head: true }).eq('base_id', b.id),
+      ])
+      return { ...b, total_insumos: ni ?? 0, total_composicoes: nc ?? 0 }
+    })
+  )
+
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Importação interna: copia de base global → orçamento
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function importarDaBase(
+  orcamentoId: string,
+  baseId: string,
+  opcoes: { insumos: boolean; composicoes: boolean }
+): Promise<ImportResult> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
+
+  const { data: base } = await sb.from('tabela_bases').select('orgao').eq('id', baseId).single()
+  const baseLabel: string = base?.orgao ?? ''
+
+  // ── Insumos ────────────────────────────────────────────────────────────────
+  if (opcoes.insumos) {
+    const allInsumos: any[] = []
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data, error } = await sb
+        .from('tabela_insumos')
+        .select('codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia')
+        .eq('base_id', baseId)
+        .range(start, start + BATCH - 1)
+      if (error) { result.erros.push(`Insumos: ${error.message}`); break }
+      allInsumos.push(...(data ?? []))
+      if ((data?.length ?? 0) < BATCH) break
+      start += BATCH
+    }
+
+    if (allInsumos.length > 0) {
+      const rows: ImportInsumoRow[] = allInsumos.map((ins: any) => ({
+        codigo: ins.codigo,
+        descricao: ins.descricao,
+        unidade: ins.unidade,
+        custo: ins.preco_base ?? 0,
+        indice: 1,
+        grupo: ins.grupo ?? null,
+        base: ins.fonte ?? baseLabel,
+        data_ref: ins.data_referencia ?? null,
+      }))
+      const r = await importarInsumos(orcamentoId, rows)
+      result.insumosCriados += r.insumosCriados
+      result.erros.push(...r.erros)
+    }
+  }
+
+  // ── Composições ────────────────────────────────────────────────────────────
+  if (opcoes.composicoes) {
+    const allComps: any[] = []
+    const BATCH = 500
+    let start = 0
+    while (true) {
+      const { data, error } = await sb
+        .from('tabela_composicoes')
+        .select('id, codigo, descricao, unidade')
+        .eq('base_id', baseId)
+        .range(start, start + BATCH - 1)
+      if (error) { result.erros.push(`Composições: ${error.message}`); break }
+      allComps.push(...(data ?? []))
+      if ((data?.length ?? 0) < BATCH) break
+      start += BATCH
+    }
+
+    if (allComps.length > 0) {
+      // Busca itens em lotes de 100 IDs de composição
+      const compIds = allComps.map((c: any) => c.id)
+      const itemsByComp = new Map<string, any[]>()
+      for (let i = 0; i < compIds.length; i += 100) {
+        const { data, error } = await sb
+          .from('tabela_itens_composicao')
+          .select('composicao_id, indice, insumo:tabela_insumos(codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia)')
+          .in('composicao_id', compIds.slice(i, i + 100))
+        if (error) { result.erros.push(`Itens: ${error.message}`); break }
+        for (const item of (data ?? []) as any[]) {
+          if (!itemsByComp.has(item.composicao_id)) itemsByComp.set(item.composicao_id, [])
+          itemsByComp.get(item.composicao_id)!.push(item)
+        }
+      }
+
+      const rows: ImportComposicaoRow[] = allComps.map((comp: any) => ({
+        codigo: comp.codigo,
+        descricao: comp.descricao,
+        unidade: comp.unidade,
+        base: baseLabel,
+        insumos: (itemsByComp.get(comp.id) ?? []).map((item: any) => ({
+          codigo: item.insumo?.codigo ?? '',
+          descricao: item.insumo?.descricao ?? '',
+          unidade: item.insumo?.unidade ?? '',
+          custo: item.insumo?.preco_base ?? 0,
+          indice: item.indice ?? 1,
+          grupo: item.insumo?.grupo ?? null,
+          base: item.insumo?.fonte ?? baseLabel,
+          data_ref: item.insumo?.data_referencia ?? null,
+        })),
+      }))
+
+      const r = await importarComposicoes(orcamentoId, rows)
+      result.composicoesCriadas += r.composicoesCriadas
+      result.insumosCriados += r.insumosCriados
+      result.erros.push(...r.erros)
+    }
+  }
+
+  return result
+}
