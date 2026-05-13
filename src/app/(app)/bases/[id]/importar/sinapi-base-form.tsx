@@ -7,16 +7,17 @@ import type { ImportInsumoRow, ImportComposicaoRow, ImportResult } from '@/app/(
 // ─── Parsing utilities ────────────────────────────────────────────────────────
 
 const COL_ALIASES: Record<string, string[]> = {
-  codigo:   ['cod', 'codigo', 'code', 'codigodoinsumo', 'codigodoservico', 'codigodoitem', 'codigodacomposicao', 'coddacomposicao'],
-  descricao:['descricao', 'descr', 'description', 'nome', 'name', 'descricaoabreviada', 'descricaodoinsumo', 'descricaodacomposicao', 'descricaodoservico'],
-  unidade:  ['unidade', 'und', 'un', 'unit', 'unidadedemedida', 'unid', 'unidadedacomposicao'],
-  custo:    ['custo', 'preco', 'price', 'valor', 'custounit', 'custounitario', 'runit', 'mediana',
-             'medianadesonerado', 'medianadesonerada', 'precomediano', 'precomedianodesonerado',
-             'custounitariodesonerado', 'precototal'],
-  indice:   ['indice', 'coeficiente', 'coef', 'coefutil', 'coeficienteutil', 'qtd', 'quantidade', 'qt', 'qtde'],
-  grupo:    ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria', 'tipo'],
-  base:     ['base', 'fonte', 'origem', 'cotacao', 'source', 'fornecedor'],
-  data_ref: ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
+  codigo:      ['cod', 'codigo', 'code', 'codigodacomposicao', 'coddacomposicao'],
+  codigo_item: ['codigodoitem', 'coddoitem', 'codigoitem', 'coditem', 'codigodoinsumo', 'codigodoservico'],
+  descricao:   ['descricao', 'descr', 'description', 'nome', 'name', 'descricaoabreviada', 'descricaodoinsumo', 'descricaodacomposicao', 'descricaodoservico'],
+  unidade:     ['unidade', 'und', 'un', 'unit', 'unidadedemedida', 'unid', 'unidadedacomposicao'],
+  custo:       ['custo', 'preco', 'price', 'valor', 'custounit', 'custounitario', 'runit', 'mediana',
+                'medianadesonerado', 'medianadesonerada', 'precomediano', 'precomedianodesonerado',
+                'custounitariodesonerado', 'precototal'],
+  indice:      ['indice', 'coeficiente', 'coef', 'coefutil', 'coeficienteutil', 'qtd', 'quantidade', 'qt', 'qtde'],
+  grupo:       ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria'],
+  base:        ['base', 'fonte', 'cotacao', 'source', 'fornecedor'],
+  data_ref:    ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
 }
 
 function normCol(s: string): string {
@@ -64,13 +65,17 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
   const headerIdx = findHeaderRow(data)
   const cols = detectCols((data[headerIdx] as unknown[]).map(String))
   if (!('descricao' in cols)) return { rows: [], erros: ['Coluna "descricao" não encontrada.'] }
+  // Formato analítico SINAPI detectado na aba de insumos
+  if ('codigo' in cols && 'codigo_item' in cols && 'indice' in cols)
+    return { rows: [], erros: ['Esta aba parece ser analítica (tem "Código da Composição" e "Código do Item"). Use-a na aba de Composições, não de Insumos.'] }
+  const codigoCol = 'codigo' in cols ? 'codigo' : 'codigo_item' in cols ? 'codigo_item' : null
   const rows: ImportInsumoRow[] = []
   for (let i = headerIdx + 1; i < data.length; i++) {
     const row = data[i] as unknown[]
     const descricao = String(row[cols.descricao] ?? '').trim()
     if (!descricao) continue
     rows.push({
-      codigo:   'codigo'   in cols ? String(row[cols.codigo]   ?? '').trim() : '',
+      codigo:   codigoCol ? String(row[cols[codigoCol]] ?? '').trim() : '',
       descricao,
       unidade:  'unidade'  in cols ? String(row[cols.unidade]  ?? '').trim() : '',
       custo:    'custo'    in cols ? parseNumber(row[cols.custo]) : 0,
@@ -132,7 +137,10 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
   return { rows, erros: [] }
 }
 
-// Analítico: detecta colunas, linha com código = pai, sem código = filho com coeficiente
+// Analítico: detecta colunas.
+// Formato SINAPI analítico: tem "Código da Composição" (codigo) E "Código do Item" (codigo_item).
+//   Linha pai = codigo_item vazio; linha filho = codigo_item preenchido.
+// Outros formatos hierárquicos: linha com codigo = pai, linha sem codigo = filho.
 function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
   const erros: string[] = []
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'] }
@@ -141,24 +149,44 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
   if (!('descricao' in cols)) return { rows: [], erros: ['Coluna "descricao" não encontrada.'] }
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
+  const isSINAPI = 'codigo' in cols && 'codigo_item' in cols
   for (let i = headerIdx + 1; i < data.length; i++) {
     const row = data[i] as unknown[]
-    const codigo    = 'codigo'  in cols ? String(row[cols.codigo]  ?? '').trim() : ''
     const descricao = String(row[cols.descricao] ?? '').trim()
     if (!descricao) continue
-    if (codigo) {
-      current = { codigo, descricao, unidade: 'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : '', base: null, insumos: [] }
-      rows.push(current)
-    } else if (current) {
-      current.insumos.push({
-        codigo:   '',
-        descricao,
-        unidade:  'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : '',
-        custo:    'custo'   in cols ? parseNumber(row[cols.custo])  : 0,
-        indice:   'indice'  in cols ? parseNumber(row[cols.indice]) || 1 : 1,
-        grupo:    'grupo'   in cols ? String(row[cols.grupo]   ?? '').trim() || null : null,
-        base: null, data_ref: null,
-      })
+    const unidade = 'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : ''
+    if (isSINAPI) {
+      const codigoComp = String(row[cols.codigo]      ?? '').trim()
+      const codigoItem = String(row[cols.codigo_item] ?? '').trim()
+      if (!codigoItem) {
+        // linha pai: Código do Item vazio
+        current = { codigo: codigoComp, descricao, unidade, base: null, insumos: [] }
+        rows.push(current)
+      } else if (current) {
+        current.insumos.push({
+          codigo:  codigoItem,
+          descricao, unidade,
+          custo:   'custo'  in cols ? parseNumber(row[cols.custo])  : 0,
+          indice:  'indice' in cols ? parseNumber(row[cols.indice]) || 1 : 1,
+          grupo:   'grupo'  in cols ? String(row[cols.grupo]  ?? '').trim() || null : null,
+          base: null, data_ref: null,
+        })
+      }
+    } else {
+      const codigo = 'codigo' in cols ? String(row[cols.codigo] ?? '').trim() : ''
+      if (codigo) {
+        current = { codigo, descricao, unidade, base: null, insumos: [] }
+        rows.push(current)
+      } else if (current) {
+        current.insumos.push({
+          codigo:  '',
+          descricao, unidade,
+          custo:   'custo'  in cols ? parseNumber(row[cols.custo])  : 0,
+          indice:  'indice' in cols ? parseNumber(row[cols.indice]) || 1 : 1,
+          grupo:   'grupo'  in cols ? String(row[cols.grupo]  ?? '').trim() || null : null,
+          base: null, data_ref: null,
+        })
+      }
     }
   }
   return { rows, erros }
@@ -167,11 +195,14 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
 // Detecta o melhor parser para uma aba de composições
 function parseComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[]; fmt: string } {
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'], fmt: 'vazio' }
-  const header = (data[0] as unknown[]).map(String)
+  const headerIdx = findHeaderRow(data)
+  const header = (data[headerIdx] as unknown[]).map(String)
   if (isSudecap(header)) return { ...parseSudecap(data), fmt: 'SUDECAP/CPU' }
-  // Se tem coluna indice → analítico (hierárquico com coeficientes)
   const cols = detectCols(header)
-  if ('indice' in cols) return { ...parseAnalitico(data), fmt: 'Analítico' }
+  if ('indice' in cols) {
+    const fmt = ('codigo' in cols && 'codigo_item' in cols) ? 'Analítico SINAPI' : 'Analítico'
+    return { ...parseAnalitico(data), fmt }
+  }
   return { ...parseFlatComposicoes(data), fmt: 'Lista plana' }
 }
 
@@ -229,8 +260,13 @@ async function importarComposicoes(sb: any, baseId: string, rows: ImportComposic
     for (const c of (data ?? []) as { id: string; codigo: string }[]) compCodeToId.set(c.codigo, c.id)
     result.composicoesCriadas += (data ?? []).length
   }
-  for (let i = 0; i < novas.length; i += 50) {
-    const lote = novas.slice(i, i + 50)
+  // Apaga itens antigos de TODAS as composições importadas (novas e existentes) para reinserir
+  const allCompIds = [...compCodeToId.values()]
+  for (let i = 0; i < allCompIds.length; i += 500)
+    await sb.from('tabela_itens_composicao').delete().in('composicao_id', allCompIds.slice(i, i + 500))
+  // Insere itens para TODAS as composições (não só as novas)
+  for (let i = 0; i < rowsUniq.length; i += 50) {
+    const lote = rowsUniq.slice(i, i + 50)
     const itens = lote.flatMap(comp => {
       const compId = compCodeToId.get(comp.codigo)
       if (!compId) return []

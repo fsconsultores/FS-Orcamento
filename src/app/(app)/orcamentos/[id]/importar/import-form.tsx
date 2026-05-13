@@ -83,7 +83,7 @@ function isSudecap(header: string[]): boolean {
 //  5: TipoItemComposicao (I=insumo direto, C=composição auxiliar)
 //  6: CódigoDoInsumo     7: DescricaoAbreviadaInsumo  8: UnidadeInsumo
 //  9: Indice             10: GrupoDoInsumo
-function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+function parseSudecap(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
 
@@ -104,7 +104,7 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
 
     // Nova composição
     if (codigoComp && descComp) {
-      current = { codigo: codigoComp, descricao: descComp, unidade: unidadeComp, base: null, insumos: [] }
+      current = { codigo: codigoComp, descricao: descComp, unidade: unidadeComp, base: defaultBase ?? null, insumos: [] }
       rows.push(current)
     }
 
@@ -128,7 +128,7 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
 
 // ─── Parser simples (hierárquico) ────────────────────────────────────────────
 // Linha com código = composição  |  linha sem código = insumo filho
-function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+function parseSimples(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
   const erros: string[] = []
   const headerIdx = findHeaderRow(data)
   const header = (data[headerIdx] as unknown[]).map(String)
@@ -150,7 +150,7 @@ function parseSimples(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
         codigo: rawCodigo,
         descricao,
         unidade: 'unidade'  in cols ? String(row[cols.unidade]  ?? '').trim() : '',
-        base:    'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
+        base:    'base'     in cols ? (String(row[cols.base] ?? '').trim() || defaultBase || null) : (defaultBase || null),
         insumos: [],
       }
       rows.push(current)
@@ -205,7 +205,7 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
 
 // ─── Parser composições flat (cada linha = uma composição, sem sub-itens) ─────
 // Usado para abas CS* do SINAPI, onde a planilha é um catálogo plano de serviços.
-function parseFlatComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+function parseFlatComposicoes(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
   const erros: string[] = []
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'] }
   const headerIdx = findHeaderRow(data)
@@ -223,7 +223,7 @@ function parseFlatComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[];
       codigo:  'codigo'  in cols ? String(row[cols.codigo]  ?? '').trim() : '',
       descricao,
       unidade: 'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : '',
-      base:    'base'    in cols ? String(row[cols.base]    ?? '').trim() || null : null,
+      base:    'base'    in cols ? (String(row[cols.base] ?? '').trim() || defaultBase || null) : (defaultBase || null),
       insumos: [],
     })
   }
@@ -402,6 +402,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
   const [sheets, setSheets] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState('')
   const [wbRef, setWbRef] = useState<unknown>(null)
+  const [fileBase, setFileBase] = useState('')
   const [format, setFormat] = useState<'sudecap' | 'simples'>('simples')
   const [preview, setPreview] = useState<ImportComposicaoRow[] | null>(null)
   const [parseErros, setParseErros] = useState<string[]>([])
@@ -412,6 +413,8 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     const file = e.target.files?.[0]
     if (!file) return
     setResult(null); setPreview(null); setParseErros([])
+    const baseName = file.name.replace(/\.[^.]+$/, '')
+    setFileBase(baseName)
     const ab = await file.arrayBuffer()
     const XLSX = await import('xlsx')
     const wb = XLSX.read(ab, { type: 'array' })
@@ -419,10 +422,11 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     const names = wb.SheetNames
     setSheets(names)
     setSelectedSheet(names[0])
-    processSheet(wb, names[0])
+    processSheet(wb, names[0], baseName)
   }
 
-  function processSheet(wb: unknown, name: string) {
+  function processSheet(wb: unknown, name: string, base?: string) {
+    const defaultBase = base ?? fileBase
     void import('xlsx').then(XLSX => {
       const _wb = wb as { Sheets: Record<string, unknown>; SheetNames: string[] }
       const ws = _wb.Sheets[name]
@@ -432,7 +436,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
       const header = (data[0] as unknown[]).map(String)
       const detected = isSudecap(header) ? 'sudecap' : 'simples'
       setFormat(detected)
-      const { rows, erros } = detected === 'sudecap' ? parseSudecap(data) : parseSimples(data)
+      const { rows, erros } = detected === 'sudecap' ? parseSudecap(data, defaultBase) : parseSimples(data, defaultBase)
       setPreview(rows); setParseErros(erros)
     })
   }
@@ -446,7 +450,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     if (!preview?.length) return
     setLoading(true)
     try {
-      const res = await importarComposicoes(orcamentoId, preview)
+      const res = await importarComposicoes(orcamentoId, preview.map(c => c.base ? c : { ...c, base: fileBase || null }))
       setResult(res); setPreview(null)
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
@@ -613,6 +617,7 @@ function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
       const erros: string[] = []
       let insumos: ImportInsumoRow[] = []
       let composicoes: ImportComposicaoRow[] = []
+      const defaultBase = fileName.replace(/\.[^.]+$/, '')
 
       if (regime.isSheet) {
         const ws = _wb.Sheets[regime.isSheet]
@@ -632,7 +637,7 @@ function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
             const header = (data[0] as unknown[]).map(String)
             // SINAPI CS* sheets are flat catalogs (each row = one composition, no sub-items).
             // Only use the SUDECAP parser when the sheet explicitly signals a hierarchical structure.
-            const r = isSudecap(header) ? parseSudecap(data) : parseFlatComposicoes(data)
+            const r = isSudecap(header) ? parseSudecap(data, defaultBase) : parseFlatComposicoes(data, defaultBase)
             composicoes = r.rows
             erros.push(...r.erros.map(e => `[${regime.csSheet}] ${e}`))
           }

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Orçamento FS',
-  description: 'Sistema de orçamento de obras',
+  title: 'fsconsultores · Orçamentos',
+  description: 'Sistema de orçamento de obras — fsconsultores',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

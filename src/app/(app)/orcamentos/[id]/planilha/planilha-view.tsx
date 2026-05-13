@@ -533,7 +533,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
 
   // ── Estilos reutilizáveis ───────────────────────────────────────────────────
 
-  const INP = 'w-full bg-white outline-none ring-2 ring-inset ring-blue-500 rounded-sm text-xs px-1.5 py-0.5'
+  const INP = 'w-full bg-white text-gray-900 outline-none ring-2 ring-inset ring-blue-500 rounded-sm text-xs px-1.5 py-0.5'
   const CELL_HOVER = 'cursor-text select-none rounded px-1 -mx-1 hover:bg-white/40 hover:ring-1 hover:ring-blue-300 min-h-[1.2rem] leading-relaxed transition-all'
 
   // Renderiza uma célula de texto simples

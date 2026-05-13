@@ -4,6 +4,7 @@ import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import Image from 'next/image';
 import {
   getEmailValidationError,
   normalizeEmail,
@@ -59,9 +60,9 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Orçamento FS</h1>
-          <p className="mt-1 text-sm text-gray-500">Sistema de orçamento de obras</p>
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <Image src="/logofs.png" alt="fsconsultores" width={320} height={100} className="h-24 w-auto object-contain mx-auto block" priority />
+          <p className="text-sm text-gray-500">Sistema de orçamento de obras</p>
         </div>
         <form
           onSubmit={handleSubmit}

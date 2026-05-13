@@ -13,6 +13,7 @@ export interface OrcamentoInsumo {
   grupo: string | null
   base: string | null
   data_ref: string | null
+  custo_atualizado_em?: string | null
   created_at: string
 }
 

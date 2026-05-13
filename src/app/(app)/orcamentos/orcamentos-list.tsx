@@ -81,7 +81,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
 
   // Sincroniza quando o servidor retorna resultados filtrados (busca)
   useEffect(() => { setOrcamentos(initialOrcamentos); }, [initialOrcamentos]);
-  const [duplicating, setDuplicating] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [duplicateModal, setDuplicateModal] = useState<DuplicateModal | null>(null);
@@ -230,12 +230,31 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
     if (!duplicateModal) return;
     const { orc, codigo } = duplicateModal;
     setDuplicateModal(null);
-    setDuplicating(orc.id);
+
+    // Adiciona linha otimista imediatamente
+    const tempId = `pending-${crypto.randomUUID()}`;
+    const optimisticRow: OrcRow = {
+      id: tempId,
+      nome_obra: `Cópia de ${orc.nome_obra}`,
+      cliente: orc.cliente,
+      data: orc.data,
+      bdi_global: orc.bdi_global,
+      codigo,
+      tabela_itens_orcamento: orc.tabela_itens_orcamento,
+      ultimo_acesso: null,
+    };
+    setOrcamentos(prev => [optimisticRow, ...prev]);
+    setPendingIds(prev => new Set([...prev, tempId]));
+
     try {
       const result = await duplicateOrcamento(orc.id, codigo);
-      setOrcamentos(prev => [resultToRow(result, orc.tabela_itens_orcamento.length), ...prev]);
+      const realRow = resultToRow(result, orc.tabela_itens_orcamento.length);
+      setOrcamentos(prev => prev.map(o => o.id === tempId ? realRow : o));
+      setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
       startTransition(() => router.refresh());
     } catch (err: unknown) {
+      setOrcamentos(prev => prev.filter(o => o.id !== tempId));
+      setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
       const msg = err instanceof Error ? err.message : String(err);
       const isUnique = msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('duplicate key');
       if (isUnique) {
@@ -243,8 +262,6 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
       } else {
         alert(`Erro ao duplicar: ${msg}`);
       }
-    } finally {
-      setDuplicating(null);
     }
   }
 
@@ -555,10 +572,11 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
             <tbody className="divide-y divide-gray-100">
               {orcamentos.map((orc) => {
                 const isDeleting = deleting === orc.id;
+                const isPending = pendingIds.has(orc.id);
                 return (
                   <tr
                     key={orc.id}
-                    className={`cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all ${isDeleting ? 'opacity-40' : ''}`}
+                    className={`transition-all ${isPending ? 'opacity-60 animate-pulse pointer-events-none bg-blue-50' : 'cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6]'} ${isDeleting ? 'opacity-40' : ''}`}
                   >
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">
                       <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
@@ -593,32 +611,38 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                       </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={(e) => handleEditClick(e, orc)}
-                          disabled={isDeleting}
-                          title="Editar orçamento"
-                          className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={(e) => handleDuplicateClick(e, orc)}
-                          disabled={duplicating === orc.id || isDeleting}
-                          title="Duplicar orçamento"
-                          className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
-                        >
-                          {duplicating === orc.id ? '…' : 'Duplicar'}
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteClick(e, orc)}
-                          disabled={isDeleting}
-                          title="Excluir orçamento"
-                          className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
-                        >
-                          {isDeleting ? '…' : 'Excluir'}
-                        </button>
-                      </div>
+                      {isPending ? (
+                        <div className="flex items-center justify-end">
+                          <span className="text-xs text-blue-400 italic">Duplicando…</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={(e) => handleEditClick(e, orc)}
+                            disabled={isDeleting}
+                            title="Editar orçamento"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={(e) => handleDuplicateClick(e, orc)}
+                            disabled={isDeleting}
+                            title="Duplicar orçamento"
+                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                          >
+                            Duplicar
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteClick(e, orc)}
+                            disabled={isDeleting}
+                            title="Excluir orçamento"
+                            className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                          >
+                            {isDeleting ? '…' : 'Excluir'}
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

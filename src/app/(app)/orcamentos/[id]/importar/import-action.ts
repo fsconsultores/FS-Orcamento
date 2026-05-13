@@ -72,37 +72,38 @@ export async function importarInsumos(
     }
   }
 
-  // 3. Propagar custo para insumos de composições com o mesmo código
+  // 3. Propagar custo para insumos de composições com o mesmo código (paralelo)
   const custoMap = new Map<string, number>(insumos.map(ins => [ins.codigo, ins.custo]))
 
-  for (let i = 0; i < allCodigos.length; i += 500) {
-    const { data: compInsumos } = await sb
-      .from('orcamento_insumos')
-      .select('id, codigo')
-      .eq('orcamento_id', orcamentoId)
-      .not('composicao_id', 'is', null)
-      .in('codigo', allCodigos.slice(i, i + 500))
-
-    if (!compInsumos?.length) continue
-
-    // Agrupa ids pelo novo custo para fazer um update por valor único
-    const custoToIds = new Map<number, string[]>()
-    for (const ins of compInsumos as { id: string; codigo: string }[]) {
-      const novoCusto = custoMap.get(ins.codigo)
-      if (novoCusto === undefined) continue
-      if (!custoToIds.has(novoCusto)) custoToIds.set(novoCusto, [])
-      custoToIds.get(novoCusto)!.push(ins.id)
-    }
-
-    for (const [custo, ids] of custoToIds) {
-      for (let j = 0; j < ids.length; j += 500) {
-        await sb
+  await Promise.all(
+    Array.from({ length: Math.ceil(allCodigos.length / 500) }, (_, i) => allCodigos.slice(i * 500, (i + 1) * 500))
+      .map(async (batch) => {
+        const { data: compInsumos } = await sb
           .from('orcamento_insumos')
-          .update({ custo })
-          .in('id', ids.slice(j, j + 500))
-      }
-    }
-  }
+          .select('id, codigo')
+          .eq('orcamento_id', orcamentoId)
+          .not('composicao_id', 'is', null)
+          .in('codigo', batch)
+
+        if (!compInsumos?.length) return
+
+        const custoToIds = new Map<number, string[]>()
+        for (const ins of compInsumos as { id: string; codigo: string }[]) {
+          const novoCusto = custoMap.get(ins.codigo)
+          if (novoCusto === undefined) continue
+          if (!custoToIds.has(novoCusto)) custoToIds.set(novoCusto, [])
+          custoToIds.get(novoCusto)!.push(ins.id)
+        }
+
+        await Promise.all(
+          [...custoToIds.entries()].flatMap(([custo, ids]) =>
+            Array.from({ length: Math.ceil(ids.length / 500) }, (_, j) =>
+              sb.from('orcamento_insumos').update({ custo }).in('id', ids.slice(j * 500, (j + 1) * 500))
+            )
+          )
+        )
+      })
+  )
 
   revalidatePath(`/orcamentos/${orcamentoId}/insumos`)
   revalidatePath(`/orcamentos/${orcamentoId}/composicoes`)
@@ -120,18 +121,16 @@ export async function importarComposicoes(
 
   const allCodigos = rows.map(c => c.codigo)
 
-  // 1. Verificar quais composições já existem para não criar duplicatas
+  // 1. Verificar quais composições já existem para não criar duplicatas (paralelo)
   const jaExistemIds = new Map<string, string>()
-  for (let i = 0; i < allCodigos.length; i += 500) {
-    const { data } = await sb
-      .from('orcamento_composicoes')
-      .select('id, codigo')
-      .eq('orcamento_id', orcamentoId)
-      .in('codigo', allCodigos.slice(i, i + 500))
-    for (const c of (data ?? []) as { id: string; codigo: string }[]) {
-      jaExistemIds.set(c.codigo, c.id)
-    }
-  }
+  const fetchExistResults = await Promise.all(
+    Array.from({ length: Math.ceil(allCodigos.length / 500) }, (_, i) =>
+      sb.from('orcamento_composicoes').select('id, codigo').eq('orcamento_id', orcamentoId)
+        .in('codigo', allCodigos.slice(i * 500, (i + 1) * 500))
+    )
+  )
+  for (const { data } of fetchExistResults)
+    for (const c of (data ?? []) as { id: string; codigo: string }[]) jaExistemIds.set(c.codigo, c.id)
 
   // 2. Inserir apenas as composições que não existem ainda
   const novas = rows.filter(r => !jaExistemIds.has(r.codigo))
@@ -164,12 +163,11 @@ export async function importarComposicoes(
   //    Para composições já existentes: apaga os insumos antigos antes de reinserir
   const idsExistentes = [...jaExistemIds.values()]
   if (idsExistentes.length > 0) {
-    for (let i = 0; i < idsExistentes.length; i += 500) {
-      await sb
-        .from('orcamento_insumos')
-        .delete()
-        .in('composicao_id', idsExistentes.slice(i, i + 500))
-    }
+    await Promise.all(
+      Array.from({ length: Math.ceil(idsExistentes.length / 500) }, (_, i) =>
+        sb.from('orcamento_insumos').delete().in('composicao_id', idsExistentes.slice(i * 500, (i + 1) * 500))
+      )
+    )
   }
 
   const insumoRows = rows.flatMap(comp => {
@@ -189,14 +187,13 @@ export async function importarComposicoes(
     }))
   })
 
-  // 4. Inserir todos os insumos em batch (até 500 por vez)
-  for (let i = 0; i < insumoRows.length; i += 500) {
-    const { error } = await sb.from('orcamento_insumos').insert(insumoRows.slice(i, i + 500))
-    if (error) {
-      result.erros.push(`Insumos lote ${i / 500 + 1}: ${error.message}`)
-    } else {
-      result.insumosCriados += Math.min(500, insumoRows.length - i)
-    }
+  // 4. Inserir todos os insumos em paralelo (lotes de 500)
+  const insumoLotes = Array.from({ length: Math.ceil(insumoRows.length / 500) }, (_, i) => insumoRows.slice(i * 500, (i + 1) * 500))
+  const insertInsumoResults = await Promise.all(insumoLotes.map(lote => sb.from('orcamento_insumos').insert(lote)))
+  for (let i = 0; i < insertInsumoResults.length; i++) {
+    const { error } = insertInsumoResults[i]
+    if (error) result.erros.push(`Insumos lote ${i + 1}: ${error.message}`)
+    else result.insumosCriados += insumoLotes[i].length
   }
 
   revalidatePath(`/orcamentos/${orcamentoId}/composicoes`)
@@ -310,15 +307,18 @@ export async function importarDaBase(
     }
 
     if (allComps.length > 0) {
-      // Busca itens em lotes de 100 IDs de composição
+      // Busca itens em paralelo (lotes de 100 IDs de composição)
       const compIds = allComps.map((c: any) => c.id)
       const itemsByComp = new Map<string, any[]>()
-      for (let i = 0; i < compIds.length; i += 100) {
-        const { data, error } = await sb
-          .from('tabela_itens_composicao')
-          .select('composicao_id, indice, insumo:tabela_insumos(codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia)')
-          .in('composicao_id', compIds.slice(i, i + 100))
-        if (error) { result.erros.push(`Itens: ${error.message}`); break }
+      const itemFetchResults = await Promise.all(
+        Array.from({ length: Math.ceil(compIds.length / 100) }, (_, i) =>
+          sb.from('tabela_itens_composicao')
+            .select('composicao_id, indice, insumo:tabela_insumos(codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia)')
+            .in('composicao_id', compIds.slice(i * 100, (i + 1) * 100))
+        )
+      )
+      for (const { data, error } of itemFetchResults) {
+        if (error) { result.erros.push(`Itens: ${error.message}`); continue }
         for (const item of (data ?? []) as any[]) {
           if (!itemsByComp.has(item.composicao_id)) itemsByComp.set(item.composicao_id, [])
           itemsByComp.get(item.composicao_id)!.push(item)
