@@ -14,12 +14,12 @@ export default async function PlanilhaPage({
 
   const [{ data }, { data: orc }] = await Promise.all([
     sb.from('orcamento_estrutura')
-      .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+      .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
       .eq('orcamento_id', orcamentoId)
       .order('nivel', { ascending: true })
       .order('ordem', { ascending: true }),
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo')
+      .select('nome_obra, codigo, cliente, data, bdi_global')
       .eq('id', orcamentoId)
       .single(),
   ])
@@ -41,7 +41,14 @@ export default async function PlanilhaPage({
         <ImportPlanilhaForm orcamentoId={orcamentoId} />
       </div>
 
-      <PlanilhaView initialItems={items} orcamentoId={orcamentoId} nomeOrcamento={nomeOrcamento} />
+      <PlanilhaView
+        initialItems={items}
+        orcamentoId={orcamentoId}
+        nomeOrcamento={nomeOrcamento}
+        bdiGlobal={orc?.bdi_global ?? 0}
+        cliente={orc?.cliente ?? null}
+        dataOrcamento={orc?.data ?? null}
+      />
     </div>
   )
 }

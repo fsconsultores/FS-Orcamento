@@ -9,6 +9,7 @@ export type { EstruturaItem }
 interface Nodo extends EstruturaItem {
   filhos: Nodo[]
   total: number
+  totalComBdi: number
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -29,9 +30,16 @@ function buildTree(items: EstruturaItem[]): Nodo[] {
   return roots
 }
 
-function calcTotais(nodo: Nodo): number {
-  if (nodo.tipo === 'item') nodo.total = (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0)
-  else nodo.total = nodo.filhos.reduce((s, f) => s + calcTotais(f), 0)
+function calcTotais(nodo: Nodo, bdiGlobal: number): number {
+  if (nodo.tipo === 'item') {
+    nodo.total = (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0)
+    const bdi = nodo.bdi_especifico ?? bdiGlobal
+    nodo.totalComBdi = nodo.total * (1 + bdi / 100)
+  } else {
+    nodo.filhos.reduce((_, f) => calcTotais(f, bdiGlobal), 0)
+    nodo.total = nodo.filhos.reduce((s, f) => s + f.total, 0)
+    nodo.totalComBdi = nodo.filhos.reduce((s, f) => s + f.totalComBdi, 0)
+  }
   return nodo.total
 }
 
@@ -267,7 +275,7 @@ function AddItemForm({
 
 // ─── Campos editáveis por tipo ────────────────────────────────────────────────
 
-const ITEM_FIELDS  = ['numero', 'codigo', 'descricao', 'unidade', 'quantidade', 'custo_unitario'] as const
+const ITEM_FIELDS  = ['numero', 'codigo', 'descricao', 'unidade', 'quantidade', 'custo_unitario', 'bdi_especifico'] as const
 const GRUPO_FIELDS = ['numero', 'descricao'] as const
 
 function editableFields(tipo: 'item' | 'grupo'): readonly string[] {
@@ -281,7 +289,14 @@ function fieldToStr(it: EstruturaItem, field: string): string {
 
 // ─── View principal ───────────────────────────────────────────────────────────
 
-export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { initialItems: EstruturaItem[]; orcamentoId: string; nomeOrcamento?: string }) {
+export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento }: {
+  initialItems: EstruturaItem[]
+  orcamentoId: string
+  nomeOrcamento?: string
+  bdiGlobal?: number
+  cliente?: string | null
+  dataOrcamento?: string | null
+}) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
   const [deletingId, setDeletingId]     = useState<string | null>(null)
   const [addingParentId, setAddingParentId] = useState<string | null | 'root'>()
@@ -293,8 +308,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
 
   // Rebuild tree
   const tree = buildTree(items)
-  for (const n of tree) calcTotais(n)
+  for (const n of tree) calcTotais(n, bdiGlobal)
   const grandTotal = tree.reduce((s, n) => s + n.total, 0)
+  const grandTotalComBdi = tree.reduce((s, n) => s + n.totalComBdi, 0)
   const flat = flattenTree(tree)
 
   const visible = flat.filter(({ nodo }) => {
@@ -336,7 +352,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
 
   function saveField(id: string, field: string, draft: string) {
     let value: any
-    if (field === 'quantidade' || field === 'custo_unitario') {
+    if (field === 'quantidade' || field === 'custo_unitario' || field === 'bdi_especifico') {
       const n = parseFloat(draft.replace(',', '.'))
       value = isNaN(n) ? null : n
     } else {
@@ -560,8 +576,43 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
   }
 
 
+
   return (
     <div className="space-y-3">
+      {/* Resumo do orçamento */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm px-5 py-4">
+        <div className="flex flex-wrap gap-x-8 gap-y-3 items-start">
+          {cliente && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cliente</p>
+              <p className="text-sm font-medium text-gray-800 mt-0.5">{cliente}</p>
+            </div>
+          )}
+          {dataOrcamento && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Data</p>
+              <p className="text-sm font-medium text-gray-800 mt-0.5">
+                {new Date(dataOrcamento + 'T00:00:00').toLocaleDateString('pt-BR')}
+              </p>
+            </div>
+          )}
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">BDI Global</p>
+            <p className="text-sm font-bold text-blue-700 mt-0.5">{bdiGlobal}%</p>
+          </div>
+          <div className="ml-auto flex gap-6 items-end">
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Total sem BDI</p>
+              <p className="text-sm font-semibold text-gray-700 mt-0.5 tabular-nums">{BRL(grandTotal)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Total com BDI</p>
+              <p className="text-base font-bold text-gray-900 mt-0.5 tabular-nums">{BRL(grandTotalComBdi)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Barra de ferramentas */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2">
@@ -665,18 +716,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
         <table className="w-full text-xs min-w-[700px]">
           <thead className="sticky top-0 z-10 bg-white border-b-2 border-gray-100 text-left">
             <tr>
+              <th className="px-3 py-2.5 w-8 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center">#</th>
               <th className="px-3 py-2.5 w-28 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Item</th>
-              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Código</th>
-              <th className="px-3 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Descrição</th>
-              <th className="px-3 py-2.5 w-14 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center">Und</th>
-              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Qtde</th>
-              <th className="px-3 py-2.5 w-28 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">R$ Unit.</th>
-              <th className="px-3 py-2.5 w-32 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">R$ Total</th>
+              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Composição</th>
+              <th className="px-3 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Descrição completa</th>
+              <th className="px-3 py-2.5 w-14 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center">Unidade</th>
+              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Qtde.</th>
+              <th className="px-3 py-2.5 w-28 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Custo Unitário</th>
+              <th className="px-3 py-2.5 w-32 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Total Custo Unitário</th>
+              <th className="px-3 py-2.5 w-16 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">% BDI</th>
               <th className="px-3 py-2.5 w-10" />
             </tr>
           </thead>
           <tbody>
-            {visible.map(({ nodo, depth }) => {
+            {visible.map(({ nodo, depth }, rowIdx) => {
               const isGroup    = nodo.tipo === 'grupo'
               const hasFilhos  = nodo.filhos.length > 0
               const isCollapsed = collapsed.has(nodo.id)
@@ -689,6 +742,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
                     className={`group border-b border-gray-100/80 transition-colors ${rowCls(depth)} ${deletingId === nodo.id ? 'opacity-30' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
+
+                    {/* Contador */}
+                    <td className="px-2 py-2 text-center text-gray-400 font-mono text-[10px] select-none">
+                      {rowIdx + 1}
+                    </td>
 
                     {/* Item / número */}
                     <td className="py-2 font-mono" style={{ paddingLeft: `${10 + depth * 16}px`, paddingRight: '8px' }}>
@@ -795,11 +853,39 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
                       )}
                     </td>
 
-                    {/* R$ Total */}
+                    {/* Total Custo Unitário */}
                     <td className="px-3 py-2 text-right tabular-nums">
                       {nodo.total > 0
                         ? <span className={`font-semibold ${depth === 0 ? 'text-white' : 'text-gray-900'}`}>{BRL(nodo.total)}</span>
                         : <span className="opacity-25">—</span>}
+                    </td>
+
+                    {/* % BDI */}
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {!isGroup && (() => {
+                        const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
+                        const bdiEfetivo = nodo.bdi_especifico ?? bdiGlobal
+                        const isGlobal = nodo.bdi_especifico == null
+                        if (editing) return (
+                          <input
+                            autoFocus type="number" step="any" min="0" value={cellDraft}
+                            onChange={e => setCellDraft(e.target.value)}
+                            onKeyDown={e => handleKey(e, 'bdi_especifico')}
+                            onBlur={handleBlur}
+                            className={`${INP} text-right`}
+                            placeholder={String(bdiGlobal)}
+                          />
+                        )
+                        return (
+                          <div
+                            onClick={() => openCell(nodo.id, 'bdi_especifico')}
+                            className={`${CELL_HOVER} text-right`}
+                            title={isGlobal ? 'BDI global — clique para definir BDI específico' : 'BDI específico — clique para editar'}
+                          >
+                            <span className={isGlobal ? 'opacity-50' : 'font-semibold'}>{bdiEfetivo}%</span>
+                          </div>
+                        )
+                      })()}
                     </td>
 
                     {/* Ações — visíveis só no hover */}
@@ -826,7 +912,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
 
                   {showFormAfter && addingParentGroup && (
                     <tr>
-                      <td colSpan={8} className="px-2 py-1.5">
+                      <td colSpan={10} className="px-2 py-1.5">
                         <AddItemForm orcamentoId={orcamentoId}
                           parentId={addingParentGroup.id} parentNivel={addingParentGroup.nivel}
                           parentNumero={addingParentGroup.numero} parentDescricao={addingParentGroup.descricao}
@@ -839,13 +925,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento }: { ini
             })}
 
             <tr className="bg-gradient-to-r from-slate-800 to-slate-700 text-white">
-              <td colSpan={6} className="px-4 py-4 text-right text-xs font-semibold uppercase tracking-widest text-slate-300">
+              <td colSpan={8} className="px-4 py-4 text-right text-xs font-semibold uppercase tracking-widest text-slate-300">
                 Total Geral
               </td>
               <td className="px-3 py-4 text-right text-base font-bold tabular-nums">
                 {BRL(grandTotal)}
               </td>
-              <td />
+              <td colSpan={2} />
             </tr>
           </tbody>
         </table>

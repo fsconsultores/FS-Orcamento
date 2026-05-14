@@ -22,6 +22,11 @@ export default async function OrcamentoLayout({
 
   if (!orcamento) notFound()
 
+  await sb
+    .from('tabela_orcamentos')
+    .update({ ultimo_acesso: new Date().toISOString() })
+    .eq('id', id)
+
   return (
     <div className="space-y-0">
       <OrcamentoBreadcrumb

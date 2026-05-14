@@ -11,6 +11,7 @@ type OrcRow = {
   bdi_global: number;
   codigo: string;
   ultimo_acesso: string | null;
+  created_at: string;
   tabela_itens_orcamento: { id: string }[];
 };
 
@@ -24,7 +25,7 @@ export default async function OrcamentosPage({
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso')
+    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at')
     .order('created_at', { ascending: false });
 
   // Um único filtro cobre nome_obra, cliente e codigo ao mesmo tempo

@@ -16,6 +16,7 @@ type OrcRow = {
   codigo: string;
   tabela_itens_orcamento: { id: string }[];
   ultimo_acesso: string | null;
+  created_at: string;
 };
 
 interface Props {
@@ -71,6 +72,7 @@ function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
     codigo: r.codigo ?? '',
     tabela_itens_orcamento: Array.from({ length: itemCount }, (_, i) => ({ id: String(i) })),
     ultimo_acesso: r.ultimo_acesso,
+    created_at: new Date().toISOString(),
   };
 }
 
@@ -143,6 +145,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
         codigo: novoModal.codigo,
         tabela_itens_orcamento: [],
         ultimo_acesso: null,
+        created_at: new Date().toISOString(),
       };
       setOrcamentos(prev => [newRow, ...prev]);
       setNovoModal(null);
@@ -242,6 +245,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
       codigo,
       tabela_itens_orcamento: orc.tabela_itens_orcamento,
       ultimo_acesso: null,
+      created_at: new Date().toISOString(),
     };
     setOrcamentos(prev => [optimisticRow, ...prev]);
     setPendingIds(prev => new Set([...prev, tempId]));
@@ -565,7 +569,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3 text-center">BDI</th>
                 <th className="px-4 py-3 text-center">Itens</th>
-                <th className="px-4 py-3">Último Acesso</th>
+                <th className="px-4 py-3">Inclusão</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -605,9 +609,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.ultimo_acesso
-                          ? new Date(orc.ultimo_acesso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-                          : '—'}
+                        {new Date(orc.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
                       </Link>
                     </td>
                     <td className="px-4 py-3">

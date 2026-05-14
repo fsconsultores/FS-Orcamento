@@ -13,6 +13,7 @@ export interface EstruturaItem {
   unidade: string | null
   quantidade: number | null
   custo_unitario: number | null
+  bdi_especifico: number | null
   tipo: 'grupo' | 'item'
   ordem: number
 }
@@ -128,6 +129,7 @@ export async function atualizarItemEstrutura(
     unidade?: string | null
     quantidade?: number | null
     custo_unitario?: number | null
+    bdi_especifico?: number | null
   }
 ): Promise<void> {
   const supabase = await createClient()
@@ -277,10 +279,11 @@ export async function adicionarItemNaPosicao(
       unidade: null,
       quantidade: null,
       custo_unitario: null,
+      bdi_especifico: null,
       tipo: 'item',
       ordem: insertOrdem,
     })
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .single()
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
@@ -317,10 +320,11 @@ export async function adicionarItemEstrutura(
       unidade: row.unidade,
       quantidade: row.quantidade,
       custo_unitario: row.custo_unitario,
+      bdi_especifico: null,
       tipo: row.tipo,
       ordem: nextOrdem,
     })
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   return data[0] as EstruturaItem
