@@ -13,6 +13,7 @@ type OrcRow = {
   codigo: string;
   tabela_itens_orcamento: { id: string }[];
   ultimo_acesso: string | null;
+  created_at: string | null;
 };
 export default  async function DashboardPage({searchParams,
 }: {
@@ -22,7 +23,7 @@ export default  async function DashboardPage({searchParams,
   const sb = (await createClient()) as any;
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso')
+    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at')
     .order('ultimo_acesso', { ascending: false, nullsFirst: false })
     .limit(10);
 

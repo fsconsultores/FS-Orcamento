@@ -16,7 +16,7 @@ interface Nodo extends EstruturaItem {
 
 function buildTree(items: EstruturaItem[]): Nodo[] {
   const map = new Map<string, Nodo>()
-  for (const item of items) map.set(item.id, { ...item, filhos: [], total: 0 })
+  for (const item of items) map.set(item.id, { ...item, filhos: [], total: 0, totalComBdi: 0 })
   const roots: Nodo[] = []
   for (const nodo of map.values()) {
     if (nodo.parent_id && map.has(nodo.parent_id)) map.get(nodo.parent_id)!.filhos.push(nodo)

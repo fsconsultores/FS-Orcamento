@@ -16,7 +16,7 @@ type OrcRow = {
   codigo: string;
   tabela_itens_orcamento: { id: string }[];
   ultimo_acesso: string | null;
-  created_at: string;
+  created_at: string | null;
 };
 
 interface Props {
@@ -62,6 +62,13 @@ const NOVO_DEFAULT: NovoModal = {
   bdi_global: '25',
 };
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value.replace(' ', 'T'));
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
   return {
     id: r.id,
@@ -83,6 +90,35 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
 
   // Sincroniza quando o servidor retorna resultados filtrados (busca)
   useEffect(() => { setOrcamentos(initialOrcamentos); }, [initialOrcamentos]);
+  // Cache local de created_at — persiste no localStorage enquanto PostgREST não retorna a coluna
+  const [createdAtCache, setCreatedAtCache] = useState<Record<string, string>>({});
+  useEffect(() => {
+    // Carrega do localStorage na montagem
+    try {
+      const stored = JSON.parse(localStorage.getItem('orc_cat') ?? '{}');
+      setCreatedAtCache(stored);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    // Mescla dados do servidor (quando created_at começar a vir)
+    setCreatedAtCache(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const o of initialOrcamentos) {
+        if (o.created_at && !next[o.id]) { next[o.id] = o.created_at; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [initialOrcamentos]);
+
+  function addToCache(id: string, ts: string) {
+    setCreatedAtCache(prev => {
+      const next = { ...prev, [id]: ts };
+      try { localStorage.setItem('orc_cat', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -136,6 +172,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
         return;
       }
 
+      const now = new Date().toISOString();
       const newRow: OrcRow = {
         id: data.id,
         nome_obra: novoModal.nome_obra.trim(),
@@ -145,8 +182,9 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
         codigo: novoModal.codigo,
         tabela_itens_orcamento: [],
         ultimo_acesso: null,
-        created_at: new Date().toISOString(),
+        created_at: now,
       };
+      addToCache(data.id, now);
       setOrcamentos(prev => [newRow, ...prev]);
       setNovoModal(null);
       startTransition(() => router.refresh());
@@ -253,6 +291,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
     try {
       const result = await duplicateOrcamento(orc.id, codigo);
       const realRow = resultToRow(result, orc.tabela_itens_orcamento.length);
+      addToCache(realRow.id, realRow.created_at as string);
       setOrcamentos(prev => prev.map(o => o.id === tempId ? realRow : o));
       setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
       startTransition(() => router.refresh());
@@ -300,7 +339,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
           <p className="mt-1 text-sm text-gray-500">{orcamentos.length} orçamento(s)</p>
         </div>
         <button
-          onClick={() => setNovoModal({ ...NOVO_DEFAULT })}
+          onClick={() => setNovoModal({ ...NOVO_DEFAULT, data: new Date().toISOString().split('T')[0] })}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           Novo orçamento
@@ -553,7 +592,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
         <div className="rounded-xl border bg-white p-12 text-center shadow-sm">
           <p className="text-gray-400">Nenhum orçamento criado.</p>
           <button
-            onClick={() => setNovoModal({ ...NOVO_DEFAULT })}
+            onClick={() => setNovoModal({ ...NOVO_DEFAULT, data: new Date().toISOString().split('T')[0] })}
             className="mt-4 inline-block text-sm text-blue-600 hover:underline"
           >
             Criar primeiro orçamento →
@@ -609,7 +648,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {new Date(orc.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                        {formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}
                       </Link>
                     </td>
                     <td className="px-4 py-3">
