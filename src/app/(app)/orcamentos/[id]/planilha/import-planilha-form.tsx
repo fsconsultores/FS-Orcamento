@@ -76,7 +76,10 @@ function parseCsv(text: string): EstruturaRow[] {
 
     const unidade = cols[3] ? cols[3] : null
     const quantidade = cols[4] ? parseBrNumber(cols[4]) || null : null
-    const custoUnitario = cols[5] ? parseBrNumber(cols[5]) || null : null
+    // Formato expandido (MAT;MO;TERCEIROS;PREÇO UNIT. em cols 5-8) vs simples (R$ UNIT. em col 5)
+    const custoUnitario = cols.length > 8
+      ? parseBrNumber(cols[8]) || null
+      : (cols[5] ? parseBrNumber(cols[5]) || null : null)
 
     // É grupo se não tem código
     const tipo: 'grupo' | 'item' = !codigo ? 'grupo' : 'item'

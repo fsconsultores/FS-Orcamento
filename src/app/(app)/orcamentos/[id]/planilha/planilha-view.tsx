@@ -49,27 +49,10 @@ function flattenTree(nodos: Nodo[], depth = 0): { nodo: Nodo; depth: number }[] 
 
 const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-const ROW_BG: Record<number, string> = {
-  0: 'bg-slate-800 text-white',
-  1: 'bg-blue-50 text-blue-950',
-  2: 'bg-slate-50 text-slate-800',
-  3: 'bg-white text-gray-700',
-}
-const ROW_HOVER: Record<number, string> = {
-  0: 'hover:bg-slate-700',
-  1: 'hover:bg-blue-100',
-  2: 'hover:bg-slate-100',
-  3: 'hover:bg-blue-50/60',
-}
-const ROW_WEIGHT: Record<number, string> = {
-  0: 'font-bold',
-  1: 'font-semibold',
-  2: 'font-medium',
-  3: 'font-normal',
-}
-function rowCls(depth: number) {
-  const d = Math.min(depth, 3)
-  return `${ROW_BG[d]} ${ROW_HOVER[d]} ${ROW_WEIGHT[d]}`
+function rowCls(depth: number, isGroup: boolean, rowIdx: number) {
+  const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-[#eef2f6]'
+  const weight = isGroup ? 'font-bold' : 'font-normal'
+  return `${base} text-gray-900 ${weight} hover:bg-blue-100`
 }
 
 // ─── Autocomplete de Código ───────────────────────────────────────────────────
@@ -321,6 +304,23 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     }
     return true
   })
+
+  // ── Curva ABC ──────────────────────────────────────────────────────────────
+  type AbcClasse = 'A' | 'B' | 'C'
+  const abcMap = new Map<string, { percentual: number; classe: AbcClasse }>()
+  if (grandTotal > 0) {
+    const leafItems = flat
+      .filter(({ nodo }) => nodo.tipo === 'item' && nodo.total > 0)
+      .map(({ nodo }) => ({ id: nodo.id, total: nodo.total }))
+      .sort((a, b) => b.total - a.total)
+    let acumulado = 0
+    for (const item of leafItems) {
+      const pct = (item.total / grandTotal) * 100
+      acumulado += pct
+      const classe: AbcClasse = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C'
+      abcMap.set(item.id, { percentual: pct, classe })
+    }
+  }
 
   let formHostId: string | null = null
   if (addingParentId && addingParentId !== 'root') {
@@ -712,20 +712,22 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       )}
 
       {/* Tabela */}
-      {items.length > 0 && <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] rounded-xl border border-gray-200 shadow-sm">
-        <table className="w-full text-xs min-w-[700px]">
-          <thead className="sticky top-0 z-10 bg-white border-b-2 border-gray-100 text-left">
-            <tr>
-              <th className="px-3 py-2.5 w-8 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center">#</th>
-              <th className="px-3 py-2.5 w-28 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Item</th>
-              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Composição</th>
-              <th className="px-3 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Descrição completa</th>
-              <th className="px-3 py-2.5 w-14 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center">Unidade</th>
-              <th className="px-3 py-2.5 w-24 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Qtde.</th>
-              <th className="px-3 py-2.5 w-28 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Custo Unitário</th>
-              <th className="px-3 py-2.5 w-32 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">Total Custo Unitário</th>
-              <th className="px-3 py-2.5 w-16 text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-right">% BDI</th>
-              <th className="px-3 py-2.5 w-10" />
+      {items.length > 0 && <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
+        <table className="w-full text-xs min-w-[700px] border-collapse">
+          <thead className="sticky top-0 z-10 text-left">
+            <tr className="bg-[#1a2e4a] text-white">
+              <th className="px-2 py-2 w-8 text-center border border-[#2d4a6e] font-semibold">#</th>
+              <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Item</th>
+              <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Composição</th>
+              <th className="px-2 py-2 border border-[#2d4a6e] font-semibold">Descrição completa</th>
+              <th className="px-2 py-2 w-16 text-center border border-[#2d4a6e] font-semibold">Unidade</th>
+              <th className="px-2 py-2 w-20 text-right border border-[#2d4a6e] font-semibold">Qtde.</th>
+              <th className="px-2 py-2 w-28 text-right border border-[#2d4a6e] font-semibold">Custo Unitário</th>
+              <th className="px-2 py-2 w-32 text-right border border-[#2d4a6e] font-semibold">Total Custo Unitário</th>
+              <th className="px-2 py-2 w-16 text-right border border-[#2d4a6e] font-semibold">% BDI</th>
+              <th className="px-2 py-2 w-16 text-right border border-[#2d4a6e] font-semibold">% Custo</th>
+              <th className="px-2 py-2 w-10 text-center border border-[#2d4a6e] font-semibold">ABC</th>
+              <th className="px-2 py-2 w-8 border border-[#2d4a6e]" />
             </tr>
           </thead>
           <tbody>
@@ -739,31 +741,27 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
               return (
                 <Fragment key={nodo.id}>
                   <tr
-                    className={`group border-b border-gray-100/80 transition-colors ${rowCls(depth)} ${deletingId === nodo.id ? 'opacity-30' : ''}`}
+                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
 
                     {/* Contador */}
-                    <td className="px-2 py-2 text-center text-gray-400 font-mono text-[10px] select-none">
+                    <td className="px-1 py-0.5 text-center text-gray-400 font-mono text-[10px] select-none border border-gray-200 w-8">
                       {rowIdx + 1}
                     </td>
 
                     {/* Item / número */}
-                    <td className="py-2 font-mono" style={{ paddingLeft: `${10 + depth * 16}px`, paddingRight: '8px' }}>
+                    <td className="px-2 py-0.5 font-mono border border-gray-200">
                       <div className="flex items-center gap-1">
                         {isGroup ? (
                           <button onClick={() => hasFilhos && toggleCollapse(nodo.id)}
-                            className={`shrink-0 w-4 h-4 flex items-center justify-center rounded transition-transform ${hasFilhos ? 'hover:bg-black/10 cursor-pointer' : 'invisible'}`}>
-                            <svg className={`w-3 h-3 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            className={`shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded transition-transform ${hasFilhos ? 'hover:bg-black/10 cursor-pointer' : 'invisible'}`}>
+                            <svg className={`w-2.5 h-2.5 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                             </svg>
                           </button>
                         ) : (
-                          <span className="shrink-0 w-4 h-4 flex items-center justify-center opacity-30">
-                            <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 8 8">
-                              <circle cx="4" cy="4" r="2" />
-                            </svg>
-                          </span>
+                          <span className="shrink-0 w-3.5" />
                         )}
                         <div className="flex-1">
                           {textCell(nodo, 'numero', <span>{nodo.numero}</span>, 'font-mono')}
@@ -771,8 +769,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       </div>
                     </td>
 
-                    {/* Código */}
-                    <td className="px-3 py-2 font-mono text-[10px]">
+                    {/* Composição */}
+                    <td className="px-2 py-0.5 font-mono text-[10px] border border-gray-200">
                       {!isGroup && (() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'codigo'
                         if (editing) return (
@@ -810,8 +808,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       })()}
                     </td>
 
-                    {/* Descrição */}
-                    <td className="px-3 py-2 max-w-xs">
+                    {/* Descrição completa */}
+                    <td className="px-2 py-0.5 border border-gray-200">
                       {(() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'descricao'
                         if (editing) return (
@@ -820,7 +818,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                             className={INP} />
                         )
                         return (
-                          <div onClick={() => openCell(nodo.id, 'descricao')} className={`${CELL_HOVER} line-clamp-2`} title={nodo.descricao}>
+                          <div onClick={() => openCell(nodo.id, 'descricao')} className={`${CELL_HOVER} truncate max-w-xs`} title={nodo.descricao}>
                             {nodo.descricao}
                           </div>
                         )
@@ -828,40 +826,40 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                     </td>
 
                     {/* Unidade */}
-                    <td className="px-3 py-2 text-center opacity-70">
+                    <td className="px-2 py-0.5 text-center border border-gray-200">
                       {!isGroup && textCell(nodo, 'unidade',
-                        <span>{nodo.unidade ?? <span className="opacity-30">—</span>}</span>,
+                        <span>{nodo.unidade ?? ''}</span>,
                         'text-center w-14'
                       )}
                     </td>
 
-                    {/* Quantidade */}
-                    <td className="px-3 py-2 w-24">
+                    {/* Qtde. */}
+                    <td className="px-2 py-0.5 text-right border border-gray-200">
                       {!isGroup && numCell(nodo, 'quantidade',
                         nodo.quantidade != null && nodo.quantidade > 0
                           ? <span className="tabular-nums">{nodo.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</span>
-                          : <span className="opacity-25">—</span>
+                          : <span className="text-gray-300">0</span>
                       )}
                     </td>
 
-                    {/* R$ Unit. */}
-                    <td className="px-3 py-2 w-28">
+                    {/* Custo Unitário */}
+                    <td className="px-2 py-0.5 text-right border border-gray-200">
                       {!isGroup && numCell(nodo, 'custo_unitario',
                         nodo.custo_unitario != null && nodo.custo_unitario > 0
                           ? <span className="tabular-nums">{BRL(nodo.custo_unitario)}</span>
-                          : <span className="opacity-25">—</span>
+                          : <span className="text-gray-300">0</span>
                       )}
                     </td>
 
                     {/* Total Custo Unitário */}
-                    <td className="px-3 py-2 text-right tabular-nums">
+                    <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
                       {nodo.total > 0
-                        ? <span className={`font-semibold ${depth === 0 ? 'text-white' : 'text-gray-900'}`}>{BRL(nodo.total)}</span>
-                        : <span className="opacity-25">—</span>}
+                        ? <span className="font-semibold text-gray-900">{BRL(nodo.total)}</span>
+                        : <span className="text-gray-300">0</span>}
                     </td>
 
                     {/* % BDI */}
-                    <td className="px-3 py-2 text-right tabular-nums">
+                    <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
                       {!isGroup && (() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
                         const bdiEfetivo = nodo.bdi_especifico ?? bdiGlobal
@@ -880,29 +878,50 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                           <div
                             onClick={() => openCell(nodo.id, 'bdi_especifico')}
                             className={`${CELL_HOVER} text-right`}
-                            title={isGlobal ? 'BDI global — clique para definir BDI específico' : 'BDI específico — clique para editar'}
+                            title={isGlobal ? 'BDI global — clique para definir BDI específico' : 'BDI específico'}
                           >
-                            <span className={isGlobal ? 'opacity-50' : 'font-semibold'}>{bdiEfetivo}%</span>
+                            <span className={isGlobal ? 'text-gray-400' : 'font-semibold text-blue-700'}>{bdiEfetivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         )
                       })()}
                     </td>
 
+                    {/* % Custo e Classe ABC */}
+                    {(() => {
+                      const abc = abcMap.get(nodo.id)
+                      const pct = grandTotal > 0 ? (nodo.total / grandTotal) * 100 : 0
+                      const CLS: Record<AbcClasse, string> = {
+                        A: 'bg-red-100 text-red-700 font-bold',
+                        B: 'bg-amber-100 text-amber-700 font-bold',
+                        C: 'bg-green-100 text-green-700 font-bold',
+                      }
+                      return (
+                        <>
+                          <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200 text-gray-500">
+                            {nodo.total > 0 ? `${pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : null}
+                          </td>
+                          <td className="px-1 py-0.5 text-center border border-gray-200">
+                            {abc ? <span className={`inline-block px-1.5 rounded text-[10px] ${CLS[abc.classe]}`}>{abc.classe}</span> : null}
+                          </td>
+                        </>
+                      )
+                    })()}
+
                     {/* Ações — visíveis só no hover */}
-                    <td className="px-1 py-2">
+                    <td className="px-1 py-0.5 border border-gray-200">
                       <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         {isGroup && (
                           <button onClick={() => setAddingParentId(addingHere ? undefined : nodo.id)}
                             title="Adicionar sub-item"
-                            className="rounded p-1 hover:bg-black/10 transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            className="rounded p-0.5 hover:bg-black/10 transition-colors">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                             </svg>
                           </button>
                         )}
                         <button onClick={() => handleDelete(nodo.id)} title="Remover"
-                          className="rounded p-1 hover:bg-red-500/20 hover:text-red-600 transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          className="rounded p-0.5 hover:bg-red-500/20 hover:text-red-600 transition-colors">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
@@ -912,7 +931,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
                   {showFormAfter && addingParentGroup && (
                     <tr>
-                      <td colSpan={10} className="px-2 py-1.5">
+                      <td colSpan={12} className="px-2 py-1.5">
                         <AddItemForm orcamentoId={orcamentoId}
                           parentId={addingParentGroup.id} parentNivel={addingParentGroup.nivel}
                           parentNumero={addingParentGroup.numero} parentDescricao={addingParentGroup.descricao}
@@ -924,14 +943,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
               )
             })}
 
-            <tr className="bg-gradient-to-r from-slate-800 to-slate-700 text-white">
-              <td colSpan={8} className="px-4 py-4 text-right text-xs font-semibold uppercase tracking-widest text-slate-300">
+            <tr className="bg-[#1a2e4a] text-white">
+              <td colSpan={8} className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-widest text-slate-300 border border-[#2d4a6e]">
                 Total Geral
               </td>
-              <td className="px-3 py-4 text-right text-base font-bold tabular-nums">
+              <td className="px-3 py-2 text-right text-sm font-bold tabular-nums border border-[#2d4a6e]">
                 {BRL(grandTotal)}
               </td>
-              <td colSpan={2} />
+              <td colSpan={4} className="border border-[#2d4a6e]" />
             </tr>
           </tbody>
         </table>
