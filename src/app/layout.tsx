@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'fsconsultores · Orçamentos',
+  title: 'FS Consultores · Orçamentos',
   description: 'Sistema de orçamento de obras — fsconsultores',
   icons: { icon: '/favicon.ico' },
 };

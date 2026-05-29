@@ -11,6 +11,20 @@ interface Props {
   composicoes: Pick<OrcamentoComposicao, 'id' | 'codigo' | 'descricao'>[]
 }
 
+const GRUPOS = [
+  { value: 'E',  label: 'E — Equipamento' },
+  { value: 'H',  label: 'H — Mão de Obra' },
+  { value: 'HH', label: 'HH — Mão de Obra Horista' },
+  { value: 'M',  label: 'M — Material' },
+  { value: 'N',  label: 'N — Material' },
+  { value: 'O',  label: 'O — Material' },
+  { value: 'P',  label: 'P — Material' },
+  { value: 'Q',  label: 'Q — Material' },
+  { value: 'R',  label: 'R — Material' },
+  { value: 'S',  label: 'S — Serviço de Terceiros' },
+  { value: 'T',  label: 'T — Transporte' },
+]
+
 const makeEmpty = (): CreateInsumoData => ({
   composicao_id: null,
   codigo: '',
@@ -131,11 +145,16 @@ export function NovoInsumoForm({ orcamentoId, composicoes }: Props) {
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Grupo</label>
-          <input
+          <select
             value={form.grupo ?? ''}
             onChange={(e) => set('grupo', e.target.value || null)}
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          >
+            <option value="">— Selecione —</option>
+            {GRUPOS.map(g => (
+              <option key={g.value} value={g.value}>{g.label}</option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -143,16 +162,6 @@ export function NovoInsumoForm({ orcamentoId, composicoes }: Props) {
           <input
             value={form.base ?? ''}
             onChange={(e) => set('base', e.target.value || null)}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Data Ref.</label>
-          <input
-            value={form.data_ref ?? ''}
-            onChange={(e) => set('data_ref', e.target.value || null)}
-            placeholder="MM/AAAA"
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>

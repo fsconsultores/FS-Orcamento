@@ -26,18 +26,27 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
     setEditingValue('');
   }
 
-  async function saveEdit(id: string) {
+  async function saveEdit(id: string, rawValue?: string) {
     if (savingId) return;
-    const parsed = parseFloat(editingValue.replace(',', '.'));
-    if (isNaN(parsed) || parsed <= 0) { cancelEdit(); return; }
-    setSavingId(id);
+    const str = (rawValue ?? editingValue).trim().replace(',', '.');
+    const parsed = str === '' ? 0 : parseFloat(str);
+    if (isNaN(parsed) || parsed < 0) { cancelEdit(); return; }
+    const current = insumos.find(ins => ins.id === id);
+    if (current && parsed === current.preco_base) { cancelEdit(); return; }
+
     setEditingId(null);
-    const sb = createClient() as any;
-    const { error } = await sb.from('tabela_insumos').update({ preco_base: parsed }).eq('id', id);
-    if (!error) {
-      setInsumos(prev => prev.map(ins => ins.id === id ? { ...ins, preco_base: parsed } : ins));
+    setInsumos(prev => prev.map(ins => ins.id === id ? { ...ins, preco_base: parsed } : ins));
+
+    setSavingId(id);
+    try {
+      const sb = createClient() as any;
+      await sb.from('tabela_insumos').update({ preco_base: parsed }).eq('id', id);
+    } catch {
+      setInsumos(prev => prev.map(ins => ins.id === id && current ? { ...ins, preco_base: current.preco_base } : ins));
+      alert('Erro ao salvar. Verifique a conexão.');
+    } finally {
+      setSavingId(null);
     }
-    setSavingId(null);
   }
 
   return (
@@ -89,9 +98,9 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
                     step="0.0001"
                     value={editingValue}
                     onChange={(e) => setEditingValue(e.target.value)}
-                    onBlur={() => saveEdit(ins.id)}
+                    onBlur={(e) => saveEdit(ins.id, e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); saveEdit(ins.id); }
+                      if (e.key === 'Enter') { e.preventDefault(); saveEdit(ins.id, (e.target as HTMLInputElement).value); }
                       if (e.key === 'Escape') cancelEdit();
                     }}
                     className="w-full text-right border border-blue-400 rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/40 bg-white"

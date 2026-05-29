@@ -8,7 +8,21 @@ import { ClientPagination } from '@/components/client-pagination'
 
 const PAGE_SIZE = 100
 
-type EditableField = 'custo' | 'grupo' | 'base' | 'data_ref'
+const GRUPOS = [
+  { value: 'E',  label: 'E — Equipamento' },
+  { value: 'H',  label: 'H — Mão de Obra' },
+  { value: 'HH', label: 'HH — Mão de Obra Horista' },
+  { value: 'M',  label: 'M — Material' },
+  { value: 'N',  label: 'N — Material' },
+  { value: 'O',  label: 'O — Material' },
+  { value: 'P',  label: 'P — Material' },
+  { value: 'Q',  label: 'Q — Material' },
+  { value: 'R',  label: 'R — Material' },
+  { value: 'S',  label: 'S — Serviço de Terceiros' },
+  { value: 'T',  label: 'T — Transporte' },
+]
+
+type EditableField = 'custo' | 'grupo' | 'base'
 
 interface Editing {
   id: string
@@ -48,13 +62,44 @@ function InlineInput({
       step={type === 'number' ? 'any' : undefined}
       min={type === 'number' ? '0' : undefined}
       onChange={e => setDraft(e.target.value)}
-      onBlur={() => onCommit(draft)}
+      onBlur={e => onCommit(e.target.value)}
       onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); onCommit(draft) }
+        if (e.key === 'Enter') { e.preventDefault(); onCommit(ref.current?.value ?? draft) }
         if (e.key === 'Escape') { e.preventDefault(); onCancel() }
       }}
       className={`block w-full rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 ${align === 'right' ? 'text-right' : 'text-left'}`}
     />
+  )
+}
+
+function InlineSelect({
+  value,
+  options,
+  onCommit,
+  onCancel,
+}: {
+  value: string
+  options: { value: string; label: string }[]
+  onCommit: (v: string) => void
+  onCancel: () => void
+}) {
+  const ref = useRef<HTMLSelectElement>(null)
+  useEffect(() => { ref.current?.focus() }, [])
+
+  return (
+    <select
+      ref={ref}
+      defaultValue={value}
+      onChange={e => onCommit(e.target.value)}
+      onBlur={() => onCancel()}
+      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onCancel() } }}
+      className="block w-full rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20"
+    >
+      <option value="">—</option>
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
   )
 }
 
@@ -69,6 +114,7 @@ export function OrcamentoInsumosTable({
   const [query, setQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null)
+  const [editingCustoValue, setEditingCustoValue] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
@@ -89,11 +135,62 @@ export function OrcamentoInsumosTable({
     e.preventDefault()
     e.stopPropagation()
     if (savingId) return
+    if (field === 'custo') setEditingCustoValue(value)
     setEditing({ id, field, value })
   }
 
   function cancelEdit() {
     setEditing(null)
+  }
+
+  async function saveCusto(id: string, rawValue: string) {
+    const alvo = insumos.find(ins => ins.id === id)
+    if (!alvo) return
+    const str = rawValue.trim().replace(',', '.')
+    const parsed = str === '' ? 0 : parseFloat(str)
+    if (isNaN(parsed) || parsed < 0) return
+    if (parsed === alvo.custo) return
+
+    const agora = new Date().toISOString()
+    const custoAnterior = alvo.custo
+    setInsumos(prev => prev.map(ins =>
+      ins.codigo === alvo.codigo
+        ? { ...ins, custo: parsed, custo_atualizado_em: agora }
+        : ins
+    ))
+
+    setSavingId(id)
+    try {
+      const sb = createClient() as any
+      const { data: comps } = await sb
+        .from('orcamento_composicoes')
+        .select('id')
+        .eq('orcamento_id', orcamentoId)
+      const compIds: string[] = (comps ?? []).map((c: any) => c.id)
+
+      await sb
+        .from('orcamento_insumos')
+        .update({ custo: parsed })
+        .eq('codigo', alvo.codigo)
+        .eq('orcamento_id', orcamentoId)
+
+      for (let i = 0; i < compIds.length; i += 500) {
+        await sb
+          .from('orcamento_insumos')
+          .update({ custo: parsed })
+          .eq('codigo', alvo.codigo)
+          .in('composicao_id', compIds.slice(i, i + 500))
+      }
+    } catch {
+      setInsumos(prev => prev.map(ins =>
+        ins.codigo === alvo.codigo
+          ? { ...ins, custo: custoAnterior, custo_atualizado_em: alvo.custo_atualizado_em ?? null }
+          : ins
+      ))
+      alert('Erro ao salvar custo. Verifique a conexão e tente novamente.')
+    } finally {
+      setSavingId(null)
+    }
   }
 
   async function commitEdit(draft: string) {
@@ -103,47 +200,6 @@ export function OrcamentoInsumosTable({
 
     const alvo = insumos.find(ins => ins.id === id)
     if (!alvo) return
-
-    if (field === 'custo') {
-      const parsed = parseFloat(draft.replace(',', '.'))
-      if (isNaN(parsed) || parsed <= 0) return
-      if (parsed === alvo.custo) return
-
-      setSavingId(id)
-      const sb = createClient() as any
-
-      // Busca as composições deste orçamento para atualizar insumos com orcamento_id inconsistente
-      const { data: comps } = await sb
-        .from('orcamento_composicoes')
-        .select('id')
-        .eq('orcamento_id', orcamentoId)
-      const compIds: string[] = (comps ?? []).map((c: any) => c.id)
-
-      // 1. Atualiza insumos avulsos e corretamente tagueados
-      await sb
-        .from('orcamento_insumos')
-        .update({ custo: parsed })
-        .eq('codigo', alvo.codigo)
-        .eq('orcamento_id', orcamentoId)
-
-      // 2. Atualiza insumos vinculados a composições (mesmo que orcamento_id esteja inconsistente)
-      for (let i = 0; i < compIds.length; i += 500) {
-        await sb
-          .from('orcamento_insumos')
-          .update({ custo: parsed })
-          .eq('codigo', alvo.codigo)
-          .in('composicao_id', compIds.slice(i, i + 500))
-      }
-
-      const agora = new Date().toISOString()
-      setInsumos(prev => prev.map(ins =>
-        ins.codigo === alvo.codigo
-          ? { ...ins, custo: parsed, custo_atualizado_em: agora }
-          : ins
-      ))
-      setSavingId(null)
-      return
-    }
 
     // Campos texto simples
     const novoValor = draft.trim() || null
@@ -212,8 +268,7 @@ export function OrcamentoInsumosTable({
       'Custo': ins.custo,
       'Grupo': ins.grupo ?? '',
       'Base': ins.base ?? '',
-      'Data Ref.': ins.data_ref ?? '',
-      'Preço atualizado': ins.custo_atualizado_em
+      'Data Ref.': ins.custo_atualizado_em
         ? new Date(ins.custo_atualizado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
         : '',
     }))
@@ -265,14 +320,13 @@ export function OrcamentoInsumosTable({
               <th className="px-4 py-3">Grupo</th>
               <th className="px-4 py-3">Base</th>
               <th className="px-4 py-3">Data Ref.</th>
-              <th className="px-4 py-3">Preço atualizado</th>
               <th className="px-4 py-3 w-20" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   {q ? 'Nenhum insumo encontrado para essa busca.' : 'Nenhum insumo cadastrado neste orçamento.'}
                 </td>
               </tr>
@@ -289,12 +343,19 @@ export function OrcamentoInsumosTable({
                     {/* Custo */}
                     <td className="px-4 py-3 text-right w-36">
                       {isEditing(insumo.id, 'custo') ? (
-                        <InlineInput
-                          value={String(insumo.custo)}
+                        <input
+                          autoFocus
                           type="number"
-                          align="right"
-                          onCommit={v => commitEdit(v)}
-                          onCancel={cancelEdit}
+                          min="0"
+                          step="any"
+                          value={editingCustoValue}
+                          onChange={e => setEditingCustoValue(e.target.value)}
+                          onBlur={e => { setEditing(null); saveCusto(insumo.id, e.target.value) }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') { e.preventDefault(); setEditing(null); saveCusto(insumo.id, (e.target as HTMLInputElement).value) }
+                            if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
+                          }}
+                          className="block w-full text-right rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 tabular-nums"
                         />
                       ) : (
                         <span
@@ -310,7 +371,7 @@ export function OrcamentoInsumosTable({
                     {/* Grupo */}
                     <td className="px-4 py-3 text-gray-500">
                       {isEditing(insumo.id, 'grupo') ? (
-                        <InlineInput value={insumo.grupo ?? ''} onCommit={v => commitEdit(v)} onCancel={cancelEdit} />
+                        <InlineSelect value={insumo.grupo ?? ''} options={GRUPOS} onCommit={v => commitEdit(v)} onCancel={cancelEdit} />
                       ) : (
                         <span onClick={e => startEdit(e, insumo.id, 'grupo', insumo.grupo ?? '')}
                           className={cellClass()} title="Clique para editar">
@@ -331,19 +392,7 @@ export function OrcamentoInsumosTable({
                       )}
                     </td>
 
-                    {/* Data Ref. */}
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {isEditing(insumo.id, 'data_ref') ? (
-                        <InlineInput value={insumo.data_ref ?? ''} onCommit={v => commitEdit(v)} onCancel={cancelEdit} />
-                      ) : (
-                        <span onClick={e => startEdit(e, insumo.id, 'data_ref', insumo.data_ref ?? '')}
-                          className={cellClass('text-xs')} title="Clique para editar">
-                          {insumo.data_ref || <span className="text-gray-300">—</span>}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Preço atualizado — só leitura */}
+                    {/* Data Ref. — preenchida automaticamente ao atualizar custo */}
                     <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
                       {insumo.custo_atualizado_em
                         ? new Date(insumo.custo_atualizado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })

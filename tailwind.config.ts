@@ -15,6 +15,9 @@ const brand = {
   950: '#110a11',
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const { lightBlue, warmGray, trueGray, coolGray, blueGray, ...safeColors } = colors as any;
+
 const config: Config = {
   content: [
     './src/app/**/*.{ts,tsx}',
@@ -23,7 +26,7 @@ const config: Config = {
   ],
   theme: {
     colors: {
-      ...colors,
+      ...safeColors,
       blue: brand,
     },
   },
