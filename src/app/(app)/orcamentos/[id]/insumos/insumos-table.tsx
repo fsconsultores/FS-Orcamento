@@ -259,6 +259,23 @@ export function OrcamentoInsumosTable({
     setComposicoesModal(prev => prev ? { ...prev, loading: false, composicoes: comps ?? [] } : null)
   }
 
+  async function handleClear() {
+    const avulsos = insumos.filter(i => i.composicao_id === null)
+    if (avulsos.length === 0) return
+    if (!confirm(`Excluir todos os ${avulsos.length} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
+    setInsumos(prev => prev.filter(i => i.composicao_id !== null))
+    const sb = createClient() as any
+    const { error } = await sb
+      .from('orcamento_insumos')
+      .delete()
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+    if (error) {
+      setInsumos(initialInsumos)
+      alert(`Erro ao limpar insumos: ${error.message}`)
+    }
+  }
+
   async function handleExport() {
     const XLSX = await import('xlsx')
     const rows = insumos.map(ins => ({
@@ -307,6 +324,16 @@ export function OrcamentoInsumosTable({
           </svg>
           Exportar XLSX
         </button>
+        <button
+          onClick={handleClear}
+          disabled={insumos.filter(i => i.composicao_id === null).length === 0}
+          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Limpar insumos
+        </button>
       </div>
 
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] rounded-lg border border-gray-200">
@@ -352,7 +379,18 @@ export function OrcamentoInsumosTable({
                           onChange={e => setEditingCustoValue(e.target.value)}
                           onBlur={e => { setEditing(null); saveCusto(insumo.id, e.target.value) }}
                           onKeyDown={e => {
-                            if (e.key === 'Enter') { e.preventDefault(); setEditing(null); saveCusto(insumo.id, (e.target as HTMLInputElement).value) }
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const val = (e.target as HTMLInputElement).value
+                              setEditing(null)
+                              saveCusto(insumo.id, val)
+                              const idx = paged.findIndex(i => i.id === insumo.id)
+                              if (idx !== -1 && idx < paged.length - 1) {
+                                const next = paged[idx + 1]
+                                setEditingCustoValue(String(next.custo))
+                                setEditing({ id: next.id, field: 'custo', value: String(next.custo) })
+                              }
+                            }
                             if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
                           }}
                           className="block w-full text-right rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 tabular-nums"

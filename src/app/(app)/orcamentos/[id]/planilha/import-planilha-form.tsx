@@ -1,15 +1,16 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { importarEstrutura } from './planilha-action'
 import type { EstruturaRow, ImportResult } from './planilha-action'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function parseBrNumber(s: string): number {
+function parseBrNumber(s: unknown): number {
   const c = String(s ?? '').replace(/R\$\s*/g, '').trim()
   if (!c || c === '-' || c === '') return 0
-  // Remove separador de milhar (.) e converte vírgula decimal
+  if (typeof s === 'number') return s
   return parseFloat(c.replace(/\./g, '').replace(',', '.')) || 0
 }
 
@@ -31,41 +32,33 @@ function isSkipRow(cols: string[]): boolean {
   )
 }
 
-// Detecta linha de cabeçalho (tem "ITEM" e "DESCRIÇÃO")
 function isHeaderRow(cols: string[]): boolean {
-  const joined = cols.slice(0, 5).join(';').toLowerCase()
-  return joined.includes('item') && (joined.includes('descrição') || joined.includes('descrição') || joined.includes('descri'))
+  const joined = cols.slice(0, 5).join(' ').toLowerCase()
+  return joined.includes('item') && joined.includes('descri')
 }
 
-function parseCsv(text: string): EstruturaRow[] {
-  const cleaned = text.replace(/^﻿/, '')
-  const lines = cleaned.split(/\r?\n/)
+// Núcleo compartilhado: recebe matriz de células (qualquer formato) → EstruturaRow[]
+function parseMatrix(matrix: unknown[][]): EstruturaRow[] {
   const rows: EstruturaRow[] = []
   let ordem = 0
 
-  // Encontra linha de cabeçalho
+  // Encontra linha de cabeçalho nas primeiras 15 linhas
   let startLine = 0
-  for (let i = 0; i < Math.min(10, lines.length); i++) {
-    if (isHeaderRow(lines[i].split(';'))) {
+  for (let i = 0; i < Math.min(15, matrix.length); i++) {
+    if (isHeaderRow(matrix[i].map(c => String(c ?? '')))) {
       startLine = i + 1
       break
     }
   }
 
-  for (let i = startLine; i < lines.length; i++) {
-    const cols = lines[i].split(';').map(c => c.trim().replace(/^"|"$/g, ''))
+  for (let i = startLine; i < matrix.length; i++) {
+    const cols = matrix[i].map(c => String(c ?? '').trim())
 
-    // Pula linhas em branco
     if (cols.every(c => !c)) continue
 
     const numero = cols[0] ?? ''
-    // Pula linha sem número de item
     if (!numero) continue
-
-    // Pula linhas de total
     if (isSkipRow(cols)) continue
-
-    // Número válido: contém apenas dígitos e pontos
     if (!/^[\d.]+$/.test(numero)) continue
 
     const norm = normNum(numero)
@@ -75,13 +68,12 @@ function parseCsv(text: string): EstruturaRow[] {
     if (!descricao) continue
 
     const unidade = cols[3] ? cols[3] : null
-    const quantidade = cols[4] ? parseBrNumber(cols[4]) || null : null
+    const quantidade = cols[4] ? parseBrNumber(matrix[i][4]) || null : null
     // Formato expandido (MAT;MO;TERCEIROS;PREÇO UNIT. em cols 5-8) vs simples (R$ UNIT. em col 5)
-    const custoUnitario = cols.length > 8
-      ? parseBrNumber(cols[8]) || null
-      : (cols[5] ? parseBrNumber(cols[5]) || null : null)
+    const custoUnitario = matrix[i].length > 8
+      ? parseBrNumber(matrix[i][8]) || null
+      : (cols[5] ? parseBrNumber(matrix[i][5]) || null : null)
 
-    // É grupo se não tem código
     const tipo: 'grupo' | 'item' = !codigo ? 'grupo' : 'item'
 
     rows.push({
@@ -100,9 +92,36 @@ function parseCsv(text: string): EstruturaRow[] {
   return rows
 }
 
+function parseCsv(text: string): EstruturaRow[] {
+  const cleaned = text.replace(/^﻿/, '')
+  const lines = cleaned.split(/\r?\n/)
+  const matrix = lines.map(line =>
+    line.split(';').map(c => c.trim().replace(/^"|"$/g, ''))
+  )
+  return parseMatrix(matrix)
+}
+
+async function parseXlsx(ab: ArrayBuffer): Promise<{ rows: EstruturaRow[]; sheets: string[] }> {
+  const XLSX = await import('xlsx')
+  const wb = XLSX.read(ab, { type: 'array', cellDates: false })
+  const sheets = wb.SheetNames
+
+  // Tenta cada aba até encontrar dados válidos
+  for (const sheetName of sheets) {
+    const ws = wb.Sheets[sheetName]
+    if (!ws) continue
+    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][]
+    const rows = parseMatrix(matrix)
+    if (rows.length > 0) return { rows, sheets }
+  }
+
+  return { rows: [], sheets }
+}
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
+  const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<EstruturaRow[] | null>(null)
@@ -116,12 +135,21 @@ export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
     setResult(null); setErrosParse([])
 
     const ab = await file.arrayBuffer()
-    const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(ab)
-    const text = utf8.includes('�')
-      ? new TextDecoder('windows-1252').decode(ab)
-      : utf8
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
 
-    const rows = parseCsv(text)
+    let rows: EstruturaRow[] = []
+
+    if (ext === 'xlsx' || ext === 'xls' || ext === 'ods') {
+      const parsed = await parseXlsx(ab)
+      rows = parsed.rows
+    } else {
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(ab)
+      const text = utf8.includes('�')
+        ? new TextDecoder('windows-1252').decode(ab)
+        : utf8
+      rows = parseCsv(text)
+    }
+
     if (rows.length === 0) {
       setErrosParse(['Nenhum item encontrado. Verifique o formato do arquivo.'])
       setPreview(null)
@@ -135,10 +163,11 @@ export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
     setLoading(true)
     try {
       const res = await importarEstrutura(orcamentoId, preview)
-      setResult(res)
       setPreview(null)
       setOpen(false)
       if (inputRef.current) inputRef.current.value = ''
+      router.refresh()
+      setResult(res)
     } catch (err) {
       setResult({ ok: 0, erros: [String(err)] })
     } finally {
@@ -156,7 +185,7 @@ export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
         </svg>
-        Importar CSV
+        Importar Planilha
       </button>
     )
   }
@@ -176,21 +205,21 @@ export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
       </div>
 
       <div className="rounded-md bg-white border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
-        <p className="font-medium text-gray-700">Formato esperado (CSV com ponto-e-vírgula):</p>
-        <p className="font-mono bg-gray-50 px-2 py-1 rounded">ITEM;CÓDIGO;DESCRIÇÃO;UND;QTDE;R$ UNIT.;R$ TOTAL</p>
+        <p className="font-medium text-gray-700">Formatos aceitos: <span className="font-mono">.xlsx</span>, <span className="font-mono">.xls</span>, <span className="font-mono">.csv</span></p>
+        <p className="text-gray-500">Colunas esperadas (em qualquer ordem):</p>
+        <p className="font-mono bg-gray-50 px-2 py-1 rounded">ITEM · CÓDIGO · DESCRIÇÃO · UND · QTDE · R$ UNIT.</p>
         <ul className="list-disc list-inside space-y-0.5 text-gray-500">
-          <li>Linhas sem código = capítulos/grupos (ex: <span className="font-mono">1;;TERRAPLENAGEM</span>)</li>
-          <li>Linhas com código = itens com quantidade e preço</li>
-          <li>Numeração hierárquica: <span className="font-mono">1, 01.01, 01.01.01</span> etc.</li>
-          <li>Suporta números em formato brasileiro (R$ 1.800,00)</li>
-          <li>Compatível com planilhas de comparação (importa o lado esquerdo)</li>
+          <li>Linhas sem código = capítulos/grupos</li>
+          <li>Numeração hierárquica: <span className="font-mono">1, 1.1, 1.1.1</span> etc.</li>
+          <li>Suporta formato BR (R$ 1.800,00) e números diretos</li>
+          <li>Para XLSX com múltiplas abas, usa a primeira aba com dados válidos</li>
         </ul>
       </div>
 
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,.txt"
+        accept=".xlsx,.xls,.ods,.csv,.txt"
         onChange={handleFile}
         className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:font-medium hover:file:bg-blue-700 cursor-pointer"
       />

@@ -27,7 +27,7 @@ const COL_ALIASES: Record<string, string[]> = {
   preco_base:      ['preco_base', 'preco', 'preço', 'custo', 'custounit', 'custounitario',
                     'valor', 'price', 'custo unit', 'r$ unit.', 'r$ unit', 'runit'],
   grupo:           ['grupo', 'grupois', 'grupoinsumo', 'group', 'categoria', 'tipo'],
-  fonte:           ['origem', 'fonte', 'base', 'cotacao', 'cotação', 'source', 'fornecedor'],
+  fonte:           ['origem', 'fonte', 'base', 'cotacao', 'cotação', 'source'],
   data_referencia: ['data_referencia', 'dataref', 'data ref', 'datareferencia', 'ref'],
   observacao:      ['observacao', 'observação', 'obs', 'nota', 'note'],
 };

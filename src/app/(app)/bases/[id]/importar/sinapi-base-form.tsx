@@ -16,7 +16,7 @@ const COL_ALIASES: Record<string, string[]> = {
                 'custounitariodesonerado', 'precototal'],
   indice:      ['indice', 'coeficiente', 'coef', 'coefutil', 'coeficienteutil', 'qtd', 'quantidade', 'qt', 'qtde'],
   grupo:       ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria'],
-  base:        ['base', 'fonte', 'cotacao', 'source', 'fornecedor'],
+  base:        ['base', 'fonte', 'cotacao', 'source'],
   data_ref:    ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
 }
 
@@ -110,21 +110,40 @@ function parseFlatComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[];
   return { rows, erros }
 }
 
-// SUDECAP/CPU: colunas fixas (col 0=cod_comp, 1=desc_comp, 2=und_comp, 5=tipo, 6=cod_ins, 7=desc_ins, 8=und_ins, 9=indice, 10=grupo)
+// Base própria/SUDECAP/CPU: detecta colunas pelo cabeçalho; fallbacks para índices clássicos.
 function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
+  if (data.length < 2) return { rows, erros: [] }
+
+  const hdr = (data[0] as unknown[]).map(c => normCol(String(c ?? '')))
+  const col = (keys: string[], fallback: number) => {
+    for (const k of keys) { const i = hdr.indexOf(k); if (i !== -1) return i }
+    return fallback
+  }
+  const C = {
+    codigoComp:  col(['codigo', 'codigodacomposicao', 'coddacomposicao'], 0),
+    descComp:    col(['descricao', 'descricaodacomposicao', 'descricaoabreviada'], 1),
+    unidadeComp: col(['unidade', 'unidadedacomposicao'], 2),
+    tipoItem:    col(['tipoitem', 'tipoitemcomposicao'], 5),
+    codigoIns:   col(['codigodoitem', 'codigodoinsumo', 'coditem', 'codigoitem'], 6),
+    descIns:     col(['descricaodoinsumo', 'descricaoabreviadainsumo', 'descricaoabreviadaitem', 'descricaoitem'], 7),
+    unidadeIns:  col(['unidadeitem', 'unidadedoinsumo', 'unidadeinsumo'], 8),
+    indice:      col(['indice', 'coeficiente', 'coef', 'coefutil'], 9),
+    grupo:       col(['grupodoinsumo', 'grupoinsumo', 'grupo'], 10),
+  }
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i] as unknown[]
-    const codigoComp  = String(row[0]  ?? '').trim()
-    const descComp    = String(row[1]  ?? '').trim()
-    const unidadeComp = String(row[2]  ?? '').trim()
-    const tipoItem    = String(row[5]  ?? '').trim().toUpperCase()
-    const codigoIns   = String(row[6]  ?? '').trim()
-    const descIns     = String(row[7]  ?? '').trim()
-    const unidadeIns  = String(row[8]  ?? '').trim()
-    const indice      = parseFloat(String(row[9] ?? '1').replace(',', '.')) || 1
-    const grupo       = String(row[10] ?? '').trim() || null
+    const codigoComp  = String(row[C.codigoComp]  ?? '').trim()
+    const descComp    = String(row[C.descComp]    ?? '').trim()
+    const unidadeComp = String(row[C.unidadeComp] ?? '').trim()
+    const tipoItem    = String(row[C.tipoItem]    ?? '').trim().toUpperCase()
+    const codigoIns   = String(row[C.codigoIns]   ?? '').trim()
+    const descIns     = String(row[C.descIns]     ?? '').trim()
+    const unidadeIns  = String(row[C.unidadeIns]  ?? '').trim()
+    const indice      = parseFloat(String(row[C.indice] ?? '1').replace(',', '.')) || 1
+    const grupo       = String(row[C.grupo]       ?? '').trim() || null
     if (!codigoComp && !descComp && !descIns) continue
     if (codigoComp && descComp) {
       current = { codigo: codigoComp, descricao: descComp, unidade: unidadeComp, base: null, insumos: [] }

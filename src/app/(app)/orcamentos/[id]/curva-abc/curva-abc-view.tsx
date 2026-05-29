@@ -138,16 +138,16 @@ const ROW_BG: Record<'A' | 'B' | 'C', string> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function CurvaAbcView({
-  abcComposicoes,
+  abcServicos,
   abcInsumos,
 }: {
-  abcComposicoes: AbcItem[]
+  abcServicos: AbcItem[]
   abcInsumos: AbcItem[]
 }) {
-  const [tab, setTab] = useState<'composicoes' | 'insumos'>('composicoes')
+  const [tab, setTab] = useState<'servicos' | 'insumos'>('servicos')
   const [filtro, setFiltro] = useState<'todos' | 'A' | 'B' | 'C'>('todos')
 
-  const items = tab === 'composicoes' ? abcComposicoes : abcInsumos
+  const items = tab === 'servicos' ? abcServicos : abcInsumos
   const filtered = filtro === 'todos' ? items : items.filter(i => i.classe === filtro)
 
   const total = items.reduce((s, i) => s + i.valor_total, 0)
@@ -226,7 +226,7 @@ export function CurvaAbcView({
     ws['!rows'] = [{ hpt: 18 }, ...rows.map(() => ({ hpt: 14 }))]
 
     const wb = XS.utils.book_new()
-    const sheetName = tab === 'composicoes' ? 'ABC Composições' : 'ABC Insumos'
+    const sheetName = tab === 'servicos' ? 'ABC Serviços' : 'ABC Insumos'
     XS.utils.book_append_sheet(wb, ws, sheetName)
     XS.writeFile(wb, `curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
@@ -236,7 +236,7 @@ export function CurvaAbcView({
       {/* Tabs composições / insumos */}
       <div className="flex gap-0 border-b border-gray-200">
         {([
-          { key: 'composicoes', label: 'Composições', count: abcComposicoes.length },
+          { key: 'servicos', label: 'Serviços', count: abcServicos.length },
           { key: 'insumos', label: 'Insumos', count: abcInsumos.length },
         ] as const).map(({ key, label, count }) => (
           <button

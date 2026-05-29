@@ -24,7 +24,7 @@ const COL_ALIASES: Record<string, string[]> = {
              'custounitariodesonerado', 'custounitarionaodesonerdo',
              'precototaldesonerado', 'precototal'],
   grupo:    ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria', 'tipo'],
-  base:     ['base', 'fonte', 'origem', 'cotacao', 'source', 'fornecedor'],
+  base:     ['base', 'fonte', 'origem', 'cotacao', 'source'],
   data_ref: ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
 }
 
@@ -73,42 +73,61 @@ function findHeaderRow(data: unknown[][]): number {
 // Detecta se o arquivo está no formato SUDECAP/SINAPI:
 // cabeçalho tem colunas "TipoItemComposicao" e "DescricaoAbreviadaInsumo"
 function isSudecap(header: string[]): boolean {
-  const joined = header.join('|').toLowerCase()
-  return joined.includes('tipoitem') || joined.includes('insumo/composicao') || joined.includes('insumocomposicao')
+  const joined = header.map(normCol).join('|')
+  return joined.includes('tipoitem') || joined.includes('insumocomposicao')
+    || joined.includes('origemcomposicao') || joined.includes('producaoequipe')
+    || joined.includes('grupodoinsumo')
 }
 
-// ─── Parser SUDECAP/SINAPI ────────────────────────────────────────────────────
-// Colunas fixas (índice 0-base):
-//  0: Codigo composição  1: DescricaoAbreviada  2: Unidade
-//  5: TipoItemComposicao (I=insumo direto, C=composição auxiliar)
-//  6: CódigoDoInsumo     7: DescricaoAbreviadaInsumo  8: UnidadeInsumo
-//  9: Indice             10: GrupoDoInsumo
+// ─── Parser SUDECAP/base própria ─────────────────────────────────────────────
+// Detecta posições pelo cabeçalho; fallbacks para índices clássicos SUDECAP.
 function parseSudecap(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
 
+  if (data.length < 2) return { rows, erros: [] }
+
+  // Detecta colunas pelo cabeçalho (linha 0)
+  const hdr = (data[0] as unknown[]).map(c => normCol(String(c ?? '')))
+  const col = (keys: string[], fallback: number) => {
+    for (const k of keys) {
+      const i = hdr.indexOf(k)
+      if (i !== -1) return i
+    }
+    return fallback
+  }
+
+  const C = {
+    codigoComp:  col(['codigo', 'codigodacomposicao', 'coddacomposicao'], 0),
+    descComp:    col(['descricao', 'descricaodacomposicao', 'descricaoabreviada'], 1),
+    unidadeComp: col(['unidade', 'unidadedacomposicao'], 2),
+    tipoItem:    col(['tipoitem', 'tipoitemcomposicao'], 5),
+    codigoIns:   col(['codigodoitem', 'codigodoinsumo', 'coditem', 'codigoitem'], 6),
+    descIns:     col(['descricaodoinsumo', 'descricaoabreviadainsumo', 'descricaoabreviadaitem', 'descricaoitem'], 7),
+    unidadeIns:  col(['unidadeitem', 'unidadedoinsumo', 'unidadeinsumo'], 8),
+    indice:      col(['indice', 'coeficiente', 'coef', 'coefutil'], 9),
+    grupo:       col(['grupodoinsumo', 'grupo', 'grupoinsumo'], 10),
+  }
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i] as unknown[]
-    const codigoComp  = String(row[0]  ?? '').trim()
-    const descComp    = String(row[1]  ?? '').trim()
-    const unidadeComp = String(row[2]  ?? '').trim()
-    const tipoItem    = String(row[5]  ?? '').trim().toUpperCase()
-    const codigoIns   = String(row[6]  ?? '').trim()
-    const descIns     = String(row[7]  ?? '').trim()
-    const unidadeIns  = String(row[8]  ?? '').trim()
-    const indice      = parseFloat(String(row[9] ?? '1').replace(',', '.')) || 1
-    const grupo       = String(row[10] ?? '').trim() || null
+    const codigoComp  = String(row[C.codigoComp]  ?? '').trim()
+    const descComp    = String(row[C.descComp]    ?? '').trim()
+    const unidadeComp = String(row[C.unidadeComp] ?? '').trim()
+    const tipoItem    = String(row[C.tipoItem]    ?? '').trim().toUpperCase()
+    const codigoIns   = String(row[C.codigoIns]   ?? '').trim()
+    const descIns     = String(row[C.descIns]     ?? '').trim()
+    const unidadeIns  = String(row[C.unidadeIns]  ?? '').trim()
+    const indice      = parseFloat(String(row[C.indice] ?? '1').replace(',', '.')) || 1
+    const grupo       = String(row[C.grupo]       ?? '').trim() || null
 
-    // Linha completamente vazia — pula
     if (!codigoComp && !descComp && !descIns) continue
 
-    // Nova composição
     if (codigoComp && descComp) {
       current = { codigo: codigoComp, descricao: descComp, unidade: unidadeComp, base: defaultBase ?? null, insumos: [] }
       rows.push(current)
     }
 
-    // I = insumo direto, C = composição filha — ambos entram como item da composição pai.
     if ((tipoItem === 'I' || tipoItem === 'C') && descIns && current) {
       current.insumos.push({
         codigo: codigoIns,
@@ -150,7 +169,7 @@ function parseSimples(data: unknown[][], defaultBase?: string): { rows: ImportCo
         codigo: rawCodigo,
         descricao,
         unidade: 'unidade'  in cols ? String(row[cols.unidade]  ?? '').trim() : '',
-        base:    'base'     in cols ? (String(row[cols.base] ?? '').trim() || defaultBase || null) : (defaultBase || null),
+        base:    defaultBase ?? null,
         insumos: [],
       }
       rows.push(current)
@@ -175,7 +194,7 @@ function parseSimples(data: unknown[][], defaultBase?: string): { rows: ImportCo
 }
 
 // ─── Parser insumos flat ──────────────────────────────────────────────────────
-function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[] } {
+function parseFlat(data: unknown[][], defaultBase?: string): { rows: ImportInsumoRow[]; erros: string[] } {
   const erros: string[] = []
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'] }
   const headerIdx = findHeaderRow(data)
@@ -196,7 +215,7 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
       custo:    'custo'    in cols ? parseNumber(row[cols.custo])              : 0,
       indice:   1,
       grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
-      base:     'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
+      base:     defaultBase ?? null,
       data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,
     })
   }
@@ -223,7 +242,7 @@ function parseFlatComposicoes(data: unknown[][], defaultBase?: string): { rows: 
       codigo:  'codigo'  in cols ? String(row[cols.codigo]  ?? '').trim() : '',
       descricao,
       unidade: 'unidade' in cols ? String(row[cols.unidade] ?? '').trim() : '',
-      base:    'base'    in cols ? (String(row[cols.base] ?? '').trim() || defaultBase || null) : (defaultBase || null),
+      base:    defaultBase ?? null,
       insumos: [],
     })
   }
@@ -271,6 +290,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
   const [sheets, setSheets] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState('')
   const [wbRef, setWbRef] = useState<unknown>(null)
+  const [fonte, setFonte] = useState('')
   const [preview, setPreview] = useState<ImportInsumoRow[] | null>(null)
   const [parseErros, setParseErros] = useState<string[]>([])
   const [result, setResult] = useState<ImportResult | null>(null)
@@ -284,7 +304,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
     if (file.name.toLowerCase().endsWith('.csv')) {
       const text = await file.text()
       const data = parseCsvText(text)
-      const { rows, erros } = parseFlat(data)
+      const { rows, erros } = parseFlat(data, fonte || undefined)
       setPreview(rows); setParseErros(erros)
       setSheets([]); setWbRef(null); setSelectedSheet('')
       return
@@ -306,7 +326,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
       const ws = _wb.Sheets[name]
       if (!ws) return
       const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
-      const { rows, erros } = parseFlat(data)
+      const { rows, erros } = parseFlat(data, fonte || undefined)
       setPreview(rows); setParseErros(erros)
     })
   }
@@ -320,7 +340,8 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
     if (!preview?.length) return
     setLoading(true)
     try {
-      const res = await importarInsumos(orcamentoId, preview)
+      const fonteVal = fonte.trim() || null
+      const res = await importarInsumos(orcamentoId, preview.map(r => ({ ...r, base: fonteVal })))
       setResult(res); setPreview(null)
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
@@ -331,9 +352,19 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
+        <input
+          type="text"
+          value={fonte}
+          onChange={e => setFonte(e.target.value)}
+          placeholder="ex: SINAPI, SUDECAP, Cotação Maio/2026"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        />
+      </div>
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
         <p className="text-sm text-gray-500 mb-2">Planilha <strong>.xlsx</strong> ou <strong>.csv</strong> — cada linha = um insumo</p>
-        <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, base, data_ref</em></p>
+        <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, data_ref</em></p>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
           className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
       </div>
@@ -413,8 +444,22 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     const file = e.target.files?.[0]
     if (!file) return
     setResult(null); setPreview(null); setParseErros([])
-    const baseName = file.name.replace(/\.[^.]+$/, '')
-    setFileBase(baseName)
+    if (!fileBase) setFileBase(file.name.replace(/\.[^.]+$/, ''))
+
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      const text = await file.text()
+      const data = parseCsvText(text)
+      const header = (data[0] as unknown[]).map(String)
+      const detected = isSudecap(header) ? 'sudecap' : 'simples'
+      setFormat(detected)
+      const { rows, erros } = detected === 'sudecap'
+        ? parseSudecap(data, fileBase || undefined)
+        : parseSimples(data, fileBase || undefined)
+      setPreview(rows); setParseErros(erros)
+      setSheets([]); setWbRef(null); setSelectedSheet('')
+      return
+    }
+
     const ab = await file.arrayBuffer()
     const XLSX = await import('xlsx')
     const wb = XLSX.read(ab, { type: 'array' })
@@ -450,7 +495,8 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     if (!preview?.length) return
     setLoading(true)
     try {
-      const res = await importarComposicoes(orcamentoId, preview.map(c => c.base ? c : { ...c, base: fileBase || null }))
+      const fonteVal = fileBase.trim() || null
+      const res = await importarComposicoes(orcamentoId, preview.map(c => ({ ...c, base: fonteVal })))
       setResult(res); setPreview(null)
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
@@ -463,6 +509,16 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
+        <input
+          type="text"
+          value={fileBase}
+          onChange={e => setFileBase(e.target.value)}
+          placeholder="ex: SINAPI, SUDECAP, Cotação Maio/2026"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        />
+      </div>
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
         <p className="text-sm text-gray-500 mb-2">
           Planilha <strong>.xlsx</strong> hierárquica — composições + insumos
@@ -471,7 +527,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
           Detecta automaticamente o formato SUDECAP/SINAPI (colunas separadas para insumos) ou formato simples
           (linha com código = composição, linha sem código = insumo filho).
         </p>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
           className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
       </div>
 
