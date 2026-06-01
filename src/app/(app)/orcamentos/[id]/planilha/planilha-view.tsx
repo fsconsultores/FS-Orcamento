@@ -287,7 +287,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [editingCell, setEditingCell]   = useState<{ id: string; field: string } | null>(null)
   const [cellDraft, setCellDraft]       = useState('')
   const [contextMenu, setContextMenu]   = useState<{ x: number; y: number; nodo: Nodo } | null>(null)
+  const [exportError, setExportError]   = useState<string | null>(null)
   const skipBlur                        = useRef(false)
+
+  // Remove caracteres inválidos em XML 1.0 (causa de corrupção no Excel)
+  function sanitize(v: unknown): string {
+    if (v == null) return ''
+    return String(v).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+  }
 
   // Rebuild tree
   const tree = buildTree(items)
@@ -441,7 +448,30 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     setDeletingId(null)
   }
 
+  async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
+    const siblings = items
+      .filter(it => it.parent_id === nodo.parent_id)
+      .sort((a, b) => a.ordem - b.ordem)
+    const idx = siblings.findIndex(it => it.id === nodo.id)
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= siblings.length) return
+    const target = siblings[targetIdx]
+    const newOrdem = target.ordem
+    const oldOrdem = nodo.ordem
+    setItems(prev => prev.map(it => {
+      if (it.id === nodo.id) return { ...it, ordem: newOrdem }
+      if (it.id === target.id) return { ...it, ordem: oldOrdem }
+      return it
+    }))
+    await Promise.all([
+      atualizarItemEstrutura(nodo.id, orcamentoId, { ordem: newOrdem }),
+      atualizarItemEstrutura(target.id, orcamentoId, { ordem: oldOrdem }),
+    ])
+  }
+
   async function handleExport() {
+    setExportError(null)
+    try {
     const XS = await import('xlsx-js-style')
 
     // Paleta de cores (sem #)
@@ -483,13 +513,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       const isItem = nodo.tipo === 'item'
       const total = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
       aoa.push([
-        nodo.numero,
-        nodo.codigo ?? '',
-        '  '.repeat(depth) + nodo.descricao,
-        nodo.unidade ?? '',
-        isItem ? (nodo.quantidade ?? null) : null,
-        isItem ? (nodo.custo_unitario ?? null) : null,
-        total > 0 ? total : null,
+        sanitize(nodo.numero),
+        sanitize(nodo.codigo),
+        sanitize('  '.repeat(depth) + nodo.descricao),
+        sanitize(nodo.unidade),
+        isItem ? (nodo.quantidade ?? '') : '',
+        isItem ? (nodo.custo_unitario ?? '') : '',
+        total > 0 ? total : '',
       ])
       depths.push(depth)
     }
@@ -507,28 +537,30 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         const ref = XS.utils.encode_cell({ r, c })
         if (!ws[ref]) ws[ref] = { v: '', t: 's' }
 
+        const isNumeric = (c === 5 || c === 6) && ws[ref].v !== '' && ws[ref].v != null
+        const isQtde   = c === 4              && ws[ref].v !== '' && ws[ref].v != null
+
+        if (isNumeric) { ws[ref].t = 'n' }
+        if (isQtde)    { ws[ref].t = 'n' }
+
         // Linha de total geral
         if (depth === -2) {
           ws[ref].s = {
             fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
             font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: c === 2 ? C.headerFg : C.white } },
             alignment: { horizontal: c >= 4 ? 'right' : c === 2 ? 'right' : 'left', vertical: 'center' },
-            border: { top: { style: 'medium', color: { rgb: C.slate700 } } },
+            border: {
+              top:    { style: 'medium', color: { rgb: C.slate700 } },
+              bottom: { style: 'thin',   color: { rgb: C.border } },
+              left:   { style: 'thin',   color: { rgb: C.border } },
+              right:  { style: 'thin',   color: { rgb: C.border } },
+            },
+            ...(isNumeric ? { numFmt: '#,##0.00' } : {}),
           }
         } else {
-          ws[ref].s = cellStyle(depth, c)
-        }
-
-        // Formatos numéricos
-        if (c === 5 || c === 6) { // R$ Unit. e R$ Total
-          if (ws[ref].v != null && ws[ref].v !== '') {
-            ws[ref].t = 'n'
-            ws[ref].z = '#,##0.00'
-          }
-        } else if (c === 4) { // Qtde — sem formato customizado para evitar vírgula residual
-          if (ws[ref].v != null && ws[ref].v !== '') {
-            ws[ref].t = 'n'
-          }
+          const s = cellStyle(depth, c) as any
+          if (isNumeric) s.numFmt = '#,##0.00'
+          ws[ref].s = s
         }
       }
     }
@@ -545,6 +577,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     XS.utils.book_append_sheet(wb, ws, 'Planilha')
     const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
     XS.writeFile(wb, `${slug}.xlsx`)
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : 'Erro ao gerar o arquivo Excel.',
+      )
+    }
   }
 
   // ── Estilos reutilizáveis ───────────────────────────────────────────────────
@@ -642,14 +679,19 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Geral</p>
             <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
           </div>
-          <button onClick={handleExport}
-            className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Exportar XLSX
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button onClick={handleExport}
+              className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Exportar XLSX
+            </button>
+            {exportError && (
+              <p className="text-xs text-red-600 max-w-xs text-right">{exportError}</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -678,6 +720,25 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Adicionar linha abaixo
+            </button>
+            <div className="my-1 border-t border-gray-100" />
+            <button
+              onClick={() => { setContextMenu(null); handleMoveRow(contextMenu.nodo, 'up') }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50"
+            >
+              <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+              Mover para cima
+            </button>
+            <button
+              onClick={() => { setContextMenu(null); handleMoveRow(contextMenu.nodo, 'down') }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50"
+            >
+              <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              Mover para baixo
             </button>
             <div className="my-1 border-t border-gray-100" />
             <button
@@ -919,6 +980,18 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                             </svg>
                           </button>
                         )}
+                        <button onClick={() => handleMoveRow(nodo, 'up')} title="Mover para cima"
+                          className="rounded p-0.5 hover:bg-black/10 transition-colors">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                          </svg>
+                        </button>
+                        <button onClick={() => handleMoveRow(nodo, 'down')} title="Mover para baixo"
+                          className="rounded p-0.5 hover:bg-black/10 transition-colors">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
                         <button onClick={() => handleDelete(nodo.id)} title="Remover"
                           className="rounded p-0.5 hover:bg-red-500/20 hover:text-red-600 transition-colors">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

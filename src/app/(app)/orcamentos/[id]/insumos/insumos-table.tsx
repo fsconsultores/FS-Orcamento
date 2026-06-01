@@ -112,6 +112,8 @@ export function OrcamentoInsumosTable({
 }) {
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
+
+  useEffect(() => { setInsumos(initialInsumos) }, [initialInsumos])
   const [currentPage, setCurrentPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [editingCustoValue, setEditingCustoValue] = useState('')

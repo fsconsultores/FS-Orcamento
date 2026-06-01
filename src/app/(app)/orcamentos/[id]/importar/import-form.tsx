@@ -444,7 +444,8 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     const file = e.target.files?.[0]
     if (!file) return
     setResult(null); setPreview(null); setParseErros([])
-    if (!fileBase) setFileBase(file.name.replace(/\.[^.]+$/, ''))
+    const baseName = fileBase || file.name.replace(/\.[^.]+$/, '')
+    if (!fileBase) setFileBase(baseName)
 
     if (file.name.toLowerCase().endsWith('.csv')) {
       const text = await file.text()
@@ -453,8 +454,8 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
       const detected = isSudecap(header) ? 'sudecap' : 'simples'
       setFormat(detected)
       const { rows, erros } = detected === 'sudecap'
-        ? parseSudecap(data, fileBase || undefined)
-        : parseSimples(data, fileBase || undefined)
+        ? parseSudecap(data, baseName)
+        : parseSimples(data, baseName)
       setPreview(rows); setParseErros(erros)
       setSheets([]); setWbRef(null); setSelectedSheet('')
       return

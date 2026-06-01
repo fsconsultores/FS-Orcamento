@@ -130,6 +130,7 @@ export async function atualizarItemEstrutura(
     quantidade?: number | null
     custo_unitario?: number | null
     bdi_especifico?: number | null
+    ordem?: number
   }
 ): Promise<void> {
   const supabase = await createClient()
