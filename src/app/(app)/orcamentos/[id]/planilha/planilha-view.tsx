@@ -1,10 +1,50 @@
 'use client'
 
 import { useState, useRef, useEffect, Fragment } from 'react'
-import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo } from './planilha-action'
+import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
+import { createClient } from '@/lib/supabase/client'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  DragOverlay, type DragEndEvent, type DragStartEvent, type DragMoveEvent,
+} from '@dnd-kit/core'
+import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 export type { EstruturaItem }
+
+// ─── DnD helpers ─────────────────────────────────────────────────────────────
+
+function SortableRow({ id, children, className, onContextMenu }: {
+  id: string
+  children: React.ReactNode
+  className?: string
+  onContextMenu?: (e: React.MouseEvent) => void
+}) {
+  const { setNodeRef, transform, transition, isDragging, attributes, listeners } = useSortable({ id })
+  return (
+    <tr
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : undefined }}
+      className={className}
+      onContextMenu={onContextMenu}
+    >
+      {/* Inject handle cell as first child */}
+      <td
+        className="px-1 py-0.5 w-6 border border-gray-200 cursor-grab active:cursor-grabbing select-none"
+        {...attributes}
+        {...listeners}
+      >
+        <div className="flex justify-center items-center h-full text-gray-300 hover:text-gray-500">
+          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M7 2a1 1 0 000 2 1 1 0 000-2zM7 8a1 1 0 000 2 1 1 0 000-2zM7 14a1 1 0 000 2 1 1 0 000-2zM13 2a1 1 0 000 2 1 1 0 000-2zM13 8a1 1 0 000 2 1 1 0 000-2zM13 14a1 1 0 000 2 1 1 0 000-2z" />
+          </svg>
+        </div>
+      </td>
+      {children}
+    </tr>
+  )
+}
 
 interface Nodo extends EstruturaItem {
   filhos: Nodo[]
@@ -31,16 +71,31 @@ function buildTree(items: EstruturaItem[]): Nodo[] {
 }
 
 function calcTotais(nodo: Nodo, bdiGlobal: number): number {
-  if (nodo.tipo === 'item') {
+  if (nodo.filhos.length === 0) {
     nodo.total = (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0)
     const bdi = nodo.bdi_especifico ?? bdiGlobal
     nodo.totalComBdi = nodo.total * (1 + bdi / 100)
   } else {
-    nodo.filhos.reduce((_, f) => calcTotais(f, bdiGlobal), 0)
+    nodo.filhos.forEach(f => calcTotais(f, bdiGlobal))
     nodo.total = nodo.filhos.reduce((s, f) => s + f.total, 0)
     nodo.totalComBdi = nodo.filhos.reduce((s, f) => s + f.totalComBdi, 0)
   }
   return nodo.total
+}
+
+function atribuirNumeros(nodes: Nodo[], prefix = '') {
+  nodes.sort((a, b) => a.ordem - b.ordem)
+  nodes.forEach((node, i) => {
+    node.numero = prefix ? `${prefix}.${i + 1}` : String(i + 1)
+    atribuirNumeros(node.filhos, node.numero)
+  })
+}
+
+function coletarNumeros(nodes: Nodo[], nivel = 1): { id: string; numero: string; nivel: number }[] {
+  return nodes.flatMap(n => [
+    { id: n.id, numero: n.numero, nivel },
+    ...coletarNumeros(n.filhos, nivel + 1),
+  ])
 }
 
 function flattenTree(nodos: Nodo[], depth = 0): { nodo: Nodo; depth: number }[] {
@@ -49,9 +104,9 @@ function flattenTree(nodos: Nodo[], depth = 0): { nodo: Nodo; depth: number }[] 
 
 const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-function rowCls(depth: number, isGroup: boolean, rowIdx: number) {
+function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
   const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-[#eef2f6]'
-  const weight = isGroup ? 'font-bold' : 'font-normal'
+  const weight = hasChildren ? 'font-bold' : 'font-normal'
   return `${base} text-gray-900 ${weight} hover:bg-blue-100`
 }
 
@@ -162,7 +217,7 @@ function CodigoAutocomplete({
 // ─── Formulário de novo item ──────────────────────────────────────────────────
 
 function AddItemForm({
-  orcamentoId, parentId, parentNivel, parentNumero, parentDescricao, onClose,
+  orcamentoId, parentId, parentNivel, parentNumero, parentDescricao, onClose, isGroup,
 }: {
   orcamentoId: string
   parentId: string | null
@@ -170,9 +225,9 @@ function AddItemForm({
   parentNumero: string
   parentDescricao?: string
   onClose: (newItem?: EstruturaItem) => void
+  isGroup?: boolean
 }) {
-  const [tipo, setTipo] = useState<'item' | 'grupo'>('item')
-  const [form, setForm] = useState({ numero: '', codigo: '', descricao: '', unidade: '', quantidade: '', custo_unitario: '' })
+  const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '', quantidade: '', custo_unitario: '' })
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -180,13 +235,13 @@ function AddItemForm({
     setLoading(true)
     try {
       const newItem = await adicionarItemEstrutura(orcamentoId, parentId, parentNivel, {
-        numero: form.numero || `${parentNumero}.?`,
-        codigo: tipo === 'grupo' ? null : (form.codigo || null),
+        numero: '',
+        codigo: isGroup ? null : (form.codigo || null),
         descricao: form.descricao,
-        unidade: tipo === 'grupo' ? null : (form.unidade || null),
-        quantidade: tipo === 'grupo' ? null : (parseFloat(form.quantidade.replace(',', '.')) || null),
-        custo_unitario: tipo === 'grupo' ? null : (parseFloat(form.custo_unitario.replace(',', '.')) || null),
-        tipo,
+        unidade: isGroup ? null : (form.unidade || null),
+        quantidade: isGroup ? null : (parseFloat(form.quantidade.replace(',', '.')) || null),
+        custo_unitario: isGroup ? null : (parseFloat(form.custo_unitario.replace(',', '.')) || null),
+        tipo: isGroup ? 'grupo' : 'item',
       })
       onClose(newItem)
     } finally { setLoading(false) }
@@ -203,19 +258,7 @@ function AddItemForm({
         </div>
       )}
       <div className="flex flex-wrap gap-2 items-end p-2">
-        <div>
-          <label className="block text-gray-500 mb-0.5">Tipo</label>
-          <select value={tipo} onChange={e => setTipo(e.target.value as any)} className={`${inp} w-24`}>
-            <option value="item">Item</option>
-            <option value="grupo">Grupo</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-gray-500 mb-0.5">Nº Item</label>
-          <input value={form.numero} onChange={e => setForm(p => ({ ...p, numero: e.target.value }))}
-            placeholder={`${parentNumero}.01`} className={`${inp} w-24`} />
-        </div>
-        {tipo === 'item' && (
+        {!isGroup && (
           <div className="relative">
             <label className="block text-gray-500 mb-0.5">Código</label>
             <CodigoAutocomplete
@@ -227,9 +270,9 @@ function AddItemForm({
         )}
         <div className="flex-1 min-w-48">
           <label className="block text-gray-500 mb-0.5">Descrição *</label>
-          <input required value={form.descricao} onChange={e => setForm(p => ({ ...p, descricao: e.target.value }))} className={inp} />
+          <input autoFocus required value={form.descricao} onChange={e => setForm(p => ({ ...p, descricao: e.target.value }))} className={inp} />
         </div>
-        {tipo === 'item' && (
+        {!isGroup && (
           <>
             <div>
               <label className="block text-gray-500 mb-0.5">Und</label>
@@ -258,11 +301,11 @@ function AddItemForm({
 
 // ─── Campos editáveis por tipo ────────────────────────────────────────────────
 
-const ITEM_FIELDS  = ['numero', 'codigo', 'descricao', 'unidade', 'quantidade', 'custo_unitario', 'bdi_especifico'] as const
-const GRUPO_FIELDS = ['numero', 'descricao'] as const
+const LEAF_FIELDS  = ['codigo', 'descricao', 'unidade', 'quantidade', 'custo_unitario', 'bdi_especifico'] as const
+const GROUP_FIELDS = ['descricao'] as const
 
-function editableFields(tipo: 'item' | 'grupo'): readonly string[] {
-  return tipo === 'item' ? ITEM_FIELDS : GRUPO_FIELDS
+function editableFields(nodo: { filhos: unknown[] }): readonly string[] {
+  return nodo.filhos.length === 0 ? LEAF_FIELDS : GROUP_FIELDS
 }
 
 function fieldToStr(it: EstruturaItem, field: string): string {
@@ -287,8 +330,19 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [editingCell, setEditingCell]   = useState<{ id: string; field: string } | null>(null)
   const [cellDraft, setCellDraft]       = useState('')
   const [contextMenu, setContextMenu]   = useState<{ x: number; y: number; nodo: Nodo } | null>(null)
-  const [exportError, setExportError]   = useState<string | null>(null)
+  const [exportError, setExportError]               = useState<string | null>(null)
+  const [exportAnaliticaLoading, setExportAnaliticaLoading] = useState(false)
+  const [exportAnaliticaError, setExportAnaliticaError]     = useState<string | null>(null)
+  const [viewMode, setViewMode]         = useState<'sintetica' | 'analitica'>('sintetica')
+  const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>>(new Map())
+  const [analiticaLoading, setAnaliticaLoading] = useState(false)
   const skipBlur                        = useRef(false)
+  const syncTimerRef                    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null)
+  const dragDeltaX                      = useRef(0)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  )
 
   // Remove caracteres inválidos em XML 1.0 (causa de corrupção no Excel)
   function sanitize(v: unknown): string {
@@ -296,12 +350,23 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     return String(v).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
   }
 
-  // Rebuild tree
+  // Rebuild tree — números EAP gerados automaticamente
   const tree = buildTree(items)
+  atribuirNumeros(tree)
   for (const n of tree) calcTotais(n, bdiGlobal)
   const grandTotal = tree.reduce((s, n) => s + n.total, 0)
   const grandTotalComBdi = tree.reduce((s, n) => s + n.totalComBdi, 0)
   const flat = flattenTree(tree)
+
+  // Persiste números no DB com debounce após mudanças estruturais
+  function agendarSincronizacaoComItems(nextItems: EstruturaItem[]) {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => {
+      const t = buildTree(nextItems)
+      atribuirNumeros(t)
+      salvarNumeros(orcamentoId, coletarNumeros(t))
+    }, 1500)
+  }
 
   const visible = flat.filter(({ nodo }) => {
     let pid = nodo.parent_id
@@ -317,7 +382,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const abcMap = new Map<string, { percentual: number; classe: AbcClasse }>()
   if (grandTotal > 0) {
     const leafItems = flat
-      .filter(({ nodo }) => nodo.tipo === 'item' && nodo.total > 0)
+      .filter(({ nodo }) => nodo.filhos.length === 0 && nodo.total > 0)
       .map(({ nodo }) => ({ id: nodo.id, total: nodo.total }))
       .sort((a, b) => b.total - a.total)
     let acumulado = 0
@@ -351,10 +416,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   // ── Inline editing ──────────────────────────────────────────────────────────
 
   function openCell(id: string, field: string) {
-    const it = items.find(i => i.id === id)
-    if (!it || !editableFields(it.tipo).includes(field)) return
+    const nodoFlat = flat.find(f => f.nodo.id === id)
+    if (!nodoFlat) return
+    if (!editableFields(nodoFlat.nodo).includes(field)) return
     setEditingCell({ id, field })
-    setCellDraft(fieldToStr(it, field))
+    setCellDraft(fieldToStr(nodoFlat.nodo, field))
   }
 
   function saveField(id: string, field: string, draft: string) {
@@ -370,27 +436,27 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   }
 
   function navigateFrom(id: string, field: string, dir: 'tab' | 'back' | 'enter') {
-    const it = items.find(i => i.id === id)
-    if (!it) { setEditingCell(null); return }
-    const fields = editableFields(it.tipo)
-    const colIdx = fields.indexOf(field)
+    const nodoFlat = flat.find(f => f.nodo.id === id)
+    if (!nodoFlat) { setEditingCell(null); return }
+    const fields = editableFields(nodoFlat.nodo)
+    const colIdx = (fields as readonly string[]).indexOf(field)
     const rowIdx = visible.findIndex(v => v.nodo.id === id)
 
     if (dir === 'tab') {
       if (colIdx < fields.length - 1) { openCell(id, fields[colIdx + 1]); return }
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        const f = editableFields(visible[i].nodo.tipo)
+        const f = editableFields(visible[i].nodo)
         if (f.length) { openCell(visible[i].nodo.id, f[0]); return }
       }
     } else if (dir === 'back') {
       if (colIdx > 0) { openCell(id, fields[colIdx - 1]); return }
       for (let i = rowIdx - 1; i >= 0; i--) {
-        const f = editableFields(visible[i].nodo.tipo)
+        const f = editableFields(visible[i].nodo)
         if (f.length) { openCell(visible[i].nodo.id, f[f.length - 1]); return }
       }
     } else if (dir === 'enter') {
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        if (editableFields(visible[i].nodo.tipo).includes(field)) { openCell(visible[i].nodo.id, field); return }
+        if ((editableFields(visible[i].nodo) as readonly string[]).includes(field)) { openCell(visible[i].nodo.id, field); return }
       }
     }
     setEditingCell(null)
@@ -417,11 +483,22 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
   async function handleInsert(nodo: Nodo, position: 'above' | 'below') {
     setContextMenu(null)
+
+    // "Adicionar abaixo" num agrupador → cria filho
+    if (position === 'below' && nodo.filhos.length > 0) {
+      const newItem = await adicionarItemEstrutura(orcamentoId, nodo.id, nodo.nivel, {
+        codigo: null, descricao: 'Novo item', unidade: null,
+        quantidade: null, custo_unitario: null, tipo: 'item', numero: '',
+      })
+      setItems(prev => { const next = [...prev, newItem]; agendarSincronizacaoComItems(next); return next })
+      setCollapsed(prev => { const s = new Set(prev); s.delete(nodo.id); return s })
+      setTimeout(() => openCell(newItem.id, 'descricao'), 50)
+      return
+    }
+
     const newItem = await adicionarItemNaPosicao(orcamentoId, nodo.id, position)
     setItems(prev => {
-      const next = [...prev, newItem]
-      // Reflecte a mudança de ordem dos irmãos localmente
-      return next.map(it => {
+      const next = [...prev, newItem].map(it => {
         if (it.id === newItem.id) return it
         const sameParent = it.parent_id === nodo.parent_id
         const needsShift = position === 'above'
@@ -429,9 +506,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           : sameParent && it.ordem > nodo.ordem && it.id !== newItem.id
         return needsShift ? { ...it, ordem: it.ordem + 1 } : it
       })
+      agendarSincronizacaoComItems(next)
+      return next
     })
-    // Abre a célula "numero" do novo item para edição imediata
-    setTimeout(() => openCell(newItem.id, 'numero'), 50)
+    setTimeout(() => openCell(newItem.id, 'descricao'), 50)
+  }
+
+  async function handleAfterCreate(newItem: EstruturaItem) {
+    setItems(prev => {
+      const next = [...prev, newItem]
+      agendarSincronizacaoComItems(next)
+      return next
+    })
+    setAddingParentId(undefined)
+    setTimeout(() => openCell(newItem.id, 'descricao'), 50)
   }
 
   async function handleDelete(id: string) {
@@ -443,7 +531,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       for (const it of items) if (it.parent_id === itemId) collect(it.id)
     }
     collect(id)
-    setItems(prev => prev.filter(it => !toRemove.has(it.id)))
+    setItems(prev => { const next = prev.filter(it => !toRemove.has(it.id)); agendarSincronizacaoComItems(next); return next })
     await deletarItemEstrutura(id, orcamentoId)
     setDeletingId(null)
   }
@@ -458,11 +546,15 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     const target = siblings[targetIdx]
     const newOrdem = target.ordem
     const oldOrdem = nodo.ordem
-    setItems(prev => prev.map(it => {
-      if (it.id === nodo.id) return { ...it, ordem: newOrdem }
-      if (it.id === target.id) return { ...it, ordem: oldOrdem }
-      return it
-    }))
+    setItems(prev => {
+      const next = prev.map(it => {
+        if (it.id === nodo.id) return { ...it, ordem: newOrdem }
+        if (it.id === target.id) return { ...it, ordem: oldOrdem }
+        return it
+      })
+      agendarSincronizacaoComItems(next)
+      return next
+    })
     await Promise.all([
       atualizarItemEstrutura(nodo.id, orcamentoId, { ordem: newOrdem }),
       atualizarItemEstrutura(target.id, orcamentoId, { ordem: oldOrdem }),
@@ -584,6 +676,294 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     }
   }
 
+  async function handleExportAnalitica() {
+    setExportAnaliticaError(null)
+    setExportAnaliticaLoading(true)
+    try {
+      const XS = await import('xlsx-js-style')
+      const sb = createClient() as any
+
+      // Fetch all compositions for this orcamento
+      const { data: composicoes, error: compError } = await sb
+        .from('orcamento_composicoes')
+        .select('id, codigo')
+        .eq('orcamento_id', orcamentoId)
+      if (compError) throw compError
+
+      // Map: codigo -> composicao_id
+      const codigoToCompId = new Map<string, string>()
+      for (const c of composicoes ?? []) codigoToCompId.set(c.codigo, c.id)
+
+      // Fetch all insumos linked to compositions
+      const compIds = (composicoes ?? []).map((c: any) => c.id)
+      const insumosByComp = new Map<string, any[]>()
+      if (compIds.length > 0) {
+        const { data: insumos, error: insError } = await sb
+          .from('orcamento_insumos')
+          .select('composicao_id, codigo, descricao, unidade, custo, indice')
+          .in('composicao_id', compIds)
+        if (insError) throw insError
+        for (const ins of insumos ?? []) {
+          if (!ins.composicao_id) continue
+          if (!insumosByComp.has(ins.composicao_id)) insumosByComp.set(ins.composicao_id, [])
+          insumosByComp.get(ins.composicao_id)!.push(ins)
+        }
+      }
+
+      // Color palette
+      const C = {
+        slate800: '1e293b', slate700: '334155', slate50: 'f8fafc',
+        blue50: 'eff6ff', blue950: '172554',
+        white: 'ffffff', gray700: '374151', gray500: '6b7280',
+        headerBg: 'f1f5f9', headerFg: '64748b',
+        border: 'e2e8f0', borderDark: '475569',
+        insumoFg: '4b5563', insumoBorder: 'f0f4f8',
+      }
+
+      function bdr(style: string, color: string) {
+        return { style, color: { rgb: color } }
+      }
+
+      // Row type: -1=header, 0..2=group depth, 3=item/composition, 99=insumo, -2=total
+      type RType = -2 | -1 | 0 | 1 | 2 | 3 | 99
+      const headers = ['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total']
+      const aoa: any[][] = [headers]
+      const rowTypes: RType[] = [-1]
+
+      for (const { nodo, depth } of flat) {
+        const isItem = nodo.tipo === 'item'
+        const total = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
+
+        // Main row for this node
+        aoa.push([
+          sanitize(nodo.numero),
+          sanitize(nodo.codigo),
+          sanitize('  '.repeat(depth) + nodo.descricao),
+          sanitize(nodo.unidade),
+          isItem ? (nodo.quantidade ?? '') : '',
+          isItem ? (nodo.custo_unitario ?? '') : '',
+          total > 0 ? total : '',
+        ])
+        rowTypes.push((isItem ? 3 : Math.min(depth, 2)) as RType)
+
+        // Expand insumos for composition items
+        if (isItem && nodo.codigo) {
+          const compId = codigoToCompId.get(nodo.codigo)
+          if (compId) {
+            const insumosForComp = insumosByComp.get(compId) ?? []
+            for (const ins of insumosForComp) {
+              const custoTotal = (ins.indice ?? 0) * (ins.custo ?? 0)
+              aoa.push([
+                '',
+                sanitize(ins.codigo),
+                sanitize('    ' + ins.descricao),
+                sanitize(ins.unidade),
+                ins.indice ?? '',
+                ins.custo ?? '',
+                custoTotal > 0 ? custoTotal : '',
+              ])
+              rowTypes.push(99)
+            }
+          }
+        }
+      }
+
+      // Grand total row
+      aoa.push(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
+      rowTypes.push(-2)
+
+      const ws = XS.utils.aoa_to_sheet(aoa)
+
+      for (let r = 0; r < aoa.length; r++) {
+        const rt = rowTypes[r]
+        for (let c = 0; c < headers.length; c++) {
+          const ref = XS.utils.encode_cell({ r, c })
+          if (!ws[ref]) ws[ref] = { v: '', t: 's' }
+
+          const val = ws[ref].v
+          const isNumVal = val !== '' && val != null
+          const isMoneyCol = c === 5 || c === 6
+          const isQtdeCol  = c === 4
+
+          if (isMoneyCol && isNumVal) ws[ref].t = 'n'
+          if (isQtdeCol  && isNumVal) ws[ref].t = 'n'
+
+          let s: any
+
+          if (rt === -1) {
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.headerBg } },
+              font: { name: 'Calibri', sz: 9, bold: true, color: { rgb: C.headerFg } },
+              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
+              border: { top: bdr('medium', C.borderDark), bottom: bdr('medium', C.borderDark), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+            }
+          } else if (rt === -2) {
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
+              font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: c === 2 ? C.headerFg : C.white } },
+              alignment: { horizontal: c >= 4 ? 'right' : c === 2 ? 'right' : 'left', vertical: 'center' },
+              border: { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
+            }
+          } else if (rt === 0) {
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
+              font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: C.white } },
+              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
+              border: { top: bdr('thin', C.borderDark), bottom: bdr('thin', C.borderDark), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
+            }
+          } else if (rt === 1) {
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.blue50 } },
+              font: { name: 'Calibri', sz: 9, bold: true, color: { rgb: C.blue950 } },
+              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
+              border: { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
+            }
+          } else if (rt === 2 || rt === 3) {
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.slate50 } },
+              font: { name: 'Calibri', sz: 9, bold: rt === 2, color: { rgb: C.slate700 } },
+              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center', wrapText: c === 2 },
+              border: { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
+            }
+          } else {
+            // Insumo row (rt === 99)
+            s = {
+              fill: { patternType: 'solid', fgColor: { rgb: C.white } },
+              font: { name: 'Calibri', sz: 8, bold: false, color: { rgb: C.insumoFg } },
+              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center', wrapText: c === 2 },
+              border: { top: bdr('thin', C.insumoBorder), bottom: bdr('thin', C.insumoBorder), left: bdr('thin', C.border), right: bdr('thin', C.border) },
+              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
+              ...(isQtdeCol && isNumVal ? { numFmt: '#,##0.0000' } : {}),
+            }
+          }
+
+          ws[ref].s = s
+        }
+      }
+
+      ws['!cols'] = [
+        { wch: 10 }, { wch: 13 }, { wch: 55 },
+        { wch: 6  }, { wch: 12 }, { wch: 15 }, { wch: 16 },
+      ]
+      ws['!rows'] = rowTypes.map(rt => ({
+        hpt: rt === -1 || rt === -2 ? 20 : rt === 0 ? 18 : rt === 99 ? 13 : 15
+      }))
+
+      const wb = XS.utils.book_new()
+      XS.utils.book_append_sheet(wb, ws, 'Planilha Analítica')
+      const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
+      XS.writeFile(wb, `${slug}_analitica.xlsx`)
+    } catch (err) {
+      setExportAnaliticaError(err instanceof Error ? err.message : 'Erro ao gerar o arquivo Excel.')
+    } finally {
+      setExportAnaliticaLoading(false)
+    }
+  }
+
+  async function loadAnaliticaData() {
+    if (analiticaInsumos.size > 0) return
+    setAnaliticaLoading(true)
+    try {
+      const sb = createClient() as any
+      const { data: composicoes } = await sb
+        .from('orcamento_composicoes')
+        .select('id, codigo')
+        .eq('orcamento_id', orcamentoId)
+      const idToCodigo = new Map<string, string>()
+      for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
+      const compIds = (composicoes ?? []).map((c: any) => c.id)
+      const next = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>()
+      if (compIds.length > 0) {
+        const { data: insumos } = await sb
+          .from('orcamento_insumos')
+          .select('composicao_id, codigo, descricao, unidade, custo, indice')
+          .in('composicao_id', compIds)
+        for (const ins of insumos ?? []) {
+          const cod = idToCodigo.get(ins.composicao_id)
+          if (!cod) continue
+          if (!next.has(cod)) next.set(cod, [])
+          next.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0 })
+        }
+      }
+      setAnaliticaInsumos(next)
+    } finally {
+      setAnaliticaLoading(false)
+    }
+  }
+
+  // ── Drag-and-drop ──────────────────────────────────────────────────────────
+
+  function computeProjection(activeId: string, overId: string, deltaX: number): { parentId: string | null; ordem: number } | null {
+    if (activeId === overId) return null
+    const flatAll = flattenTree(tree) // usa o tree já calculado
+    const overIdx = flatAll.findIndex(f => f.nodo.id === overId)
+    const activeEntry = flatAll.find(f => f.nodo.id === activeId)
+    if (overIdx === -1 || !activeEntry) return null
+
+    // Impede mover para dentro de descendente
+    function isDesc(pid: string | null, target: string): boolean {
+      let c: string | null = pid
+      while (c) { if (c === target) return true; c = items.find(i => i.id === c)?.parent_id ?? null }
+      return false
+    }
+    if (isDesc(overId === activeId ? null : overId, activeId)) return null
+
+    const INDENT = 20
+    const depthDelta = Math.round(deltaX / INDENT)
+    const currentDepth = activeEntry.depth
+    const targetDepth = Math.max(0, currentDepth + depthDelta)
+
+    // Encontra o parentId para o targetDepth: sobe nos itens acima do `over`
+    let newParentId: string | null = null
+    if (targetDepth > 0) {
+      for (let i = overIdx - 1; i >= 0; i--) {
+        const { nodo: c, depth: d } = flatAll[i]
+        if (c.id === activeId) continue
+        if (d === targetDepth - 1) { newParentId = c.id; break }
+        if (d < targetDepth - 1) { newParentId = c.id; break }
+      }
+    }
+
+    // Ordem: posiciona logo antes do `over` item entre os irmãos do novo pai
+    const siblings = items
+      .filter(i => i.parent_id === newParentId && i.id !== activeId)
+      .sort((a, b) => a.ordem - b.ordem)
+    const overSibIdx = siblings.findIndex(s => s.id === overId)
+    const novaOrdem = overSibIdx >= 0 ? siblings[overSibIdx].ordem : (siblings.at(-1)?.ordem ?? -1) + 1
+
+    return { parentId: newParentId, ordem: novaOrdem }
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    setDragActiveId(null)
+    if (!over || active.id === over.id) return
+
+    const proj = computeProjection(String(active.id), String(over.id), dragDeltaX.current)
+    if (!proj) return
+
+    const activeItem = items.find(i => i.id === active.id)
+    if (!activeItem) return
+
+    // Atualiza estado local
+    setItems(prev => {
+      const next = prev.map(it =>
+        it.id === active.id
+          ? { ...it, parent_id: proj.parentId, nivel: (proj.parentId ? (prev.find(p => p.id === proj.parentId)?.nivel ?? 0) + 1 : 1), ordem: proj.ordem }
+          : it
+      )
+      agendarSincronizacaoComItems(next)
+      return next
+    })
+
+    // Persiste no servidor
+    await moverItem(orcamentoId, String(active.id), proj.parentId, proj.ordem)
+  }
+
   // ── Estilos reutilizáveis ───────────────────────────────────────────────────
 
   const INP = 'w-full bg-white text-gray-900 outline-none ring-2 ring-inset ring-blue-500 rounded-sm text-xs px-1.5 py-0.5'
@@ -675,21 +1055,49 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </button>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shadow-sm">
+            <button
+              onClick={() => setViewMode('sintetica')}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === 'sintetica' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              Sintética
+            </button>
+            <button
+              onClick={async () => { await loadAnaliticaData(); setViewMode('analitica') }}
+              disabled={analiticaLoading}
+              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 disabled:opacity-60 ${viewMode === 'analitica' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              {analiticaLoading ? '...' : 'Analítica'}
+            </button>
+          </div>
           <div className="text-right">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Geral</p>
             <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <button onClick={handleExport}
-              className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Exportar XLSX
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleExport}
+                className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Exportar XLSX
+              </button>
+              <button onClick={handleExportAnalitica} disabled={exportAnaliticaLoading}
+                className="flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors shadow-sm disabled:opacity-60">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                {exportAnaliticaLoading ? 'Exportando...' : 'Exportar Analítica'}
+              </button>
+            </div>
             {exportError && (
               <p className="text-xs text-red-600 max-w-xs text-right">{exportError}</p>
+            )}
+            {exportAnaliticaError && (
+              <p className="text-xs text-red-600 max-w-xs text-right">{exportAnaliticaError}</p>
             )}
           </div>
         </div>
@@ -720,6 +1128,15 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Adicionar linha abaixo
+            </button>
+            <button
+              onClick={() => { setContextMenu(null); setAddingParentId(contextMenu.nodo.id) }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-blue-50 text-blue-700"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Adicionar sub-item
             </button>
             <div className="my-1 border-t border-gray-100" />
             <button
@@ -756,7 +1173,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
       {addingParentId === 'root' && (
         <AddItemForm orcamentoId={orcamentoId} parentId={null} parentNivel={0} parentNumero=""
-          onClose={(newItem) => { if (newItem) setItems(prev => [...prev, newItem]); setAddingParentId(undefined) }} />
+          onClose={(newItem) => { if (newItem) handleAfterCreate(newItem); else setAddingParentId(undefined) }}
+          isGroup={true} />
       )}
 
       {items.length === 0 && !addingParentId && (
@@ -773,10 +1191,21 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       )}
 
       {/* Tabela */}
-      {items.length > 0 && <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
+      {items.length > 0 && (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={(e: DragStartEvent) => { setDragActiveId(String(e.active.id)); dragDeltaX.current = 0 }}
+        onDragMove={(e: DragMoveEvent) => { dragDeltaX.current = e.delta.x }}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setDragActiveId(null)}
+      >
+      <SortableContext items={visible.map(v => v.nodo.id)} strategy={verticalListSortingStrategy}>
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
         <table className="w-full text-xs min-w-[700px] border-collapse">
           <thead className="sticky top-0 z-10 text-left">
             <tr className="bg-[#1a2e4a] text-white">
+              <th className="px-2 py-2 w-6 border border-[#2d4a6e]" title="Arrastar" />
               <th className="px-2 py-2 w-8 text-center border border-[#2d4a6e] font-semibold">#</th>
               <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Item</th>
               <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Composição</th>
@@ -793,16 +1222,17 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </thead>
           <tbody>
             {visible.map(({ nodo, depth }, rowIdx) => {
-              const isGroup    = nodo.tipo === 'grupo'
-              const hasFilhos  = nodo.filhos.length > 0
+              const isGroup    = nodo.filhos.length > 0
               const isCollapsed = collapsed.has(nodo.id)
               const addingHere  = addingParentId === nodo.id
               const showFormAfter = nodo.id === formHostId
+              const isDragging  = dragActiveId === nodo.id
 
               return (
                 <Fragment key={nodo.id}>
-                  <tr
-                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''}`}
+                  <SortableRow
+                    id={nodo.id}
+                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
 
@@ -811,12 +1241,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       {rowIdx + 1}
                     </td>
 
-                    {/* Item / número */}
+                    {/* EAP / número (somente leitura — gerado automaticamente) */}
                     <td className="px-2 py-0.5 font-mono border border-gray-200">
                       <div className="flex items-center gap-1">
                         {isGroup ? (
-                          <button onClick={() => hasFilhos && toggleCollapse(nodo.id)}
-                            className={`shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded transition-transform ${hasFilhos ? 'hover:bg-black/10 cursor-pointer' : 'invisible'}`}>
+                          <button onClick={() => toggleCollapse(nodo.id)}
+                            className="shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded hover:bg-black/10 cursor-pointer transition-transform">
                             <svg className={`w-2.5 h-2.5 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                             </svg>
@@ -824,13 +1254,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                         ) : (
                           <span className="shrink-0 w-3.5" />
                         )}
-                        <div className="flex-1">
-                          {textCell(nodo, 'numero', <span>{nodo.numero}</span>, 'font-mono')}
-                        </div>
+                        <span className="text-[11px] select-none text-gray-600 tabular-nums">{nodo.numero}</span>
                       </div>
                     </td>
 
-                    {/* Composição */}
+                    {/* Composição (somente folhas) */}
                     <td className="px-2 py-0.5 font-mono text-[10px] border border-gray-200">
                       {!isGroup && (() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'codigo'
@@ -886,29 +1314,26 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       })()}
                     </td>
 
-                    {/* Unidade */}
+                    {/* Unidade (só folhas) */}
                     <td className="px-2 py-0.5 text-center border border-gray-200">
-                      {!isGroup && textCell(nodo, 'unidade',
-                        <span>{nodo.unidade ?? ''}</span>,
-                        'text-center w-14'
-                      )}
+                      {!isGroup && textCell(nodo, 'unidade', <span>{nodo.unidade ?? ''}</span>, 'text-center w-14')}
                     </td>
 
-                    {/* Qtde. */}
+                    {/* Qtde. (só folhas) */}
                     <td className="px-2 py-0.5 text-right border border-gray-200">
                       {!isGroup && numCell(nodo, 'quantidade',
                         nodo.quantidade != null && nodo.quantidade > 0
                           ? <span className="tabular-nums">{nodo.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</span>
-                          : <span className="text-gray-300">0</span>
+                          : <span className="text-gray-300">—</span>
                       )}
                     </td>
 
-                    {/* Custo Unitário */}
+                    {/* Custo Unitário (só folhas) */}
                     <td className="px-2 py-0.5 text-right border border-gray-200">
                       {!isGroup && numCell(nodo, 'custo_unitario',
                         nodo.custo_unitario != null && nodo.custo_unitario > 0
                           ? <span className="tabular-nums">{BRL(nodo.custo_unitario)}</span>
-                          : <span className="text-gray-300">0</span>
+                          : <span className="text-gray-300">—</span>
                       )}
                     </td>
 
@@ -919,7 +1344,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                         : <span className="text-gray-300">0</span>}
                     </td>
 
-                    {/* % BDI */}
+                    {/* % BDI (só folhas) */}
                     <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
                       {!isGroup && (() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
@@ -947,10 +1372,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       })()}
                     </td>
 
-                    {/* % Custo e Classe ABC */}
+                    {/* % Custo e Classe ABC — apenas folhas */}
                     {(() => {
-                      const abc = abcMap.get(nodo.id)
-                      const pct = grandTotal > 0 ? (nodo.total / grandTotal) * 100 : 0
+                      const abc = !isGroup ? abcMap.get(nodo.id) : undefined
+                      const pct = !isGroup && grandTotal > 0 ? (nodo.total / grandTotal) * 100 : 0
                       const CLS: Record<AbcClasse, string> = {
                         A: 'bg-red-100 text-red-700 font-bold',
                         B: 'bg-amber-100 text-amber-700 font-bold',
@@ -959,7 +1384,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       return (
                         <>
                           <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200 text-gray-500">
-                            {nodo.total > 0 ? `${pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : null}
+                            {!isGroup && nodo.total > 0 ? `${pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : null}
                           </td>
                           <td className="px-1 py-0.5 text-center border border-gray-200">
                             {abc ? <span className={`inline-block px-1.5 rounded text-[10px] ${CLS[abc.classe]}`}>{abc.classe}</span> : null}
@@ -971,15 +1396,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                     {/* Ações — visíveis só no hover */}
                     <td className="px-1 py-0.5 border border-gray-200">
                       <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {isGroup && (
-                          <button onClick={() => setAddingParentId(addingHere ? undefined : nodo.id)}
-                            title="Adicionar sub-item"
-                            className="rounded p-0.5 hover:bg-black/10 transition-colors">
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                          </button>
-                        )}
+                        <button onClick={() => setAddingParentId(addingHere ? undefined : nodo.id)}
+                          title="Adicionar sub-item"
+                          className="rounded p-0.5 hover:bg-black/10 transition-colors">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </button>
                         <button onClick={() => handleMoveRow(nodo, 'up')} title="Mover para cima"
                           className="rounded p-0.5 hover:bg-black/10 transition-colors">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1000,7 +1423,25 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                         </button>
                       </div>
                     </td>
-                  </tr>
+                  </SortableRow>
+
+                  {viewMode === 'analitica' && !isGroup && nodo.codigo && (
+                    analiticaInsumos.get(nodo.codigo)?.map((ins, i) => (
+                      <tr key={`${nodo.id}-ins-${i}`} className="bg-white text-gray-500">
+                        <td className="px-1 py-px border border-gray-100 text-[10px] text-center text-gray-300 font-mono" />
+                        <td className="px-2 py-px border border-gray-100" />
+                        <td className="px-2 py-px border border-gray-100 font-mono text-[10px] text-blue-500">{ins.codigo}</td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] pl-6 text-gray-500">{ins.descricao}</td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] text-center">{ins.unidade}</td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">
+                          {ins.indice.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                        </td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">{BRL(ins.custo)}</td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">{BRL(ins.indice * ins.custo)}</td>
+                        <td colSpan={4} className="border border-gray-100" />
+                      </tr>
+                    ))
+                  )}
 
                   {showFormAfter && addingParentGroup && (
                     <tr>
@@ -1008,7 +1449,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                         <AddItemForm orcamentoId={orcamentoId}
                           parentId={addingParentGroup.id} parentNivel={addingParentGroup.nivel}
                           parentNumero={addingParentGroup.numero} parentDescricao={addingParentGroup.descricao}
-                          onClose={(newItem) => { if (newItem) setItems(prev => [...prev, newItem]); setAddingParentId(undefined) }} />
+                          onClose={(newItem) => { if (newItem) handleAfterCreate(newItem); else setAddingParentId(undefined) }}
+                          isGroup={false} />
                       </td>
                     </tr>
                   )}
@@ -1027,7 +1469,21 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
             </tr>
           </tbody>
         </table>
-      </div>}
+      </div>
+      <DragOverlay>
+        {dragActiveId && (() => {
+          const entry = flat.find(f => f.nodo.id === dragActiveId)
+          if (!entry) return null
+          return (
+            <div className="bg-white border border-blue-400 shadow-xl rounded px-3 py-1.5 text-xs font-medium text-gray-800 opacity-90">
+              {entry.nodo.numero} — {entry.nodo.descricao}
+            </div>
+          )
+        })()}
+      </DragOverlay>
+      </SortableContext>
+      </DndContext>
+      )}
     </div>
   )
 }

@@ -6,6 +6,7 @@ import { BaseFilter } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { ComposicoesTable } from './composicoes-table';
 import { ExportComposicoesButton } from '@/components/export-composicoes-button';
+import type { ComposicaoParaExport } from '@/components/export-composicoes-button';
 import { Pagination } from '@/components/pagination';
 
 type ComposicaoView = {
@@ -78,6 +79,38 @@ export default async function ComposicoesPage({
   )
   if (error) throw error;
 
+  // Busca insumos para as composições da página atual (servidor)
+  const compIds = (composicoes ?? []).map((c: any) => c.id as string)
+  let insumosPorComp: Record<string, ComposicaoParaExport['insumos']> = {}
+  if (compIds.length > 0) {
+    const { data: itens } = await sb
+      .from('tabela_itens_composicao')
+      .select('composicao_id, indice, tabela_insumos(codigo, descricao, unidade, preco_base, grupo)')
+      .in('composicao_id', compIds)
+    for (const it of itens ?? []) {
+      const ins = it.tabela_insumos
+      if (!ins) continue
+      if (!insumosPorComp[it.composicao_id]) insumosPorComp[it.composicao_id] = []
+      insumosPorComp[it.composicao_id]!.push({
+        codigo: ins.codigo ?? '',
+        descricao: ins.descricao ?? '',
+        unidade: ins.unidade ?? '',
+        custo: ins.preco_base ?? 0,
+        indice: it.indice ?? 0,
+        grupo: ins.grupo ?? null,
+      })
+    }
+  }
+
+  const composicoesParaExport: ComposicaoParaExport[] = (composicoes ?? []).map((c: any) => ({
+    id: c.id,
+    codigo: c.codigo,
+    descricao: c.descricao,
+    unidade: c.unidade,
+    custo_unitario: c.custo_unitario ?? 0,
+    insumos: insumosPorComp[c.id] ?? [],
+  }))
+
   const baseOptions = bases.map((b) => ({
     orgao: b.orgao,
     label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
@@ -94,7 +127,7 @@ export default async function ComposicoesPage({
           </p>
         </div>
         <div className="flex gap-2">
-          <ExportComposicoesButton composicoes={(composicoes ?? []) as ComposicaoView[]} />
+          <ExportComposicoesButton composicoes={composicoesParaExport} />
           <Link
             href="/composicoes/nova"
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"

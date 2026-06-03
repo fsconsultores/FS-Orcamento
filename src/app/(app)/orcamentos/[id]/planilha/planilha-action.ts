@@ -149,6 +149,43 @@ export async function deletarItemEstrutura(
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 }
 
+export async function salvarNumeros(
+  orcamentoId: string,
+  updates: { id: string; numero: string; nivel: number }[]
+): Promise<void> {
+  if (updates.length === 0) return
+  const supabase = await createClient()
+  const sb = supabase as any
+  const BATCH = 50
+  for (let i = 0; i < updates.length; i += BATCH) {
+    await Promise.all(
+      updates.slice(i, i + BATCH).map(u =>
+        sb.from('orcamento_estrutura').update({ numero: u.numero, nivel: u.nivel }).eq('id', u.id)
+      )
+    )
+  }
+}
+
+export async function moverItem(
+  orcamentoId: string,
+  itemId: string,
+  newParentId: string | null,
+  novaOrdem: number
+): Promise<void> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  let newNivel = 1
+  if (newParentId) {
+    const { data: parent } = await sb
+      .from('orcamento_estrutura').select('nivel').eq('id', newParentId).single()
+    if (parent) newNivel = parent.nivel + 1
+  }
+  await sb.from('orcamento_estrutura')
+    .update({ parent_id: newParentId, nivel: newNivel, ordem: novaOrdem })
+    .eq('id', itemId)
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+}
+
 export async function limparPlanilha(orcamentoId: string): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
