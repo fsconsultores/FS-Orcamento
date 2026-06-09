@@ -154,81 +154,80 @@ export function CurvaAbcView({
   const byClass = (c: 'A' | 'B' | 'C') => items.filter(i => i.classe === c)
 
   async function handleExportXlsx() {
-    const XS = await import('xlsx-js-style')
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'FS Orçamento'
+    const sheetName = tab === 'servicos' ? 'ABC Serviços' : 'ABC Insumos'
+    const ws = wb.addWorksheet(sheetName)
 
     const C = {
-      hBg: '1e40af', hFg: 'ffffff',
-      aBg: 'd1fae5', bBg: 'fef3c7', cBg: 'fee2e2',
-      totBg: 'f1f5f9', border: 'cbd5e1',
+      hBg: 'FF1E40AF', hFg: 'FFFFFFFF',
+      aBg: 'FFD1FAE5', bBg: 'FFFEF3C7', cBg: 'FFFEE2E2',
+      totBg: 'FFF1F5F9', dark: 'FF1E293B', border: 'FFCBD5E1',
     }
+    const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+    const bdr  = () => { const b = { style: 'thin' as const, color: { argb: C.border } }; return { top: b, bottom: b, left: b, right: b } }
 
-    function border() {
-      const b = { style: 'thin', color: { rgb: C.border } }
-      return { top: b, bottom: b, left: b, right: b }
-    }
-
-    function cell(v: string | number, bg: string, bold = false, align: 'left' | 'right' | 'center' = 'left'): object {
-      return {
-        v,
-        t: typeof v === 'number' ? 'n' : 's',
-        s: {
-          fill: { fgColor: { rgb: bg } },
-          font: { bold, sz: 9, color: { rgb: bold ? 'ffffff' : '1e293b' } },
-          alignment: { horizontal: align, vertical: 'center', wrapText: false },
-          border: border(),
-        },
-      }
-    }
-
-    const headers = ['#', 'Código', 'Descrição', 'Und', 'Quantidade', 'Custo Unit. (R$)', 'Valor Total (R$)', '% Individual', '% Acumulado', 'Classe']
-    const headerRow = headers.map(h => ({
-      v: h, t: 's',
-      s: {
-        fill: { fgColor: { rgb: C.hBg } },
-        font: { bold: true, sz: 9, color: { rgb: C.hFg } },
-        alignment: { horizontal: 'center' as const, vertical: 'center' },
-        border: border(),
-      },
-    }))
-
-    const rows = items.map((item, i) => {
-      const bg = item.classe === 'A' ? C.aBg : item.classe === 'B' ? C.bBg : C.cBg
-      return [
-        cell(i + 1, bg, false, 'right'),
-        cell(item.codigo ?? '', bg),
-        cell(item.descricao, bg),
-        cell(item.unidade ?? '', bg, false, 'center'),
-        cell(item.quantidade, bg, false, 'right'),
-        cell(item.custo_unitario, bg, false, 'right'),
-        cell(item.valor_total, bg, false, 'right'),
-        cell(+item.percentual.toFixed(4), bg, false, 'right'),
-        cell(+item.percentual_acumulado.toFixed(4), bg, false, 'right'),
-        cell(item.classe, bg, true, 'center'),
-      ]
-    })
-
-    const totalRow = [
-      cell('', C.totBg),
-      cell('', C.totBg),
-      cell(`${items.length} itens`, C.totBg, true),
-      cell('', C.totBg),
-      cell('', C.totBg),
-      cell('TOTAL', C.totBg, true, 'right'),
-      cell(total, C.totBg, true, 'right'),
-      cell('', C.totBg),
-      cell('', C.totBg),
-      cell('', C.totBg),
+    ws.columns = [
+      { width: 5 }, { width: 14 }, { width: 45 }, { width: 6 },
+      { width: 12 }, { width: 16 }, { width: 16 }, { width: 11 }, { width: 11 }, { width: 8 },
     ]
 
-    const wsData = [headerRow, ...rows, totalRow]
-    const ws = XS.utils.aoa_to_sheet(wsData)
-    ws['!cols'] = [{ wch: 5 }, { wch: 14 }, { wch: 45 }, { wch: 6 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 11 }, { wch: 11 }, { wch: 8 }]
-    ws['!rows'] = [{ hpt: 18 }, ...rows.map(() => ({ hpt: 14 }))]
+    // Cabeçalho
+    const headers = ['#', 'Código', 'Descrição', 'Und', 'Quantidade', 'Custo Unit. (R$)', 'Valor Total (R$)', '% Individual', '% Acumulado', 'Classe']
+    const hRow = ws.addRow(headers)
+    hRow.height = 18
+    hRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = fill(C.hBg)
+      cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: C.hFg } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cell.border = bdr()
+    })
 
-    const wb = XS.utils.book_new()
-    const sheetName = tab === 'servicos' ? 'ABC Serviços' : 'ABC Insumos'
-    XS.utils.book_append_sheet(wb, ws, sheetName)
-    XS.writeFile(wb, `curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`)
+    // Linhas de dados — todos os valores são strings/números (sem null) para garantir
+    // que eachCell itere todas as 10 colunas
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const bg = item.classe === 'A' ? C.aBg : item.classe === 'B' ? C.bBg : C.cBg
+      const row = ws.addRow([
+        i + 1,
+        item.codigo ?? '',
+        item.descricao,
+        item.unidade ?? '',
+        item.quantidade,
+        item.custo_unitario,
+        item.valor_total,
+        +item.percentual.toFixed(4),
+        +item.percentual_acumulado.toFixed(4),
+        item.classe,
+      ])
+      row.height = 14
+      row.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill(bg)
+        cell.font = { name: 'Calibri', size: 9, bold: c === 10, color: { argb: C.dark } }
+        cell.alignment = { horizontal: c === 1 || c >= 5 ? 'right' : c === 4 || c === 10 ? 'center' : 'left', vertical: 'middle' }
+        cell.border = bdr()
+        if ((c === 5 || c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+        if ((c === 8 || c === 9) && typeof cell.value === 'number')            cell.numFmt = '#,##0.00##'
+      })
+    }
+
+    // Total
+    const tRow = ws.addRow(['', '', `${items.length} itens`, '', '', 'TOTAL', total, '', '', ''])
+    tRow.height = 16
+    tRow.eachCell({ includeEmpty: true }, (cell, c) => {
+      cell.fill = fill(C.totBg)
+      cell.font = { name: 'Calibri', size: 9, bold: c === 3 || c === 6 || c === 7, color: { argb: C.dark } }
+      cell.alignment = { horizontal: c === 6 || c >= 5 ? 'right' : 'left', vertical: 'middle' }
+      cell.border = bdr()
+      if (c === 7 && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+    })
+
+    const buf = await wb.xlsx.writeBuffer()
+    const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+    const a   = document.createElement('a')
+    a.href = url; a.download = `curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (

@@ -31,26 +31,49 @@ export function ExportComposicoesButton({
     setLoading(true);
     setErro(null);
     try {
-      const XLSX = await import('xlsx-js-style');
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'FS Orçamento';
+      const ws = wb.addWorksheet('Composições');
 
-      const headers = ['Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Parcial'];
-      const aoa: (string | number)[][] = [headers];
-      const compRows: number[] = [];
-      const insumoRows: number[] = [];
+      const fill  = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } });
+      const bdr   = (argb: string) => ({ style: 'thin' as const, color: { argb } });
+      const BORDER = 'FFE2E8F0';
+
+      ws.columns = [
+        { width: 13 }, { width: 55 }, { width: 7 },
+        { width: 12 }, { width: 14 }, { width: 14 },
+      ];
+
+      const hRow = ws.addRow(['Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Parcial']);
+      hRow.height = 16;
+      hRow.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill('FFF1F5F9');
+        cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF475569' } };
+        cell.alignment = { horizontal: c >= 4 ? 'right' : 'left', vertical: 'middle' };
+        cell.border = { top: bdr('FF475569'), bottom: bdr('FF475569'), left: bdr(BORDER), right: bdr(BORDER) };
+      });
 
       for (const comp of composicoes) {
-        aoa.push([
+        const cRow = ws.addRow([
           comp.codigo,
           comp.descricao.toUpperCase(),
           comp.unidade,
           '',
-          comp.custo_unitario ?? 0,
-          comp.custo_unitario ?? 0,
+          comp.custo_unitario ?? '',
+          comp.custo_unitario ?? '',
         ]);
-        compRows.push(aoa.length - 1);
+        cRow.height = 15;
+        cRow.eachCell({ includeEmpty: true }, (cell, c) => {
+          cell.fill = fill('FFEFF6FF');
+          cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF172554' } };
+          cell.alignment = { horizontal: c >= 4 ? 'right' : 'left', vertical: 'middle' };
+          cell.border = { top: bdr(BORDER), bottom: bdr(BORDER), left: bdr(BORDER), right: bdr(BORDER) };
+          if ((c === 5 || c === 6) && typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+        });
 
         for (const ins of comp.insumos ?? []) {
-          aoa.push([
+          const iRow = ws.addRow([
             ins.codigo,
             ins.descricao,
             ins.unidade,
@@ -58,37 +81,24 @@ export function ExportComposicoesButton({
             ins.custo,
             ins.indice * ins.custo,
           ]);
-          insumoRows.push(aoa.length - 1);
+          iRow.height = 14;
+          iRow.eachCell({ includeEmpty: true }, (cell, c) => {
+            cell.fill = fill('FFFFFFFF');
+            cell.font = { name: 'Calibri', size: 9, bold: false, color: { argb: 'FF374151' } };
+            cell.alignment = { horizontal: c >= 4 ? 'right' : 'left', vertical: 'middle', indent: c <= 2 ? 1 : 0 };
+            cell.border = { top: bdr(BORDER), bottom: bdr(BORDER), left: bdr(BORDER), right: bdr(BORDER) };
+            if ((c === 5 || c === 6) && typeof cell.value === 'number') cell.numFmt = '#,##0.00';
+            if (c === 4 && typeof cell.value === 'number')              cell.numFmt = '#,##0.0000';
+          });
         }
       }
 
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = [
-        { wch: 13 }, { wch: 55 }, { wch: 7 },
-        { wch: 12 }, { wch: 14 }, { wch: 14 },
-      ];
-
-      const boldStyle = { font: { bold: true } };
-      const indentStyle = { alignment: { indent: 2 } };
-
-      for (const rowIdx of compRows) {
-        for (const col of ['A', 'B', 'C', 'D', 'E', 'F']) {
-          const ref = `${col}${rowIdx + 1}`;
-          if (ws[ref]) ws[ref].s = boldStyle;
-        }
-      }
-
-      for (const rowIdx of insumoRows) {
-        for (const col of ['A', 'B']) {
-          const ref = `${col}${rowIdx + 1}`;
-          if (ws[ref]) ws[ref].s = indentStyle;
-        }
-      }
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Composições');
       const today = new Date().toISOString().split('T')[0];
-      XLSX.writeFile(wb, `composicoes_${today}.xlsx`);
+      const buf   = await wb.xlsx.writeBuffer();
+      const url   = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a     = document.createElement('a');
+      a.href = url; a.download = `composicoes_${today}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error('[ExportComposicoes]', err);
       setErro(err instanceof Error ? err.message : String(err));

@@ -51,21 +51,18 @@ export default async function InsumosPage({
     return query
   }
 
-  // count: fetch 1 row with count:exact (GET is more reliable than HEAD for Supabase)
-  const countResult = await addFilters(
-    sb.from('tabela_insumos').select('id', { count: 'exact' }).range(0, 0)
-  )
-  const total: number = countResult.count ?? 0
-
-  // data page
-  const { data: insumos, error } = await addFilters(
-    sb
-      .from('tabela_insumos')
-      .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
-      .order('codigo')
-      .range(from, to)
-  )
+  // count + data em paralelo — salva um round-trip a cada carregamento
+  const [countResult, { data: insumos, error }] = await Promise.all([
+    addFilters(sb.from('tabela_insumos').select('id', { count: 'exact' }).range(0, 0)),
+    addFilters(
+      sb.from('tabela_insumos')
+        .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
+        .order('codigo')
+        .range(from, to)
+    ),
+  ])
   if (error) throw error;
+  const total: number = countResult.count ?? 0
 
   const baseOptions = bases.map((b) => ({
     orgao: b.orgao,

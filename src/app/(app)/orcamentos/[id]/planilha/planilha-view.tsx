@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, Fragment } from 'react'
+import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
 import { createClient } from '@/lib/supabase/client'
@@ -131,6 +132,10 @@ function CodigoAutocomplete({
   const [dropPos, setDropPos] = useState({ left: 0, top: 0, width: 240 })
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Cache local: evita re-request para a mesma query. Max 50 entradas (LRU simples).
+  const cacheRef = useRef(new Map<string, SugestaoCodigo[]>())
+  // ID do request atual: requests obsoletos são descartados silenciosamente.
+  const reqIdRef = useRef(0)
 
   useEffect(() => {
     if (aberto && inputRef.current) {
@@ -139,9 +144,14 @@ function CodigoAutocomplete({
     }
   }, [aberto, sugestoes.length])
 
-  // Busca ao montar (abre sugestões imediatamente)
+  // Busca ao montar — consulta cache antes de ir ao servidor
   useEffect(() => {
+    const cached = cacheRef.current.get(value)
+    if (cached) { setSugestoes(cached); setAberto(cached.length > 0); return }
+    const id = ++reqIdRef.current
     buscarSugestoesCodigo(orcamentoId, value).then(res => {
+      if (reqIdRef.current !== id) return
+      cacheRef.current.set(value, res)
       setSugestoes(res)
       setAberto(res.length > 0)
     })
@@ -152,11 +162,21 @@ function CodigoAutocomplete({
     onChange(v)
     setCursor(-1)
     if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    // Hit de cache: resposta instantânea, sem debounce
+    const cached = cacheRef.current.get(v)
+    if (cached) { setSugestoes(cached); setAberto(cached.length > 0); return }
+
+    const reqId = ++reqIdRef.current
     debounceRef.current = setTimeout(async () => {
       const res = await buscarSugestoesCodigo(orcamentoId, v)
+      if (reqIdRef.current !== reqId) return // request obsoleto, descartar
+      // LRU simples: remove entrada mais antiga quando cache excede 50 entradas
+      if (cacheRef.current.size >= 50) cacheRef.current.delete(cacheRef.current.keys().next().value!)
+      cacheRef.current.set(v, res)
       setSugestoes(res)
       setAberto(res.length > 0)
-    }, 220)
+    }, 280)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -324,6 +344,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   dataOrcamento?: string | null
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
+
+  useEffect(() => {
+    setItems(initialItems)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialItems])
   const [deletingId, setDeletingId]     = useState<string | null>(null)
   const [addingParentId, setAddingParentId] = useState<string | null | 'root'>()
   const [collapsed, setCollapsed]       = useState<Set<string>>(new Set())
@@ -340,6 +365,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const syncTimerRef                    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [dragActiveId, setDragActiveId] = useState<string | null>(null)
   const dragDeltaX                      = useRef(0)
+  const scrollContainerRef             = useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
@@ -350,13 +376,16 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     return String(v).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
   }
 
-  // Rebuild tree — números EAP gerados automaticamente
-  const tree = buildTree(items)
-  atribuirNumeros(tree)
-  for (const n of tree) calcTotais(n, bdiGlobal)
-  const grandTotal = tree.reduce((s, n) => s + n.total, 0)
-  const grandTotalComBdi = tree.reduce((s, n) => s + n.totalComBdi, 0)
-  const flat = flattenTree(tree)
+  // Rebuild tree — memoizado para não recalcular em cada keystroke/estado de UI
+  const { tree, flat, grandTotal, grandTotalComBdi } = useMemo(() => {
+    const t = buildTree(items)
+    atribuirNumeros(t)
+    for (const n of t) calcTotais(n, bdiGlobal)
+    const gTotal = t.reduce((s, n) => s + n.total, 0)
+    const gTotalBdi = t.reduce((s, n) => s + n.totalComBdi, 0)
+    const f = flattenTree(t)
+    return { tree: t, flat: f, grandTotal: gTotal, grandTotalComBdi: gTotalBdi }
+  }, [items, bdiGlobal])
 
   // Persiste números no DB com debounce após mudanças estruturais
   function agendarSincronizacaoComItems(nextItems: EstruturaItem[]) {
@@ -368,31 +397,56 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     }, 1500)
   }
 
-  const visible = flat.filter(({ nodo }) => {
+  const visible = useMemo(() => flat.filter(({ nodo }) => {
     let pid = nodo.parent_id
     while (pid) {
       if (collapsed.has(pid)) return false
       pid = items.find(i => i.id === pid)?.parent_id ?? null
     }
     return true
+  }), [flat, collapsed, items])
+
+  // ── Virtualização ─────────────────────────────────────────────────────────
+  // Ativa quando: modo sintético + sem formulário inline + >50 linhas visíveis
+  // No modo analítico, cada item tem n linhas de insumos (altura variável) → sem virtual
+  const useVirtualRender = viewMode === 'sintetica' && addingParentId == null && visible.length > 50
+
+  const rowVirtualizer = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 25,   // altura estimada por linha em px
+    overscan: 15,              // linhas extras fora do viewport (cima+baixo)
   })
 
-  // ── Curva ABC ──────────────────────────────────────────────────────────────
+  const virtualItems     = rowVirtualizer.getVirtualItems()
+  const totalVirtualSize = rowVirtualizer.getTotalSize()
+  const virtualPaddingTop    = virtualItems[0]?.start ?? 0
+  const virtualPaddingBottom = Math.max(0, totalVirtualSize - (virtualItems.at(-1)?.end ?? 0))
+
+  // Lista de linhas a renderizar: virtual (slice) ou completa (full)
+  const rowsToRender = useVirtualRender
+    ? virtualItems.map(v => ({ rowIdx: v.index, nodo: visible[v.index].nodo, depth: visible[v.index].depth }))
+    : visible.map(({ nodo, depth }, rowIdx) => ({ rowIdx, nodo, depth }))
+
+  // ── Curva ABC — memoizado, só recalcula quando flat/grandTotal mudam ──────
   type AbcClasse = 'A' | 'B' | 'C'
-  const abcMap = new Map<string, { percentual: number; classe: AbcClasse }>()
-  if (grandTotal > 0) {
-    const leafItems = flat
-      .filter(({ nodo }) => nodo.filhos.length === 0 && nodo.total > 0)
-      .map(({ nodo }) => ({ id: nodo.id, total: nodo.total }))
-      .sort((a, b) => b.total - a.total)
-    let acumulado = 0
-    for (const item of leafItems) {
-      const pct = (item.total / grandTotal) * 100
-      acumulado += pct
-      const classe: AbcClasse = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C'
-      abcMap.set(item.id, { percentual: pct, classe })
+  const abcMap = useMemo(() => {
+    const map = new Map<string, { percentual: number; classe: AbcClasse }>()
+    if (grandTotal > 0) {
+      const leafItems = flat
+        .filter(({ nodo }) => nodo.filhos.length === 0 && nodo.total > 0)
+        .map(({ nodo }) => ({ id: nodo.id, total: nodo.total }))
+        .sort((a, b) => b.total - a.total)
+      let acumulado = 0
+      for (const item of leafItems) {
+        const pct = (item.total / grandTotal) * 100
+        acumulado += pct
+        const classe: AbcClasse = acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C'
+        map.set(item.id, { percentual: pct, classe })
+      }
     }
-  }
+    return map
+  }, [flat, grandTotal])
 
   let formHostId: string | null = null
   if (addingParentId && addingParentId !== 'root') {
@@ -564,115 +618,122 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   async function handleExport() {
     setExportError(null)
     try {
-    const XS = await import('xlsx-js-style')
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      wb.creator = 'FS Orçamento'
+      const ws = wb.addWorksheet('Planilha')
 
-    // Paleta de cores (sem #)
-    const C = {
-      slate800: '1e293b', slate700: '334155', slate50: 'f8fafc',
-      blue50: 'eff6ff', blue950: '172554',
-      white: 'ffffff', gray700: '374151',
-      headerBg: 'f1f5f9', headerFg: '64748b',
-      border: 'e2e8f0', borderDark: '475569',
-    }
-
-    function cellStyle(depth: number, col: number) {
-      const isNum = col >= 4
-      let bg: string, fg: string, bold: boolean, sz: number
-      if (depth === -1) { bg = C.headerBg; fg = C.headerFg; bold = true; sz = 9 }
-      else if (depth === 0) { bg = C.slate800; fg = C.white; bold = true; sz = 10 }
-      else if (depth === 1) { bg = C.blue50; fg = C.blue950; bold = true; sz = 9 }
-      else if (depth === 2) { bg = C.slate50; fg = C.slate700; bold = false; sz = 9 }
-      else { bg = C.white; fg = C.gray700; bold = false; sz = 9 }
-
-      return {
-        fill: { patternType: 'solid', fgColor: { rgb: bg } },
-        font: { name: 'Calibri', sz, bold, color: { rgb: fg } },
-        alignment: { horizontal: isNum ? 'right' : 'left', vertical: 'center', wrapText: col === 2 },
-        border: {
-          top:    { style: 'thin', color: { rgb: depth <= 0 ? C.borderDark : C.border } },
-          bottom: { style: 'thin', color: { rgb: depth <= 0 ? C.borderDark : C.border } },
-          left:   { style: 'thin', color: { rgb: C.border } },
-          right:  { style: 'thin', color: { rgb: C.border } },
-        },
+      const C = {
+        slate800: 'FF1E293B', slate700: 'FF334155', slate50:  'FFF8FAFC',
+        blue50:   'FFEFF6FF', blue950:  'FF172554',
+        white:    'FFFFFFFF', gray700:  'FF374151',
+        headerBg: 'FFF1F5F9', headerFg: 'FF64748B',
+        border:   'FFE2E8F0', borderDk: 'FF475569',
       }
+      const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+      const bdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
+
+      ws.columns = [
+        { width: 10 }, { width: 13 }, { width: 52 },
+        { width:  6 }, { width: 12 }, { width: 15 }, { width: 16 },
+      ]
+
+      // Cabeçalho
+      const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
+      hRow.height = 20
+      hRow.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill(C.headerBg)
+        cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: C.headerFg } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.borderDk), bottom: bdr('medium', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+      })
+
+      // Linhas de dados — usar '' em vez de null garante que todas as 7 células
+      // existam na linha, permitindo que eachCell itere corretamente até a col 7
+      for (const { nodo, depth } of flat) {
+        const isItem = nodo.tipo === 'item'
+        const total  = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
+        const row = ws.addRow([
+          sanitize(nodo.numero)  || '',
+          sanitize(nodo.codigo)  || '',
+          sanitize('  '.repeat(depth) + nodo.descricao) || '',
+          sanitize(nodo.unidade) || '',
+          isItem && nodo.quantidade     != null ? nodo.quantidade     : '',
+          isItem && nodo.custo_unitario != null ? nodo.custo_unitario : '',
+          total > 0 ? total : '',
+        ])
+
+        let bg: string, fg: string, bold: boolean, sz: number, ht: number
+        if      (depth === 0) { bg = C.slate800; fg = C.white;   bold = true;  sz = 10; ht = 18 }
+        else if (depth === 1) { bg = C.blue50;   fg = C.blue950; bold = true;  sz = 9;  ht = 15 }
+        else if (depth === 2) { bg = C.slate50;  fg = C.gray700; bold = false; sz = 9;  ht = 15 }
+        else                  { bg = C.white;    fg = C.gray700; bold = false; sz = 9;  ht = 15 }
+
+        row.height = ht
+        const dk = depth <= 0
+        row.eachCell({ includeEmpty: true }, (cell, c) => {
+          cell.fill = fill(bg)
+          cell.font = { name: 'Calibri', size: sz, bold, color: { argb: fg } }
+          cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+          cell.border = { top: bdr('thin', dk ? C.borderDk : C.border), bottom: bdr('thin', dk ? C.borderDk : C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+          if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+        })
+      }
+
+      // Total geral
+      const tRow = ws.addRow(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
+      tRow.height = 20
+      tRow.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill(C.slate800)
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: c === 3 ? C.headerFg : C.white } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+        if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+      })
+
+      const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
+      const buf  = await wb.xlsx.writeBuffer()
+      const url  = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a    = document.createElement('a')
+      a.href = url; a.download = `${slug}.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Erro ao gerar o arquivo Excel.')
     }
+  }
 
-    const headers = ['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total']
-    const depths: number[] = [-1]
-    const aoa: any[][] = [headers]
-
-    for (const { nodo, depth } of flat) {
-      const isItem = nodo.tipo === 'item'
-      const total = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
-      aoa.push([
-        sanitize(nodo.numero),
-        sanitize(nodo.codigo),
-        sanitize('  '.repeat(depth) + nodo.descricao),
-        sanitize(nodo.unidade),
-        isItem ? (nodo.quantidade ?? '') : '',
-        isItem ? (nodo.custo_unitario ?? '') : '',
-        total > 0 ? total : '',
-      ])
-      depths.push(depth)
-    }
-
-    // Linha de total geral
-    aoa.push(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
-    depths.push(-2)
-
-    const ws = XS.utils.aoa_to_sheet(aoa)
-
-    // Aplica estilos célula a célula
-    for (let r = 0; r < aoa.length; r++) {
-      const depth = depths[r]
-      for (let c = 0; c < headers.length; c++) {
-        const ref = XS.utils.encode_cell({ r, c })
-        if (!ws[ref]) ws[ref] = { v: '', t: 's' }
-
-        const isNumeric = (c === 5 || c === 6) && ws[ref].v !== '' && ws[ref].v != null
-        const isQtde   = c === 4              && ws[ref].v !== '' && ws[ref].v != null
-
-        if (isNumeric) { ws[ref].t = 'n' }
-        if (isQtde)    { ws[ref].t = 'n' }
-
-        // Linha de total geral
-        if (depth === -2) {
-          ws[ref].s = {
-            fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
-            font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: c === 2 ? C.headerFg : C.white } },
-            alignment: { horizontal: c >= 4 ? 'right' : c === 2 ? 'right' : 'left', vertical: 'center' },
-            border: {
-              top:    { style: 'medium', color: { rgb: C.slate700 } },
-              bottom: { style: 'thin',   color: { rgb: C.border } },
-              left:   { style: 'thin',   color: { rgb: C.border } },
-              right:  { style: 'thin',   color: { rgb: C.border } },
-            },
-            ...(isNumeric ? { numFmt: '#,##0.00' } : {}),
-          }
-        } else {
-          const s = cellStyle(depth, c) as any
-          if (isNumeric) s.numFmt = '#,##0.00'
-          ws[ref].s = s
+  async function fetchInsumosByCodigo(): Promise<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>> {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const sb = createClient() as any
+      const { data: composicoes, error: compError } = await sb
+        .from('orcamento_composicoes')
+        .select('id, codigo')
+        .eq('orcamento_id', orcamentoId)
+        .abortSignal(ac.signal)
+      if (compError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : compError
+      const idToCodigo = new Map<string, string>()
+      for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
+      const compIds = (composicoes ?? []).map((c: any) => c.id)
+      const result = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>()
+      if (compIds.length > 0) {
+        const { data: insumos, error: insError } = await sb
+          .from('orcamento_insumos')
+          .select('composicao_id, codigo, descricao, unidade, custo, indice')
+          .in('composicao_id', compIds)
+          .abortSignal(ac.signal)
+        if (insError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : insError
+        for (const ins of insumos ?? []) {
+          const cod = idToCodigo.get(ins.composicao_id)
+          if (!cod) continue
+          if (!result.has(cod)) result.set(cod, [])
+          result.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0 })
         }
       }
-    }
-
-    ws['!cols'] = [
-      { wch: 10 }, { wch: 13 }, { wch: 52 },
-      { wch: 6  }, { wch: 12 }, { wch: 15 }, { wch: 16 },
-    ]
-    ws['!rows'] = depths.map(d =>
-      ({ hpt: d === -1 || d === -2 ? 20 : d === 0 ? 18 : 15 })
-    )
-
-    const wb = XS.utils.book_new()
-    XS.utils.book_append_sheet(wb, ws, 'Planilha')
-    const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
-    XS.writeFile(wb, `${slug}.xlsx`)
-    } catch (err) {
-      setExportError(
-        err instanceof Error ? err.message : 'Erro ao gerar o arquivo Excel.',
-      )
+      return result
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -680,183 +741,116 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     setExportAnaliticaError(null)
     setExportAnaliticaLoading(true)
     try {
-      const XS = await import('xlsx-js-style')
-      const sb = createClient() as any
+      const ExcelJS = (await import('exceljs')).default
+      const insumoData = analiticaInsumos.size > 0
+        ? analiticaInsumos
+        : await fetchInsumosByCodigo()
 
-      // Fetch all compositions for this orcamento
-      const { data: composicoes, error: compError } = await sb
-        .from('orcamento_composicoes')
-        .select('id, codigo')
-        .eq('orcamento_id', orcamentoId)
-      if (compError) throw compError
+      const wb = new ExcelJS.Workbook()
+      wb.creator = 'FS Orçamento'
+      const ws = wb.addWorksheet('Planilha Analítica')
 
-      // Map: codigo -> composicao_id
-      const codigoToCompId = new Map<string, string>()
-      for (const c of composicoes ?? []) codigoToCompId.set(c.codigo, c.id)
-
-      // Fetch all insumos linked to compositions
-      const compIds = (composicoes ?? []).map((c: any) => c.id)
-      const insumosByComp = new Map<string, any[]>()
-      if (compIds.length > 0) {
-        const { data: insumos, error: insError } = await sb
-          .from('orcamento_insumos')
-          .select('composicao_id, codigo, descricao, unidade, custo, indice')
-          .in('composicao_id', compIds)
-        if (insError) throw insError
-        for (const ins of insumos ?? []) {
-          if (!ins.composicao_id) continue
-          if (!insumosByComp.has(ins.composicao_id)) insumosByComp.set(ins.composicao_id, [])
-          insumosByComp.get(ins.composicao_id)!.push(ins)
-        }
-      }
-
-      // Color palette
       const C = {
-        slate800: '1e293b', slate700: '334155', slate50: 'f8fafc',
-        blue50: 'eff6ff', blue950: '172554',
-        white: 'ffffff', gray700: '374151', gray500: '6b7280',
-        headerBg: 'f1f5f9', headerFg: '64748b',
-        border: 'e2e8f0', borderDark: '475569',
-        insumoFg: '4b5563', insumoBorder: 'f0f4f8',
+        slate800: 'FF1E293B', slate700: 'FF334155', slate50:  'FFF8FAFC',
+        blue50:   'FFEFF6FF', blue950:  'FF172554',
+        white:    'FFFFFFFF', gray700:  'FF374151',
+        headerBg: 'FFF1F5F9', headerFg: 'FF64748B',
+        border:   'FFE2E8F0', borderDk: 'FF475569',
+        insumoFg: 'FF4B5563', insumoBdr: 'FFF0F4F8',
       }
+      const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+      const bdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
 
-      function bdr(style: string, color: string) {
-        return { style, color: { rgb: color } }
-      }
+      ws.columns = [
+        { width: 10 }, { width: 13 }, { width: 55 },
+        { width:  6 }, { width: 12 }, { width: 15 }, { width: 16 },
+      ]
 
-      // Row type: -1=header, 0..2=group depth, 3=item/composition, 99=insumo, -2=total
-      type RType = -2 | -1 | 0 | 1 | 2 | 3 | 99
-      const headers = ['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total']
-      const aoa: any[][] = [headers]
-      const rowTypes: RType[] = [-1]
+      // Cabeçalho
+      const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
+      hRow.height = 20
+      hRow.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill(C.headerBg)
+        cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: C.headerFg } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.borderDk), bottom: bdr('medium', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+      })
 
+      // Usar '' em vez de null garante que eachCell itere todas as 7 colunas
       for (const { nodo, depth } of flat) {
         const isItem = nodo.tipo === 'item'
-        const total = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
+        const total  = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
 
-        // Main row for this node
-        aoa.push([
-          sanitize(nodo.numero),
-          sanitize(nodo.codigo),
-          sanitize('  '.repeat(depth) + nodo.descricao),
-          sanitize(nodo.unidade),
-          isItem ? (nodo.quantidade ?? '') : '',
-          isItem ? (nodo.custo_unitario ?? '') : '',
+        const row = ws.addRow([
+          sanitize(nodo.numero)  || '',
+          sanitize(nodo.codigo)  || '',
+          sanitize('  '.repeat(depth) + nodo.descricao) || '',
+          sanitize(nodo.unidade) || '',
+          isItem && nodo.quantidade     != null ? nodo.quantidade     : '',
+          isItem && nodo.custo_unitario != null ? nodo.custo_unitario : '',
           total > 0 ? total : '',
         ])
-        rowTypes.push((isItem ? 3 : Math.min(depth, 2)) as RType)
 
-        // Expand insumos for composition items
+        let bg: string, fg: string, bold: boolean, sz: number, ht: number
+        if (isItem)           { bg = C.slate50;  fg = C.gray700; bold = false; sz = 9;  ht = 15 }
+        else if (depth === 0) { bg = C.slate800; fg = C.white;   bold = true;  sz = 10; ht = 18 }
+        else if (depth === 1) { bg = C.blue50;   fg = C.blue950; bold = true;  sz = 9;  ht = 15 }
+        else                  { bg = C.slate50;  fg = C.gray700; bold = true;  sz = 9;  ht = 15 }
+
+        row.height = ht
+        const dk = !isItem && depth === 0
+        row.eachCell({ includeEmpty: true }, (cell, c) => {
+          cell.fill = fill(bg)
+          cell.font = { name: 'Calibri', size: sz, bold, color: { argb: fg } }
+          cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+          cell.border = { top: bdr('thin', dk ? C.borderDk : C.border), bottom: bdr('thin', dk ? C.borderDk : C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+          if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+        })
+
+        // Linhas de insumos
         if (isItem && nodo.codigo) {
-          const compId = codigoToCompId.get(nodo.codigo)
-          if (compId) {
-            const insumosForComp = insumosByComp.get(compId) ?? []
-            for (const ins of insumosForComp) {
-              const custoTotal = (ins.indice ?? 0) * (ins.custo ?? 0)
-              aoa.push([
-                '',
-                sanitize(ins.codigo),
-                sanitize('    ' + ins.descricao),
-                sanitize(ins.unidade),
-                ins.indice ?? '',
-                ins.custo ?? '',
-                custoTotal > 0 ? custoTotal : '',
-              ])
-              rowTypes.push(99)
-            }
+          const insumosForComp = insumoData.get(nodo.codigo) ?? []
+          for (const ins of insumosForComp) {
+            const custoTotal = (ins.indice ?? 0) * (ins.custo ?? 0)
+            const iRow = ws.addRow([
+              '',
+              sanitize(ins.codigo) || '',
+              sanitize('    ' + ins.descricao) || '',
+              sanitize(ins.unidade ?? '') || '',
+              ins.indice ?? '',
+              ins.custo  ?? '',
+              custoTotal > 0 ? custoTotal : '',
+            ])
+            iRow.height = 13
+            iRow.eachCell({ includeEmpty: true }, (cell, c) => {
+              cell.fill = fill(C.white)
+              cell.font = { name: 'Calibri', size: 8, bold: false, color: { argb: C.insumoFg } }
+              cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+              cell.border = { top: bdr('thin', C.insumoBdr), bottom: bdr('thin', C.insumoBdr), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+              if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+              if (c === 5 && typeof cell.value === 'number')              cell.numFmt = '#,##0.0000'
+            })
           }
         }
       }
 
-      // Grand total row
-      aoa.push(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
-      rowTypes.push(-2)
+      // Total geral
+      const tRow = ws.addRow(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
+      tRow.height = 20
+      tRow.eachCell({ includeEmpty: true }, (cell, c) => {
+        cell.fill = fill(C.slate800)
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: c === 3 ? C.headerFg : C.white } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+        if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+      })
 
-      const ws = XS.utils.aoa_to_sheet(aoa)
-
-      for (let r = 0; r < aoa.length; r++) {
-        const rt = rowTypes[r]
-        for (let c = 0; c < headers.length; c++) {
-          const ref = XS.utils.encode_cell({ r, c })
-          if (!ws[ref]) ws[ref] = { v: '', t: 's' }
-
-          const val = ws[ref].v
-          const isNumVal = val !== '' && val != null
-          const isMoneyCol = c === 5 || c === 6
-          const isQtdeCol  = c === 4
-
-          if (isMoneyCol && isNumVal) ws[ref].t = 'n'
-          if (isQtdeCol  && isNumVal) ws[ref].t = 'n'
-
-          let s: any
-
-          if (rt === -1) {
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.headerBg } },
-              font: { name: 'Calibri', sz: 9, bold: true, color: { rgb: C.headerFg } },
-              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
-              border: { top: bdr('medium', C.borderDark), bottom: bdr('medium', C.borderDark), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-            }
-          } else if (rt === -2) {
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
-              font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: c === 2 ? C.headerFg : C.white } },
-              alignment: { horizontal: c >= 4 ? 'right' : c === 2 ? 'right' : 'left', vertical: 'center' },
-              border: { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
-            }
-          } else if (rt === 0) {
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.slate800 } },
-              font: { name: 'Calibri', sz: 10, bold: true, color: { rgb: C.white } },
-              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
-              border: { top: bdr('thin', C.borderDark), bottom: bdr('thin', C.borderDark), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
-            }
-          } else if (rt === 1) {
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.blue50 } },
-              font: { name: 'Calibri', sz: 9, bold: true, color: { rgb: C.blue950 } },
-              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center' },
-              border: { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
-            }
-          } else if (rt === 2 || rt === 3) {
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.slate50 } },
-              font: { name: 'Calibri', sz: 9, bold: rt === 2, color: { rgb: C.slate700 } },
-              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center', wrapText: c === 2 },
-              border: { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
-            }
-          } else {
-            // Insumo row (rt === 99)
-            s = {
-              fill: { patternType: 'solid', fgColor: { rgb: C.white } },
-              font: { name: 'Calibri', sz: 8, bold: false, color: { rgb: C.insumoFg } },
-              alignment: { horizontal: c >= 4 ? 'right' : 'left', vertical: 'center', wrapText: c === 2 },
-              border: { top: bdr('thin', C.insumoBorder), bottom: bdr('thin', C.insumoBorder), left: bdr('thin', C.border), right: bdr('thin', C.border) },
-              ...(isMoneyCol && isNumVal ? { numFmt: '#,##0.00' } : {}),
-              ...(isQtdeCol && isNumVal ? { numFmt: '#,##0.0000' } : {}),
-            }
-          }
-
-          ws[ref].s = s
-        }
-      }
-
-      ws['!cols'] = [
-        { wch: 10 }, { wch: 13 }, { wch: 55 },
-        { wch: 6  }, { wch: 12 }, { wch: 15 }, { wch: 16 },
-      ]
-      ws['!rows'] = rowTypes.map(rt => ({
-        hpt: rt === -1 || rt === -2 ? 20 : rt === 0 ? 18 : rt === 99 ? 13 : 15
-      }))
-
-      const wb = XS.utils.book_new()
-      XS.utils.book_append_sheet(wb, ws, 'Planilha Analítica')
       const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
-      XS.writeFile(wb, `${slug}_analitica.xlsx`)
+      const buf  = await wb.xlsx.writeBuffer()
+      const url  = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a    = document.createElement('a')
+      a.href = url; a.download = `${slug}_analitica.xlsx`; a.click()
+      URL.revokeObjectURL(url)
     } catch (err) {
       setExportAnaliticaError(err instanceof Error ? err.message : 'Erro ao gerar o arquivo Excel.')
     } finally {
@@ -868,28 +862,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     if (analiticaInsumos.size > 0) return
     setAnaliticaLoading(true)
     try {
-      const sb = createClient() as any
-      const { data: composicoes } = await sb
-        .from('orcamento_composicoes')
-        .select('id, codigo')
-        .eq('orcamento_id', orcamentoId)
-      const idToCodigo = new Map<string, string>()
-      for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
-      const compIds = (composicoes ?? []).map((c: any) => c.id)
-      const next = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>()
-      if (compIds.length > 0) {
-        const { data: insumos } = await sb
-          .from('orcamento_insumos')
-          .select('composicao_id, codigo, descricao, unidade, custo, indice')
-          .in('composicao_id', compIds)
-        for (const ins of insumos ?? []) {
-          const cod = idToCodigo.get(ins.composicao_id)
-          if (!cod) continue
-          if (!next.has(cod)) next.set(cod, [])
-          next.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0 })
-        }
-      }
-      setAnaliticaInsumos(next)
+      const data = await fetchInsumosByCodigo()
+      setAnaliticaInsumos(data)
+    } catch {
+      // silently ignore — analítica view shows empty insumos on failure
     } finally {
       setAnaliticaLoading(false)
     }
@@ -899,7 +875,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
   function computeProjection(activeId: string, overId: string, deltaX: number): { parentId: string | null; ordem: number } | null {
     if (activeId === overId) return null
-    const flatAll = flattenTree(tree) // usa o tree já calculado
+    const flatAll = flat // usa a flat já memoizada — evita O(n) a cada drag move
     const overIdx = flatAll.findIndex(f => f.nodo.id === overId)
     const activeEntry = flatAll.find(f => f.nodo.id === activeId)
     if (overIdx === -1 || !activeEntry) return null
@@ -1201,7 +1177,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         onDragCancel={() => setDragActiveId(null)}
       >
       <SortableContext items={visible.map(v => v.nodo.id)} strategy={verticalListSortingStrategy}>
-      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
+      <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
         <table className="w-full text-xs min-w-[700px] border-collapse">
           <thead className="sticky top-0 z-10 text-left">
             <tr className="bg-[#1a2e4a] text-white">
@@ -1221,7 +1197,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
             </tr>
           </thead>
           <tbody>
-            {visible.map(({ nodo, depth }, rowIdx) => {
+            {useVirtualRender && virtualPaddingTop > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={13} style={{ height: virtualPaddingTop, padding: 0, border: 'none' }} />
+              </tr>
+            )}
+            {rowsToRender.map(({ nodo, depth, rowIdx }) => {
               const isGroup    = nodo.filhos.length > 0
               const isCollapsed = collapsed.has(nodo.id)
               const addingHere  = addingParentId === nodo.id
@@ -1457,6 +1438,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                 </Fragment>
               )
             })}
+            {useVirtualRender && virtualPaddingBottom > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={13} style={{ height: virtualPaddingBottom, padding: 0, border: 'none' }} />
+              </tr>
+            )}
 
             <tr className="bg-[#1a2e4a] text-white">
               <td colSpan={8} className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-widest text-slate-300 border border-[#2d4a6e]">

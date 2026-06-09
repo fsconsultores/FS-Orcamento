@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { ImportInsumoRow, ImportComposicaoRow, ImportResult } from '@/app/(app)/orcamentos/[id]/importar/import-action'
 
@@ -50,6 +50,7 @@ export async function importarInsumosParaBase(
   }
 
   revalidatePath('/bases')
+  revalidateTag('bases-contagens')
   return result
 }
 
@@ -154,5 +155,6 @@ export async function importarComposicoesParaBase(
     if (error) result.erros.push(`Itens: ${error.message}`)
 
   revalidatePath('/bases')
+  revalidateTag('bases-contagens')
   return result
 }

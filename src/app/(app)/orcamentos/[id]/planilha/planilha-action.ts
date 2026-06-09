@@ -222,25 +222,21 @@ export async function buscarSugestoesCodigo(
   const { data: comps } = await compQ
   if (!comps?.length) return []
 
-  // 2. Insumos vinculados às composições encontradas
   const ids = comps.map((c: any) => c.id)
-  const { data: allIns } = await sb
-    .from('orcamento_insumos')
-    .select('composicao_id, codigo, custo, indice')
-    .in('composicao_id', ids)
 
-  // 3. Avulsos (tabela de preços do orçamento) para os códigos usados
-  const codigos = [...new Set((allIns ?? []).map((i: any) => i.codigo).filter(Boolean))]
-  const precoMap = new Map<string, number>()
-  if (codigos.length) {
-    const { data: avs } = await sb
-      .from('orcamento_insumos')
+  // 2 + 3 em paralelo: insumos das composições + avulsos do orçamento
+  const [{ data: allIns }, { data: avulsos }] = await Promise.all([
+    sb.from('orcamento_insumos')
+      .select('composicao_id, codigo, custo, indice')
+      .in('composicao_id', ids),
+    sb.from('orcamento_insumos')
       .select('codigo, custo')
       .eq('orcamento_id', orcamentoId)
-      .is('composicao_id', null)
-      .in('codigo', codigos)
-    for (const av of avs ?? []) precoMap.set(av.codigo, av.custo ?? 0)
-  }
+      .is('composicao_id', null),
+  ])
+
+  const precoMap = new Map<string, number>()
+  for (const av of avulsos ?? []) precoMap.set(av.codigo, av.custo ?? 0)
 
   // 4. Passo 1: calcula com avulsos
   const custoMap: Record<string, number> = {}

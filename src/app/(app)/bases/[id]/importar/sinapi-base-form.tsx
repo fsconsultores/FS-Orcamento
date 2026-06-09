@@ -52,6 +52,33 @@ function parseNumber(val: unknown): number {
   return parseFloat(s) || 0
 }
 
+function parseDate(val: unknown): string | null {
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return null
+    const y = val.getUTCFullYear()
+    const m = String(val.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(val.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const s = String(val ?? '').trim()
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [d, m, y] = s.split('/')
+    return `${y}-${m}-${d}`
+  }
+  // Excel serial date: 25569 = 1970-01-01, 73050 ≈ 2099-12-31
+  const n = Number(s)
+  if (!isNaN(n) && n > 25569 && n < 73050) {
+    const dt = new Date((n - 25569) * 86400000)
+    const y = dt.getUTCFullYear()
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(dt.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  return null
+}
+
 function isSudecap(header: string[]): boolean {
   const joined = header.join('|').toLowerCase()
   return joined.includes('tipoitem') || joined.includes('insumo/composicao') || joined.includes('insumocomposicao')
@@ -82,7 +109,7 @@ function parseFlat(data: unknown[][]): { rows: ImportInsumoRow[]; erros: string[
       indice:   1,
       grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
       base:     'base'     in cols ? String(row[cols.base]     ?? '').trim() || null : null,
-      data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,
+      data_ref: 'data_ref' in cols ? parseDate(row[cols.data_ref]) : null,
     })
   }
   return { rows, erros }
@@ -345,7 +372,7 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
     setFileName(file.name); setAllSheets([]); setIsSheet(''); setCsSheet('')
     const ab = await file.arrayBuffer()
     const XLSX = await import('xlsx')
-    const wb = XLSX.read(ab, { type: 'array' })
+    const wb = XLSX.read(ab, { type: 'array', cellDates: true })
     setWbRef(wb)
     const sheets = wb.SheetNames
     setAllSheets(sheets)

@@ -12,7 +12,7 @@ const TABS = [
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'curva-abc', label: 'Curva ABC' },
-  { suffix: 'importar', label: 'Importar SINAPI' },
+  { suffix: 'importar', label: 'Importar' },
 ]
 
 export function OrcamentoSubNav({ orcamentoId }: Props) {

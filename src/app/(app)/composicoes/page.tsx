@@ -63,21 +63,18 @@ export default async function ComposicoesPage({
     return query
   }
 
-  // count
-  const countResult = await addFilters(
-    sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)
-  )
-  const total: number = countResult.count ?? 0
-
-  // data page
-  const { data: composicoes, error } = await addFilters(
-    sb
-      .from('vw_custo_composicao')
-      .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem')
-      .order('codigo')
-      .range(from, to)
-  )
+  // count + data em paralelo
+  const [countResult, { data: composicoes, error }] = await Promise.all([
+    addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)),
+    addFilters(
+      sb.from('vw_custo_composicao')
+        .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem')
+        .order('codigo')
+        .range(from, to)
+    ),
+  ])
   if (error) throw error;
+  const total: number = countResult.count ?? 0
 
   // Busca insumos para as composições da página atual (servidor)
   const compIds = (composicoes ?? []).map((c: any) => c.id as string)

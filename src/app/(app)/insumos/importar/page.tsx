@@ -90,6 +90,12 @@ function parseCsv(text: string): RowParsed[] {
       } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) {
         const [d, m, y] = dataStr.split('/');
         data_referencia = `${y}-${m}-${d}`;
+      } else {
+        const n = Number(dataStr);
+        if (!isNaN(n) && n > 25569 && n < 73050) {
+          const dt = new Date((n - 25569) * 86400000);
+          data_referencia = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+        }
       }
     }
 
