@@ -2,20 +2,8 @@
 
 import { useState } from 'react'
 import type { AbcItem } from '@/lib/curva-abc'
-
-// ─── Formatters ──────────────────────────────────────────────────────────────
-
-function fmt(n: number) {
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
-function fmtQtd(n: number) {
-  return n.toLocaleString('pt-BR', { maximumFractionDigits: 4 })
-}
-
-function fmtPct(n: number) {
-  return n.toFixed(2) + '%'
-}
+import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
+import { exportCurvaAbcPdf } from './export-pdf'
 
 // ─── Chart ───────────────────────────────────────────────────────────────────
 
@@ -140,12 +128,15 @@ const ROW_BG: Record<'A' | 'B' | 'C', string> = {
 export function CurvaAbcView({
   abcServicos,
   abcInsumos,
+  orcamentoNome,
 }: {
   abcServicos: AbcItem[]
   abcInsumos: AbcItem[]
+  orcamentoNome?: string
 }) {
   const [tab, setTab] = useState<'servicos' | 'insumos'>('servicos')
   const [filtro, setFiltro] = useState<'todos' | 'A' | 'B' | 'C'>('todos')
+  const [exportandoPdf, setExportandoPdf] = useState(false)
 
   const items = tab === 'servicos' ? abcServicos : abcInsumos
   const filtered = filtro === 'todos' ? items : items.filter(i => i.classe === filtro)
@@ -228,6 +219,15 @@ export function CurvaAbcView({
     const a   = document.createElement('a')
     a.href = url; a.download = `curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function handleExportPdf() {
+    setExportandoPdf(true)
+    try {
+      await exportCurvaAbcPdf(items, tab, orcamentoNome)
+    } finally {
+      setExportandoPdf(false)
+    }
   }
 
   return (
@@ -349,6 +349,16 @@ export function CurvaAbcView({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             Exportar XLSX
+          </button>
+          <button
+            onClick={handleExportPdf}
+            disabled={items.length === 0 || exportandoPdf}
+            className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {exportandoPdf ? 'Gerando PDF…' : 'Exportar PDF'}
           </button>
           <button
             onClick={() => window.print()}
