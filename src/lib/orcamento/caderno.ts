@@ -30,31 +30,29 @@ export interface CadernoNode {
   filhos: CadernoNode[]
 }
 
-export interface ComposicaoAnalitica {
-  codigo: string
-  descricao: string
-  unidade: string
-  custoUnitario: number
-  insumos: {
-    codigo: string
-    descricao: string
-    unidade: string
-    indice: number
-    custoUnit: number
-    custoTotal: number
-  }[]
-}
+export type PlanilhaAnaliticaRow =
+  | { tipo: 'grupo'; numero: string; descricao: string }
+  | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; custoUnitario: number; custoTotal: number }
+  | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number }
 
 export interface ListaInsumoItem {
   codigo: string
   descricao: string
   unidade: string
+  grupo: string
   custo: number
+  quantidade: number
+  total: number
 }
 
 export interface ListaInsumoGrupo {
   label: string
   items: ListaInsumoItem[]
+}
+
+export interface ServicoEstimado {
+  descricao: string
+  valor: number
 }
 
 export interface CadernoData {
@@ -64,12 +62,17 @@ export interface CadernoData {
     cliente: string | null
     data: string | null
     bdi_global: number
+    area_total: number | null
+    area_coberta: number | null
+    area_equivalente: number | null
   }
   arvore: CadernoNode[]
   totalGeral: number
+  servicosEstimados: ServicoEstimado[]
+  totalServicosEstimados: number
   abcInsumos: AbcItem[]
   abcServicos: AbcItem[]
-  composicoesAnaliticas: ComposicaoAnalitica[]
+  planilhaAnalitica: PlanilhaAnaliticaRow[]
   listaInsumos: ListaInsumoGrupo[]
 }
 
@@ -114,15 +117,19 @@ interface Breakdown { mat: number; mo: number; terceiros: number }
 export async function getCadernoData(supabase: SupabaseClient, orcamentoId: string): Promise<CadernoData> {
   const sb = supabase as any
 
-  const [{ data: orc }, { data: estrutura }, composicoes, todosInsumos] = await Promise.all([
+  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, todosInsumos] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, data, bdi_global')
+      .select('nome_obra, codigo, cliente, data, bdi_global, area_total, area_coberta, area_equivalente')
       .eq('id', orcamentoId)
       .single(),
     sb.from('orcamento_estrutura')
       .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
       .eq('orcamento_id', orcamentoId)
       .order('nivel', { ascending: true })
+      .order('ordem', { ascending: true }),
+    sb.from('orcamento_servicos_estimados')
+      .select('descricao, valor')
+      .eq('orcamento_id', orcamentoId)
       .order('ordem', { ascending: true }),
     getComposicoesByOrcamento(supabase, orcamentoId),
     getInsumosByOrcamento(supabase, orcamentoId),
@@ -298,40 +305,86 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoes.map(c => ({ id: c.id, codigo: c.codigo })), allInsumos)
 
   // ── Planilha Analítica ────────────────────────────────────────────────────────
-  const composicoesAnaliticas: ComposicaoAnalitica[] = []
-  for (const comp of composicoes) {
-    const insumosArr = compInsumosByCompId.get(comp.id)
-    if (!insumosArr || insumosArr.length === 0) continue
-    const insumosOut = insumosArr
-      .slice()
-      .sort((a, b) => a.codigo.localeCompare(b.codigo))
-      .map(ins => {
-        const custoUnit = precoEfetivoMap.get(ins.codigo) ?? ins.custo
-        return {
-          codigo: ins.codigo,
-          descricao: ins.descricao,
-          unidade: ins.unidade ?? '',
-          indice: ins.indice,
-          custoUnit,
-          custoTotal: custoUnit * ins.indice,
-        }
+  // Segue a ordem da Planilha de Orçamento (grupos e itens), intercalando, para
+  // cada item com composição detalhada, os insumos dessa composição logo abaixo.
+  function buildPlanilhaAnalitica(nodes: CadernoNode[]): PlanilhaAnaliticaRow[] {
+    const rows: PlanilhaAnaliticaRow[] = []
+    for (const node of nodes) {
+      if (node.tipo === 'grupo') {
+        rows.push({ tipo: 'grupo', numero: node.numero, descricao: node.descricao })
+        rows.push(...buildPlanilhaAnalitica(node.filhos))
+        continue
+      }
+
+      rows.push({
+        tipo: 'item',
+        numero: node.numero,
+        codigo: node.codigo ?? '',
+        descricao: node.descricao,
+        unidade: node.unidade ?? '',
+        custoUnitario: node.custoUnitario,
+        custoTotal: node.total,
       })
-    composicoesAnaliticas.push({
-      codigo: comp.codigo,
-      descricao: comp.descricao,
-      unidade: comp.unidade,
-      custoUnitario: comp.custo_unitario,
-      insumos: insumosOut,
-    })
+
+      const compId = node.codigo ? compCodeToId.get(node.codigo) : undefined
+      const insumosArr = compId ? compInsumosByCompId.get(compId) : undefined
+      if (insumosArr && insumosArr.length > 0) {
+        for (const ins of insumosArr.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
+          const custoUnit = precoEfetivoMap.get(ins.codigo) ?? ins.custo
+          rows.push({
+            tipo: 'insumo',
+            codigo: ins.codigo,
+            descricao: ins.descricao,
+            unidade: ins.unidade ?? '',
+            indice: ins.indice,
+            custoUnit,
+            custoTotal: custoUnit * ins.indice,
+          })
+        }
+      }
+    }
+    return rows
   }
-  composicoesAnaliticas.sort((a, b) => a.codigo.localeCompare(b.codigo))
+
+  const planilhaAnalitica = buildPlanilhaAnalitica(arvore)
+
+  // ── Consumo total de cada insumo no orçamento (expande composições recursivamente) ──
+  const consumoMap = new Map<string, number>()
+  function acumularConsumo(codigo: string, qtd: number, visitados: Set<string>) {
+    if (compCodesSet.has(codigo)) {
+      if (visitados.has(codigo)) return
+      const compId = compCodeToId.get(codigo)
+      const insumosArr = compId ? compInsumosByCompId.get(compId) : undefined
+      if (!insumosArr) return
+      const proximosVisitados = new Set(visitados).add(codigo)
+      for (const ins of insumosArr) acumularConsumo(ins.codigo, qtd * ins.indice, proximosVisitados)
+    } else {
+      consumoMap.set(codigo, (consumoMap.get(codigo) ?? 0) + qtd)
+    }
+  }
+  function percorrerItens(nodes: CadernoNode[]) {
+    for (const n of nodes) {
+      if (n.tipo === 'item' && n.codigo) acumularConsumo(n.codigo, n.quantidade ?? 0, new Set())
+      percorrerItens(n.filhos)
+    }
+  }
+  percorrerItens(arvore)
 
   // ── Lista de Insumos (agrupada por categoria) ────────────────────────────────
   const gruposMap = new Map<string, ListaInsumoItem[]>()
   for (const ins of todosInsumos) {
     const label = classificarLabel(ins.grupo)
+    const quantidade = consumoMap.get(ins.codigo) ?? 0
     const arr = gruposMap.get(label) ?? []
-    arr.push({ codigo: ins.codigo, descricao: ins.descricao, unidade: ins.unidade, custo: ins.custo })
+    arr.push({
+      codigo: ins.codigo,
+      descricao: ins.descricao,
+      unidade: ins.unidade,
+      grupo: label,
+      custo: ins.custo,
+      quantidade,
+      total: quantidade * ins.custo,
+    })
     gruposMap.set(label, arr)
   }
   const listaInsumos: ListaInsumoGrupo[] = LABEL_ORDEM
@@ -341,6 +394,12 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       items: gruposMap.get(label)!.sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR')),
     }))
 
+  const servicosEstimados: ServicoEstimado[] = (servicosEstimadosRows ?? []).map((s: any) => ({
+    descricao: s.descricao,
+    valor: s.valor ?? 0,
+  }))
+  const totalServicosEstimados = servicosEstimados.reduce((sum, s) => sum + s.valor, 0)
+
   return {
     orcamento: {
       nome_obra: orc?.nome_obra ?? '',
@@ -348,12 +407,17 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       cliente: orc?.cliente ?? null,
       data: orc?.data ?? null,
       bdi_global: orc?.bdi_global ?? 0,
+      area_total: orc?.area_total ?? null,
+      area_coberta: orc?.area_coberta ?? null,
+      area_equivalente: orc?.area_equivalente ?? null,
     },
     arvore,
     totalGeral,
+    servicosEstimados,
+    totalServicosEstimados,
     abcInsumos,
     abcServicos,
-    composicoesAnaliticas,
+    planilhaAnalitica,
     listaInsumos,
   }
 }

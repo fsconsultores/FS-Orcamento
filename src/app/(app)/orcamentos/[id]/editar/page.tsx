@@ -16,16 +16,19 @@ export default function EditarOrcamentoPage() {
     cliente: '',
     data: '',
     bdi_global: '',
+    area_total: '',
+    area_coberta: '',
+    area_equivalente: '',
   });
+  const [servicosEstimados, setServicosEstimados] = useState<{ id?: string; descricao: string; valor: string }[]>([]);
 
   useEffect(() => {
     async function load() {
       const sb = createClient() as any;
-      const { data, error } = await sb
-        .from('tabela_orcamentos')
-        .select('*')
-        .eq('id', id)
-        .single();
+      const [{ data, error }, { data: servicos }] = await Promise.all([
+        sb.from('tabela_orcamentos').select('*').eq('id', id).single(),
+        sb.from('orcamento_servicos_estimados').select('id, descricao, valor').eq('orcamento_id', id).order('ordem', { ascending: true }),
+      ]);
       if (error || !data) {
         setError('Orçamento não encontrado.');
         setFetching(false);
@@ -36,7 +39,13 @@ export default function EditarOrcamentoPage() {
         cliente: data.cliente ?? '',
         data: data.data,
         bdi_global: String(data.bdi_global),
+        area_total: data.area_total != null ? String(data.area_total) : '',
+        area_coberta: data.area_coberta != null ? String(data.area_coberta) : '',
+        area_equivalente: data.area_equivalente != null ? String(data.area_equivalente) : '',
       });
+      setServicosEstimados(
+        (servicos ?? []).map((s: any) => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
+      );
       setFetching(false);
     }
     load();
@@ -46,12 +55,28 @@ export default function EditarOrcamentoPage() {
     setForm(prev => ({ ...prev, [field]: value }));
   }
 
+  function updateServico(index: number, field: 'descricao' | 'valor', value: string) {
+    setServicosEstimados(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
+  }
+
+  function addServico() {
+    setServicosEstimados(prev => [...prev, { descricao: '', valor: '' }]);
+  }
+
+  function removeServico(index: number) {
+    setServicosEstimados(prev => prev.filter((_, i) => i !== index));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!form.nome_obra.trim()) { setError('Informe o nome da obra.'); return; }
     const bdi = parseFloat(form.bdi_global);
     if (isNaN(bdi) || bdi < 0) { setError('BDI inválido.'); return; }
+
+    const servicosValidos = servicosEstimados
+      .map(s => ({ descricao: s.descricao.trim(), valor: parseFloat(s.valor) || 0 }))
+      .filter(s => s.descricao);
 
     setLoading(true);
     try {
@@ -63,9 +88,23 @@ export default function EditarOrcamentoPage() {
           cliente: form.cliente.trim() || null,
           data: form.data,
           bdi_global: bdi,
+          area_total: form.area_total ? parseFloat(form.area_total) : null,
+          area_coberta: form.area_coberta ? parseFloat(form.area_coberta) : null,
+          area_equivalente: form.area_equivalente ? parseFloat(form.area_equivalente) : null,
         })
         .eq('id', id);
       if (dbError) throw dbError;
+
+      const { error: delError } = await sb.from('orcamento_servicos_estimados').delete().eq('orcamento_id', id);
+      if (delError) throw delError;
+
+      if (servicosValidos.length > 0) {
+        const { error: insError } = await sb.from('orcamento_servicos_estimados').insert(
+          servicosValidos.map((s, i) => ({ orcamento_id: id, descricao: s.descricao, valor: s.valor, ordem: i }))
+        );
+        if (insError) throw insError;
+      }
+
       router.refresh();
       router.push(`/orcamentos/${id}/planilha`);
     } catch {
@@ -151,6 +190,91 @@ export default function EditarOrcamentoPage() {
               onChange={(e) => update('bdi_global', e.target.value)}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
+          </div>
+        </div>
+
+        <div className="border-t pt-4 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Resumo Geral do Orçamento</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Usado no Caderno de Orçamento (seção 3.0).</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Área total (m²)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.area_total}
+                onChange={(e) => update('area_total', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Áreas cobertas (m²)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.area_coberta}
+                onChange={(e) => update('area_coberta', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Área equivalente (m²)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.area_equivalente}
+                onChange={(e) => update('area_equivalente', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-gray-700">Serviços estimados (B)</label>
+              <button
+                type="button"
+                onClick={addServico}
+                className="text-xs font-medium text-blue-600 hover:underline"
+              >
+                + Adicionar
+              </button>
+            </div>
+            {servicosEstimados.length === 0 && (
+              <p className="text-xs text-gray-400">Nenhum serviço estimado cadastrado.</p>
+            )}
+            {servicosEstimados.map((s, i) => (
+              <div key={s.id ?? `new-${i}`} className="flex gap-2">
+                <input
+                  value={s.descricao}
+                  onChange={(e) => updateServico(i, 'descricao', e.target.value)}
+                  placeholder="Descrição"
+                  className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={s.valor}
+                  onChange={(e) => updateServico(i, 'valor', e.target.value)}
+                  placeholder="Valor (R$)"
+                  className="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeServico(i)}
+                  className="rounded-md border border-gray-300 px-2.5 text-sm text-gray-500 hover:bg-gray-50"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 

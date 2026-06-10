@@ -28,11 +28,14 @@ export function CadernoView({ data }: { data: CadernoData }) {
     }
   }
 
+  const itensAnalitica = data.planilhaAnalitica.filter(r => r.tipo === 'item').length
+
   const sections = [
+    { title: 'Resumo Geral do Orçamento', desc: `Detalhamento dos custos por grupo (Total Geral: ${fmt(data.totalGeral + data.totalServicosEstimados)})`, ok: data.arvore.length > 0 },
     { title: 'Planilha de Preços Unitários', desc: `${itens} item(ns) na planilha orçamentária`, ok: itens > 0 },
     { title: 'Curva ABC — Insumos', desc: `${data.abcInsumos.length} insumo(s) classificado(s)`, ok: data.abcInsumos.length > 0 },
     { title: 'Curva ABC — Serviços', desc: `${data.abcServicos.length} serviço(s) classificado(s)`, ok: data.abcServicos.length > 0 },
-    { title: 'Planilha Analítica', desc: `${data.composicoesAnaliticas.length} composição(ões) detalhada(s)`, ok: data.composicoesAnaliticas.length > 0 },
+    { title: 'Planilha Analítica', desc: `${itensAnalitica} item(ns) na planilha analítica`, ok: itensAnalitica > 0 },
     { title: 'Lista de Insumos', desc: `${totalInsumos} insumo(s) em ${data.listaInsumos.length} categoria(s)`, ok: totalInsumos > 0 },
     { title: 'Anexos', desc: 'Seção vazia (sem dados disponíveis no software)', ok: false },
     { title: 'Cotações', desc: 'Seção vazia (sem dados disponíveis no software)', ok: false },
