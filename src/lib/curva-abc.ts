@@ -96,16 +96,9 @@ export function computeAbcCurves(
     compCodesSet.add(c.codigo)
   }
 
-  // Composições que têm sub-insumos reais → são serviços de verdade
-  const compIdsComInsumos = new Set(allInsumos.map(ins => ins.composicao_id))
-  const compCodesServico = new Set<string>()
-  for (const [id, codigo] of compIdToCode) {
-    if (compIdsComInsumos.has(id)) compCodesServico.add(codigo)
-  }
-
-  // Split: serviço = tem composição com sub-insumos; insumo direto = todo o resto
-  const compItems = estItems.filter(item => item.codigo && compCodesServico.has(item.codigo))
-  const directInsumoItems = estItems.filter(item => !item.codigo || !compCodesServico.has(item.codigo))
+  // Split: serviço = item cujo código é uma composição; insumo direto = todo o resto
+  const compItems = estItems.filter(item => item.codigo && compCodesSet.has(item.codigo))
+  const directInsumoItems = estItems.filter(item => !item.codigo || !compCodesSet.has(item.codigo))
 
   // ABC de Serviços
   const compMap = new Map<string, { descricao: string; unidade: string | null; quantidade: number; custo_unitario: number }>()

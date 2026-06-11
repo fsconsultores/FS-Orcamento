@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { sincronizarCustosPlanilha } from '@/lib/orcamento'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
 import { ClientPagination } from '@/components/client-pagination'
 
@@ -182,6 +183,12 @@ export function OrcamentoInsumosTable({
           .update({ custo: parsed })
           .eq('codigo', alvo.codigo)
           .in('composicao_id', compIds.slice(i, i + 500))
+      }
+
+      try {
+        await sincronizarCustosPlanilha(sb, orcamentoId)
+      } catch (syncErr) {
+        console.error('Erro ao sincronizar custos da planilha:', syncErr)
       }
     } catch {
       setInsumos(prev => prev.map(ins =>

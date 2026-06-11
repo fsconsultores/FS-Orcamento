@@ -14,6 +14,7 @@ const TABS = [
   { suffix: 'curva-abc', label: 'Curva ABC' },
   { suffix: 'caderno', label: 'Caderno' },
   { suffix: 'importar', label: 'Importar' },
+  { suffix: 'configuracoes', label: 'Configurações' },
 ]
 
 export function OrcamentoSubNav({ orcamentoId }: Props) {

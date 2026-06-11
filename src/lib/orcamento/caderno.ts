@@ -60,6 +60,7 @@ export interface CadernoData {
     nome_obra: string
     codigo: string | null
     cliente: string | null
+    local: string | null
     data: string | null
     bdi_global: number
     area_total: number | null
@@ -119,7 +120,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
 
   const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, todosInsumos] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, data, bdi_global, area_total, area_coberta, area_equivalente')
+      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente')
       .eq('id', orcamentoId)
       .single(),
     sb.from('orcamento_estrutura')
@@ -236,16 +237,75 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   }
   sortByOrdem(roots)
 
+  function custoUnitarioEfetivo(raw: EstruturaFullItem): number {
+    let custoUnitario = raw.custo_unitario ?? 0
+    if (raw.codigo && breakdownByCode.has(raw.codigo)) {
+      const b = breakdownByCode.get(raw.codigo)!
+      const breakdownTotal = b.mat + b.mo + b.terceiros
+      if (custoUnitario === 0) custoUnitario = breakdownTotal
+    }
+    return custoUnitario
+  }
+
+  // ── Itens "- Estimado" → Serviços Estimados (B) ──────────────────────────────
+  // Grupos/itens cujo nome termina em "- Estimado" não compõem o Total Orçado
+  // (A) nem as demais seções do caderno; seu custo entra como Serviço
+  // Estimado (B). Quando o marcador está num grupo, cada filho direto vira
+  // um serviço estimado (com o custo de toda a sua subárvore).
+  const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
+
+  function sumLeaves(raw: RawNode): number {
+    if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0)
+    return raw.filhos.reduce((s, f) => s + sumLeaves(f), 0)
+  }
+
+  const idsEstimados = new Set<string>()
+  const autoServicosEstimados: ServicoEstimado[] = []
+
+  function marcarSubarvore(raw: RawNode) {
+    idsEstimados.add(raw.id)
+    for (const filho of raw.filhos) marcarSubarvore(filho)
+  }
+
+  function detectarEstimados(nodes: RawNode[]) {
+    for (const node of nodes) {
+      if (ESTIMADO_RE.test(node.descricao)) {
+        marcarSubarvore(node)
+        if (node.tipo === 'item') {
+          autoServicosEstimados.push({ descricao: node.descricao.replace(ESTIMADO_RE, '').trim(), valor: sumLeaves(node) })
+        } else {
+          for (const filho of node.filhos) {
+            autoServicosEstimados.push({ descricao: filho.descricao, valor: sumLeaves(filho) })
+          }
+        }
+        continue
+      }
+      detectarEstimados(node.filhos)
+    }
+  }
+  detectarEstimados(roots)
+
+  function removerEstimados(nodes: RawNode[]): RawNode[] {
+    const result: RawNode[] = []
+    for (const node of nodes) {
+      if (idsEstimados.has(node.id)) continue
+      const filhos = removerEstimados(node.filhos)
+      if (node.tipo === 'grupo' && filhos.length === 0) continue
+      result.push({ ...node, filhos })
+    }
+    return result
+  }
+  const arvoreRoots = removerEstimados(roots)
+
   function buildNode(raw: RawNode): CadernoNode {
     if (raw.filhos.length === 0) {
       const quantidade = raw.quantidade ?? 0
       let custoMat = 0, custoMo = 0, custoTerceiros = 0
-      let custoUnitario = raw.custo_unitario ?? 0
+      const custoUnitario = custoUnitarioEfetivo(raw)
 
       if (raw.codigo && breakdownByCode.has(raw.codigo)) {
         const b = breakdownByCode.get(raw.codigo)!
         const breakdownTotal = b.mat + b.mo + b.terceiros
-        if (custoUnitario === 0) custoUnitario = breakdownTotal
         if (breakdownTotal > 0) {
           const factor = custoUnitario / breakdownTotal
           custoMat = b.mat * factor
@@ -287,7 +347,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     }
   }
 
-  const arvore = roots.map(buildNode)
+  const arvore = arvoreRoots.map(buildNode)
   const totalGeral = arvore.reduce((s, n) => s + n.total, 0)
 
   function aplicarPercentual(nodes: CadernoNode[]) {
@@ -300,7 +360,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
 
   // ── Curva ABC (Insumos / Serviços) ────────────────────────────────────────────
   const estItemsAbc: EstruturaItemBasico[] = estItems
-    .filter(i => i.tipo === 'item')
+    .filter(i => i.tipo === 'item' && !idsEstimados.has(i.id))
     .map(i => ({ codigo: i.codigo, descricao: i.descricao, unidade: i.unidade, quantidade: i.quantidade, custo_unitario: i.custo_unitario }))
   const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoes.map(c => ({ id: c.id, codigo: c.codigo })), allInsumos)
 
@@ -373,6 +433,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   // ── Lista de Insumos (agrupada por categoria) ────────────────────────────────
   const gruposMap = new Map<string, ListaInsumoItem[]>()
   for (const ins of todosInsumos) {
+    if (compCodesSet.has(ins.codigo)) continue
     const label = classificarLabel(ins.grupo)
     const quantidade = consumoMap.get(ins.codigo) ?? 0
     const arr = gruposMap.get(label) ?? []
@@ -394,10 +455,11 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       items: gruposMap.get(label)!.sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR')),
     }))
 
-  const servicosEstimados: ServicoEstimado[] = (servicosEstimadosRows ?? []).map((s: any) => ({
+  const servicosEstimadosManuais: ServicoEstimado[] = (servicosEstimadosRows ?? []).map((s: any) => ({
     descricao: s.descricao,
     valor: s.valor ?? 0,
   }))
+  const servicosEstimados: ServicoEstimado[] = [...autoServicosEstimados, ...servicosEstimadosManuais]
   const totalServicosEstimados = servicosEstimados.reduce((sum, s) => sum + s.valor, 0)
 
   return {
@@ -405,6 +467,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       nome_obra: orc?.nome_obra ?? '',
       codigo: orc?.codigo ?? null,
       cliente: orc?.cliente ?? null,
+      local: orc?.local ?? null,
       data: orc?.data ?? null,
       bdi_global: orc?.bdi_global ?? 0,
       area_total: orc?.area_total ?? null,

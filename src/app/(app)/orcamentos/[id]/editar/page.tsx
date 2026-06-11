@@ -14,6 +14,7 @@ export default function EditarOrcamentoPage() {
   const [form, setForm] = useState({
     nome_obra: '',
     cliente: '',
+    local: '',
     data: '',
     bdi_global: '',
     area_total: '',
@@ -37,6 +38,7 @@ export default function EditarOrcamentoPage() {
       setForm({
         nome_obra: data.nome_obra,
         cliente: data.cliente ?? '',
+        local: data.local ?? '',
         data: data.data,
         bdi_global: String(data.bdi_global),
         area_total: data.area_total != null ? String(data.area_total) : '',
@@ -86,6 +88,7 @@ export default function EditarOrcamentoPage() {
         .update({
           nome_obra: form.nome_obra.trim(),
           cliente: form.cliente.trim() || null,
+          local: form.local.trim() || null,
           data: form.data,
           bdi_global: bdi,
           area_total: form.area_total ? parseFloat(form.area_total) : null,
@@ -166,6 +169,16 @@ export default function EditarOrcamentoPage() {
             value={form.cliente}
             onChange={(e) => update('cliente', e.target.value)}
             placeholder="Ex: João Silva"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">Local</label>
+          <input
+            value={form.local}
+            onChange={(e) => update('local', e.target.value)}
+            placeholder="Ex: Conceição do Pará - MG"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
         </div>

@@ -12,7 +12,7 @@ export default async function PlanilhaPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  const [{ data }, { data: orc }] = await Promise.all([
+  const [{ data }, { data: orc }, { data: config }] = await Promise.all([
     sb.from('orcamento_estrutura')
       .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
       .eq('orcamento_id', orcamentoId)
@@ -22,10 +22,15 @@ export default async function PlanilhaPage({
       .select('nome_obra, codigo, cliente, data, bdi_global')
       .eq('id', orcamentoId)
       .single(),
+    sb.from('tabela_orcamentos')
+      .select('numeracao_digitos')
+      .eq('id', orcamentoId)
+      .single(),
   ])
 
   const items: EstruturaItem[] = data ?? []
   const nomeOrcamento: string = orc ? `${orc.codigo} - ${orc.nome_obra}` : orcamentoId
+  const numeracaoDigitos: number[] = config?.numeracao_digitos ?? [1, 1, 1, 1]
 
   return (
     <div className="space-y-4">
@@ -48,6 +53,7 @@ export default async function PlanilhaPage({
         bdiGlobal={orc?.bdi_global ?? 0}
         cliente={orc?.cliente ?? null}
         dataOrcamento={orc?.data ?? null}
+        numeracaoDigitos={numeracaoDigitos}
       />
     </div>
   )

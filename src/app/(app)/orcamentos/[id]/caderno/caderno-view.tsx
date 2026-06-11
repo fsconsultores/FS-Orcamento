@@ -30,8 +30,12 @@ export function CadernoView({ data }: { data: CadernoData }) {
 
   const itensAnalitica = data.planilhaAnalitica.filter(r => r.tipo === 'item').length
 
+  const { area_total, area_coberta, area_equivalente } = data.orcamento
+  const temArea = area_total != null || area_coberta != null || area_equivalente != null
+
   const sections = [
-    { title: 'Resumo Geral do Orçamento', desc: `Detalhamento dos custos por grupo (Total Geral: ${fmt(data.totalGeral + data.totalServicosEstimados)})`, ok: data.arvore.length > 0 },
+    { title: 'Resumo Geral do Orçamento', desc: `Total Orçado (A): ${fmt(data.totalGeral)} • Serviços Estimados (B): ${fmt(data.totalServicosEstimados)} • Total Geral (A+B): ${fmt(data.totalGeral + data.totalServicosEstimados)}`, ok: data.arvore.length > 0 },
+    { title: 'Custo / m²', desc: temArea ? 'Áreas e indicadores de custo por m² cadastrados' : 'Nenhuma área cadastrada para o orçamento', ok: temArea },
     { title: 'Planilha de Preços Unitários', desc: `${itens} item(ns) na planilha orçamentária`, ok: itens > 0 },
     { title: 'Curva ABC — Insumos', desc: `${data.abcInsumos.length} insumo(s) classificado(s)`, ok: data.abcInsumos.length > 0 },
     { title: 'Curva ABC — Serviços', desc: `${data.abcServicos.length} serviço(s) classificado(s)`, ok: data.abcServicos.length > 0 },
@@ -51,9 +55,11 @@ export function CadernoView({ data }: { data: CadernoData }) {
           <p className="text-xs text-gray-500 mt-0.5">
             {[data.orcamento.codigo, data.orcamento.cliente].filter(Boolean).join(' • ') || '—'}
           </p>
-          <p className="text-sm text-gray-700 mt-2">
-            Total Geral: <span className="font-semibold">{fmt(data.totalGeral)}</span>
-          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-gray-700">
+            <p>Total Orçado (A): <span className="font-semibold">{fmt(data.totalGeral)}</span></p>
+            <p>Serviços Estimados (B): <span className="font-semibold">{fmt(data.totalServicosEstimados)}</span></p>
+            <p>Total Geral (A+B): <span className="font-semibold">{fmt(data.totalGeral + data.totalServicosEstimados)}</span></p>
+          </div>
         </div>
         <button
           onClick={handleExport}

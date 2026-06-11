@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTransition, useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -619,37 +618,29 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                 return (
                   <tr
                     key={orc.id}
+                    onClick={() => {
+                      if (isPending || isDeleting) return;
+                      router.push(`/orcamentos/${orc.id}/planilha`);
+                    }}
                     className={`transition-all ${isPending ? 'opacity-60 animate-pulse pointer-events-none bg-blue-50' : 'cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6]'} ${isDeleting ? 'opacity-40' : ''}`}
                   >
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.codigo}
-                      </Link>
+                      {orc.codigo}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.nome_obra}
-                      </Link>
+                      {orc.nome_obra}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.cliente ?? '—'}
-                      </Link>
+                      {orc.cliente ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-center text-gray-700">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.bdi_global}%
-                      </Link>
+                      {orc.bdi_global}%
                     </td>
                     <td className="px-4 py-3 text-center text-gray-600">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {orc.tabela_itens_orcamento.length}
-                      </Link>
+                      {orc.tabela_itens_orcamento.length}
                     </td>
                     <td className="px-4 py-3 text-gray-500">
-                      <Link href={`/orcamentos/${orc.id}/planilha`} className="block w-full h-full">
-                        {formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}
-                      </Link>
+                      {formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}
                     </td>
                     <td className="px-4 py-3">
                       {isPending ? (

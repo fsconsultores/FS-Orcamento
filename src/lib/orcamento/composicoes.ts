@@ -86,6 +86,48 @@ export async function getComposicoesByOrcamento(
   return composicoes.map((c) => ({ ...c, custo_unitario: custoMapFinal[c.id] ?? 0 }))
 }
 
+/**
+ * Recalcula o custo_unitario das composições do orçamento e propaga o resultado
+ * para os itens da planilha (orcamento_estrutura) com o mesmo código.
+ * Deve ser chamado após alterar o custo de um insumo.
+ */
+export async function sincronizarCustosPlanilha(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<void> {
+  const composicoes = await getComposicoesByOrcamento(supabase, orcamentoId)
+  if (composicoes.length === 0) return
+
+  const custoPorCodigo = new Map(composicoes.map((c) => [c.codigo, c.custo_unitario]))
+
+  const { data: itens } = await supabase
+    .from('orcamento_estrutura')
+    .select('id, codigo, custo_unitario')
+    .eq('orcamento_id', orcamentoId)
+    .eq('tipo', 'item')
+    .not('codigo', 'is', null)
+
+  const updates = ((itens ?? []) as { id: string; codigo: string; custo_unitario: number | null }[])
+    .filter((item) => custoPorCodigo.has(item.codigo) && custoPorCodigo.get(item.codigo) !== item.custo_unitario)
+    .map((item) => ({ id: item.id, custo_unitario: custoPorCodigo.get(item.codigo)! }))
+
+  if (updates.length === 0) return
+
+  // Atualiza item a item: upsert exigiria todas as colunas NOT NULL e violaria as
+  // políticas de RLS de INSERT (que verificam orcamento_id, ausente neste payload).
+  const BATCH = 10
+  for (let i = 0; i < updates.length; i += BATCH) {
+    const lote = updates.slice(i, i + BATCH)
+    const resultados = await Promise.all(
+      lote.map((u) =>
+        supabase.from('orcamento_estrutura').update({ custo_unitario: u.custo_unitario }).eq('id', u.id)
+      )
+    )
+    const falha = resultados.find((r) => r.error)
+    if (falha?.error) throw new Error(`Erro ao sincronizar custos da planilha: ${falha.error.message}`)
+  }
+}
+
 export async function createComposicao(
   supabase: SupabaseClient,
   orcamentoId: string,

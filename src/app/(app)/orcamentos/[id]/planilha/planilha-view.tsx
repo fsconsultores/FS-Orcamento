@@ -84,11 +84,13 @@ function calcTotais(nodo: Nodo, bdiGlobal: number): number {
   return nodo.total
 }
 
-function atribuirNumeros(nodes: Nodo[], prefix = '') {
+function atribuirNumeros(nodes: Nodo[], digitos: number[], prefix = '', nivel = 1) {
   nodes.sort((a, b) => a.ordem - b.ordem)
+  const width = digitos[nivel - 1] ?? digitos[digitos.length - 1] ?? 1
   nodes.forEach((node, i) => {
-    node.numero = prefix ? `${prefix}.${i + 1}` : String(i + 1)
-    atribuirNumeros(node.filhos, node.numero)
+    const seq = String(i + 1).padStart(width, '0')
+    node.numero = prefix ? `${prefix}.${seq}` : seq
+    atribuirNumeros(node.filhos, digitos, node.numero, nivel + 1)
   })
 }
 
@@ -335,13 +337,14 @@ function fieldToStr(it: EstruturaItem, field: string): string {
 
 // ─── View principal ───────────────────────────────────────────────────────────
 
-export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento }: {
+export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1] }: {
   initialItems: EstruturaItem[]
   orcamentoId: string
   nomeOrcamento?: string
   bdiGlobal?: number
   cliente?: string | null
   dataOrcamento?: string | null
+  numeracaoDigitos?: number[]
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
 
@@ -379,20 +382,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   // Rebuild tree — memoizado para não recalcular em cada keystroke/estado de UI
   const { tree, flat, grandTotal, grandTotalComBdi } = useMemo(() => {
     const t = buildTree(items)
-    atribuirNumeros(t)
+    atribuirNumeros(t, numeracaoDigitos)
     for (const n of t) calcTotais(n, bdiGlobal)
     const gTotal = t.reduce((s, n) => s + n.total, 0)
     const gTotalBdi = t.reduce((s, n) => s + n.totalComBdi, 0)
     const f = flattenTree(t)
     return { tree: t, flat: f, grandTotal: gTotal, grandTotalComBdi: gTotalBdi }
-  }, [items, bdiGlobal])
+  }, [items, bdiGlobal, numeracaoDigitos])
 
   // Persiste números no DB com debounce após mudanças estruturais
   function agendarSincronizacaoComItems(nextItems: EstruturaItem[]) {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
     syncTimerRef.current = setTimeout(() => {
       const t = buildTree(nextItems)
-      atribuirNumeros(t)
+      atribuirNumeros(t, numeracaoDigitos)
       salvarNumeros(orcamentoId, coletarNumeros(t))
     }, 1500)
   }
@@ -731,6 +734,47 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           result.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0 })
         }
       }
+
+      // Fallback: itens importados em modo sintética não possuem composição
+      // própria no orçamento — busca a composição analítica na base global.
+      const codigosFaltantes = [...new Set(
+        items
+          .filter(i => i.tipo === 'item' && i.codigo && !result.has(i.codigo))
+          .map(i => i.codigo as string)
+      )]
+      if (codigosFaltantes.length > 0) {
+        const { data: composicoesBase, error: compBaseError } = await sb
+          .from('tabela_composicoes')
+          .select('id, codigo')
+          .in('codigo', codigosFaltantes)
+          .abortSignal(ac.signal)
+        if (compBaseError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : compBaseError
+        const idToCodigoBase = new Map<string, string>()
+        for (const c of composicoesBase ?? []) idToCodigoBase.set(c.id, c.codigo)
+        const compIdsBase = (composicoesBase ?? []).map((c: any) => c.id)
+        if (compIdsBase.length > 0) {
+          const { data: itensBase, error: itensBaseError } = await sb
+            .from('tabela_itens_composicao')
+            .select('composicao_id, indice, tabela_insumos(codigo, descricao, unidade, preco_base)')
+            .in('composicao_id', compIdsBase)
+            .abortSignal(ac.signal)
+          if (itensBaseError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : itensBaseError
+          for (const it of itensBase ?? []) {
+            const cod = idToCodigoBase.get(it.composicao_id)
+            const insumo = it.tabela_insumos
+            if (!cod || !insumo) continue
+            if (!result.has(cod)) result.set(cod, [])
+            result.get(cod)!.push({
+              codigo: insumo.codigo ?? '',
+              descricao: insumo.descricao ?? '',
+              unidade: insumo.unidade ?? null,
+              custo: insumo.preco_base ?? 0,
+              indice: it.indice ?? 0,
+            })
+          }
+        }
+      }
+
       return result
     } finally {
       clearTimeout(timer)

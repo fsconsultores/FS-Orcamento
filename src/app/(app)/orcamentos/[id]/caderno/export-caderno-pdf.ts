@@ -222,6 +222,81 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
   drawDonutLegend(doc, segments, legendX, cy - outerR + lineH, lineH, 6, colW, maxRowsPerCol)
 }
 
+// ─── Seção: Custo / m² ────────────────────────────────────────────────────────
+
+async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
+  const { autoTable } = await import('jspdf-autotable')
+
+  doc.addPage()
+  addSectionBanner(doc, margin, contentW, numero, 'CUSTO / M²', subtitle)
+
+  const { nome_obra, cliente, local, area_total, area_coberta, area_equivalente } = data.orcamento
+  const A = data.totalGeral
+  const B = data.totalServicosEstimados
+  const C = A + B
+
+  // ── Identificação (Cliente / Obra / Local) ────────────────────────────────
+  let y = margin + 16 + 8
+  const infoLines: [string, string][] = [
+    ['CLIENTE', cliente || '—'],
+    ['OBRA', nome_obra || '—'],
+  ]
+  if (local) infoLines.push(['LOCAL', local])
+  doc.setFontSize(9)
+  for (const [label, value] of infoLines) {
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor('#374151')
+    doc.text(`${label}:`, margin, y)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor('#1f2937')
+    doc.text(value, margin + 22, y)
+    y += 6
+  }
+
+  // ── Tabela de áreas ─────────────────────────────────────────────────────────
+  y += 4
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    head: [['PAVIMENTO', 'UN', 'ÁREA TOTAL', 'ÁREA EQUIVALENTE', 'ÁREAS COBERTAS']],
+    body: [[
+      'ÁREA TOTAL:',
+      'M²',
+      area_total != null ? fmtQtd(area_total) : '—',
+      area_equivalente != null ? fmtQtd(area_equivalente) : '—',
+      area_coberta != null ? fmtQtd(area_coberta) : '—',
+    ]],
+    styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', halign: 'right', lineColor: '#cbd5e1', lineWidth: 0.1 },
+    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
+    bodyStyles: { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
+    columnStyles: {
+      0: { halign: 'left' },
+      1: { halign: 'center' },
+    },
+  })
+
+  // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
+  y = doc.lastAutoTable.finalY + 6
+
+  // ── Faixas: custo total e custo/m² ────────────────────────────────────────
+  const rowH = 11
+  function row(label: string, value: string, bg: string) {
+    doc.setFillColor(bg)
+    doc.rect(margin, y, contentW, rowH, 'F')
+    doc.setTextColor('#ffffff')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text(label, margin + 4, y + rowH / 2 + 1.5)
+    doc.text(value, margin + contentW - 4, y + rowH / 2 + 1.5, { align: 'right' })
+    y += rowH + 2
+  }
+
+  row('CUSTO TOTAL DO ORÇAMENTO', fmt(C), PDF_COLORS.bannerBg)
+  row('CUSTO / M² (ÁREA TOTAL)', area_total ? fmt(C / area_total) : '—', PDF_COLORS.totalBg)
+  row('CUSTO / M² (ÁREA EQUIVALENTE)', area_equivalente ? fmt(C / area_equivalente) : '—', PDF_COLORS.totalBg)
+  row('CUSTO / M² (ÁREAS COBERTAS)', area_coberta ? fmt(C / area_coberta) : '—', PDF_COLORS.totalBg)
+}
+
 // ─── Seção: Planilha de Preços Unitários ─────────────────────────────────────
 
 function flattenArvore(nodes: CadernoNode[], depth = 0, out: { node: CadernoNode; depth: number }[] = []) {
@@ -504,31 +579,35 @@ export async function exportCadernoPdf(data: CadernoData) {
   divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
   await drawResumoGeralSection(doc, data, margin, contentW, subtitle, '3.0')
 
-  // 4.0 Planilha de Preços Unitários
-  divider('4.0', 'PLANILHA DE PREÇOS UNITÁRIOS', 'Planilha de Orçamento')
-  await drawPlanilhaPrecosSection(doc, data, margin, contentW, subtitle, '4.0')
+  // 4.0 Custo / m²
+  divider('4.0', 'CUSTO / M²', 'Áreas e Indicadores de Custo')
+  await drawCustoM2Section(doc, data, margin, contentW, subtitle, '4.0')
 
-  // 5.0 Curva ABC Insumos
-  divider('5.0', 'CURVA ABC INSUMOS')
-  await drawAbcSection(doc, data.abcInsumos, '5.0', 'CURVA ABC INSUMOS', margin, contentW, subtitle)
+  // 5.0 Planilha de Preços Unitários
+  divider('5.0', 'PLANILHA DE PREÇOS UNITÁRIOS', 'Planilha de Orçamento')
+  await drawPlanilhaPrecosSection(doc, data, margin, contentW, subtitle, '5.0')
 
-  // 6.0 Curva ABC de Serviços
-  divider('6.0', 'CURVA ABC DE SERVIÇOS')
-  await drawAbcSection(doc, data.abcServicos, '6.0', 'CURVA ABC DE SERVIÇOS', margin, contentW, subtitle)
+  // 6.0 Curva ABC Insumos
+  divider('6.0', 'CURVA ABC INSUMOS')
+  await drawAbcSection(doc, data.abcInsumos, '6.0', 'CURVA ABC INSUMOS', margin, contentW, subtitle)
 
-  // 7.0 Planilha Analítica de Preços Unitários
-  divider('7.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
-  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, subtitle, '7.0')
+  // 7.0 Curva ABC de Serviços
+  divider('7.0', 'CURVA ABC DE SERVIÇOS')
+  await drawAbcSection(doc, data.abcServicos, '7.0', 'CURVA ABC DE SERVIÇOS', margin, contentW, subtitle)
 
-  // 8.0 Lista de Insumos
-  divider('8.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')
-  await drawListaInsumosSection(doc, data, margin, contentW, pageH, subtitle, '8.0')
+  // 8.0 Planilha Analítica de Preços Unitários
+  divider('8.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
+  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, subtitle, '8.0')
 
-  // 9.0 Anexos (placeholder)
-  divider('9.0', 'ANEXOS', SEM_DADOS)
+  // 9.0 Lista de Insumos
+  divider('9.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')
+  await drawListaInsumosSection(doc, data, margin, contentW, pageH, subtitle, '9.0')
 
-  // 10.0 Cotações (placeholder)
-  divider('10.0', 'COTAÇÕES', SEM_DADOS)
+  // 10.0 Anexos (placeholder)
+  divider('10.0', 'ANEXOS', SEM_DADOS)
+
+  // 11.0 Cotações (placeholder)
+  divider('11.0', 'COTAÇÕES', SEM_DADOS)
 
   // ── Rodapé com numeração de página (a partir da capa) ───────────────────────
   const pageCount = doc.getNumberOfPages()
