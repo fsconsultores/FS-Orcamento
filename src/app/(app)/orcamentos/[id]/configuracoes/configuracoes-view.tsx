@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { salvarConfiguracoes } from './configuracoes-action'
+import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, sugerirCategoria } from '@/lib/orcamento/categorias-grafico'
 
 const MIN_NIVEIS = 1
 const MAX_NIVEIS = 6
@@ -56,6 +57,7 @@ interface ServicoEstimadoForm {
 export function ConfiguracoesView({
   orcamentoId, nomeObra, codigo, cliente, local, dataOrcamento, bdiGlobal,
   areaTotal, areaCoberta, areaEquivalente, numeracaoDigitos, servicosEstimados,
+  gruposNivel1, categoriasGrafico,
 }: {
   orcamentoId: string
   nomeObra: string
@@ -69,6 +71,8 @@ export function ConfiguracoesView({
   areaEquivalente: number | null
   numeracaoDigitos: number[]
   servicosEstimados: { id?: string; descricao: string; valor: number }[]
+  gruposNivel1: { numero: string; descricao: string }[]
+  categoriasGrafico: Record<string, string>
 }) {
   const [form, setForm] = useState({
     nome_obra: nomeObra,
@@ -85,6 +89,11 @@ export function ConfiguracoesView({
     servicosEstimados.map(s => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
   )
   const [digitos, setDigitos] = useState<number[]>(numeracaoDigitos.length > 0 ? numeracaoDigitos : [1, 1, 1, 1])
+  const [categorias, setCategorias] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    for (const g of gruposNivel1) map[g.numero] = categoriasGrafico[g.numero] || sugerirCategoria(g.descricao)
+    return map
+  })
 
   const [isPending, startTransition] = useTransition()
   const [salvo, setSalvo] = useState(false)
@@ -124,6 +133,11 @@ export function ConfiguracoesView({
     setSalvo(false)
   }
 
+  function setCategoria(numero: string, categoria: string) {
+    setCategorias(prev => ({ ...prev, [numero]: categoria }))
+    setSalvo(false)
+  }
+
   const exemploNumeracao = digitos.map((d, i) => String(i + 1).padStart(d, '0')).join('.')
 
   function handleSalvar() {
@@ -150,6 +164,7 @@ export function ConfiguracoesView({
           area_equivalente: form.area_equivalente ? parseFloat(form.area_equivalente.replace(',', '.')) : null,
           numeracao_digitos: digitos,
           servicos_estimados: servicosValidos,
+          categorias_grafico: categorias,
         })
         setSalvo(true)
       } catch (err) {
@@ -289,6 +304,38 @@ export function ConfiguracoesView({
             </div>
           ))}
         </div>
+      </AccordionSection>
+
+      <AccordionSection title="Distribuição de Custos (Gráfico)">
+        <div>
+          <p className="text-xs text-gray-500">
+            Define em qual categoria do gráfico &quot;Distribuição dos Custos (A)&quot; do Caderno de Orçamento
+            cada grupo de nível 1 da planilha entra. Grupos não ajustados usam uma sugestão automática.
+          </p>
+        </div>
+
+        {gruposNivel1.length === 0 ? (
+          <p className="text-xs text-gray-400">Nenhum grupo de nível 1 cadastrado na planilha.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+            {gruposNivel1.map(g => (
+              <div key={g.numero} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 font-mono text-xs text-gray-400">{g.numero}</span>
+                <span className="flex-1 text-sm text-gray-700 truncate" title={g.descricao}>{g.descricao}</span>
+                <select
+                  value={categorias[g.numero] ?? CATEGORIA_OUTROS}
+                  onChange={e => setCategoria(g.numero, e.target.value)}
+                  className="w-64 shrink-0 rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                >
+                  {CATEGORIAS_DISTRIBUICAO_CUSTOS.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                  <option value={CATEGORIA_OUTROS}>{CATEGORIA_OUTROS}</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
       </AccordionSection>
 
       {erro && <p className="text-sm text-red-600">{erro}</p>}

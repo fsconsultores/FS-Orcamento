@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { computeAbcCurves, type AbcItem, type EstruturaItemBasico, type InsumoComposicaoBasico } from '../curva-abc'
+import { computeAbcCurves, type AbcItem, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '../curva-abc'
 import { getInsumosByOrcamento } from './insumos'
 import { getComposicoesByOrcamento } from './composicoes'
+import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,14 @@ export interface ServicoEstimado {
   valor: number
 }
 
+export interface DistribuicaoCustoItem {
+  numero: string
+  label: string
+  value: number
+  percentual: number
+  color: string
+}
+
 export interface CadernoData {
   orcamento: {
     nome_obra: string
@@ -75,6 +84,7 @@ export interface CadernoData {
   abcServicos: AbcItem[]
   planilhaAnalitica: PlanilhaAnaliticaRow[]
   listaInsumos: ListaInsumoGrupo[]
+  distribuicaoCustos: DistribuicaoCustoItem[]
 }
 
 interface EstruturaFullItem {
@@ -120,7 +130,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
 
   const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, todosInsumos] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente')
+      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
       .eq('id', orcamentoId)
       .single(),
     sb.from('orcamento_estrutura')
@@ -358,11 +368,48 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   }
   aplicarPercentual(arvore)
 
+  // ── Distribuição dos Custos (A) — agrupamento em categorias fixas ───────────
+  // Cada grupo de nível 1 é mapeado para uma das categorias fixas do gráfico de
+  // rosca (configurável em Configurações, com sugestão automática por palavras-
+  // chave como padrão), e os totais são somados por categoria.
+  const categoriasMap: Record<string, string> = orc?.categorias_grafico ?? {}
+  const totalPorCategoria = new Map<string, number>()
+  for (const n of arvore) {
+    if (n.total <= 0) continue
+    const categoria = categoriasMap[n.numero] || sugerirCategoria(n.descricao)
+    totalPorCategoria.set(categoria, (totalPorCategoria.get(categoria) ?? 0) + n.total)
+  }
+  const distribuicaoCustos: DistribuicaoCustoItem[] = []
+  CATEGORIAS_DISTRIBUICAO_CUSTOS.forEach((categoria, i) => {
+    const value = totalPorCategoria.get(categoria) ?? 0
+    if (value <= 0) return
+    distribuicaoCustos.push({
+      numero: String(i + 1).padStart(2, '0'),
+      label: categoria,
+      value,
+      percentual: totalGeral > 0 ? (value / totalGeral) * 100 : 0,
+      color: CORES_DISTRIBUICAO_CUSTOS[categoria],
+    })
+  })
+  const totalOutros = totalPorCategoria.get(CATEGORIA_OUTROS) ?? 0
+  if (totalOutros > 0) {
+    distribuicaoCustos.push({
+      numero: '',
+      label: CATEGORIA_OUTROS,
+      value: totalOutros,
+      percentual: totalGeral > 0 ? (totalOutros / totalGeral) * 100 : 0,
+      color: CORES_DISTRIBUICAO_CUSTOS[CATEGORIA_OUTROS],
+    })
+  }
+
   // ── Curva ABC (Insumos / Serviços) ────────────────────────────────────────────
   const estItemsAbc: EstruturaItemBasico[] = estItems
     .filter(i => i.tipo === 'item' && !idsEstimados.has(i.id))
     .map(i => ({ codigo: i.codigo, descricao: i.descricao, unidade: i.unidade, quantidade: i.quantidade, custo_unitario: i.custo_unitario }))
-  const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoes.map(c => ({ id: c.id, codigo: c.codigo })), allInsumos)
+  const insumosAvulsos: InsumoAvulsoBasico[] = todosInsumos
+    .filter(ins => ins.composicao_id === null)
+    .map(ins => ({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', custo: ins.custo ?? 0 }))
+  const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoes.map(c => ({ id: c.id, codigo: c.codigo, descricao: c.descricao })), allInsumos, insumosAvulsos)
 
   // ── Planilha Analítica ────────────────────────────────────────────────────────
   // Segue a ordem da Planilha de Orçamento (grupos e itens), intercalando, para
@@ -452,7 +499,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     .filter(label => gruposMap.has(label))
     .map(label => ({
       label,
-      items: gruposMap.get(label)!.sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR')),
+      items: gruposMap.get(label)!.sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')),
     }))
 
   const servicosEstimadosManuais: ServicoEstimado[] = (servicosEstimadosRows ?? []).map((s: any) => ({
@@ -482,5 +529,6 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     abcServicos,
     planilhaAnalitica,
     listaInsumos,
+    distribuicaoCustos,
   }
 }

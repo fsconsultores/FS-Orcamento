@@ -66,6 +66,7 @@ export interface EstruturaItemBasico {
 export interface ComposicaoBasica {
   id: string
   codigo: string
+  descricao: string
 }
 
 export interface InsumoComposicaoBasico {
@@ -78,6 +79,12 @@ export interface InsumoComposicaoBasico {
   grupo: string | null
 }
 
+export interface InsumoAvulsoBasico {
+  codigo: string
+  descricao: string
+  custo: number
+}
+
 /**
  * Divide os itens da planilha em "Serviços" (itens cujo código é uma composição
  * com sub-insumos cadastrados) e "Insumos" (itens diretos + sub-insumos das
@@ -88,12 +95,15 @@ export function computeAbcCurves(
   estItems: EstruturaItemBasico[],
   composicoes: ComposicaoBasica[],
   allInsumos: InsumoComposicaoBasico[],
+  insumosAvulsos: InsumoAvulsoBasico[] = [],
 ): { abcServicos: AbcItem[]; abcInsumos: AbcItem[] } {
   const compIdToCode = new Map<string, string>()
   const compCodesSet = new Set<string>()
+  const compIdToDescricao = new Map<string, string>()
   for (const c of composicoes) {
     compIdToCode.set(c.id, c.codigo)
     compCodesSet.add(c.codigo)
+    compIdToDescricao.set(c.id, c.descricao)
   }
 
   // Split: serviço = item cujo código é uma composição; insumo direto = todo o resto
@@ -132,19 +142,82 @@ export function computeAbcCurves(
     }
   }
 
+  // Propaga quantidades por composições aninhadas: quando uma composição usada
+  // na planilha (qtyComp > 0) tem, entre seus sub-itens, o código de OUTRA
+  // composição (sub-composição), a quantidade efetiva desta também deve
+  // considerar essa demanda (qtyComp_pai × índice), e assim recursivamente.
+  const compChildren = new Map<string, { childCodigo: string; indice: number }[]>()
+  for (const ins of allInsumos) {
+    if (!ins.composicao_id || !compCodesSet.has(ins.codigo)) continue
+    const parentCodigo = compIdToCode.get(ins.composicao_id)
+    if (!parentCodigo) continue
+    const children = compChildren.get(parentCodigo) ?? []
+    children.push({ childCodigo: ins.codigo, indice: ins.indice })
+    compChildren.set(parentCodigo, children)
+  }
+  const propagacaoQueue: [string, number][] = []
+  for (const [codigo, qty] of compQtyByCode.entries()) {
+    if (qty > 0) propagacaoQueue.push([codigo, qty])
+  }
+  let propagacaoIter = 0
+  while (propagacaoQueue.length > 0 && propagacaoIter < 100000) {
+    propagacaoIter++
+    const [codigo, qty] = propagacaoQueue.shift()!
+    for (const { childCodigo, indice } of compChildren.get(codigo) ?? []) {
+      if (childCodigo === codigo) continue
+      const addQty = qty * indice
+      if (addQty === 0) continue
+      compQtyByCode.set(childCodigo, (compQtyByCode.get(childCodigo) ?? 0) + addQty)
+      propagacaoQueue.push([childCodigo, addQty])
+    }
+  }
+
+  // Fallback: quando o código da composição não corresponde a nenhum item da
+  // planilha (qtyComp === 0), procura um item direto cuja descrição coincida
+  // (ou seja prefixo) com a descrição da composição — caso de itens cujo
+  // código foi reatribuído na planilha mas a composição manteve o código original.
+  const normDesc = (s: string) => s.toUpperCase().replace(/\s+/g, ' ').trim()
+  for (const c of composicoes) {
+    if ((compQtyByCode.get(c.codigo) ?? 0) !== 0) continue
+    const compDescNorm = normDesc(c.descricao)
+    if (!compDescNorm) continue
+    const matches = directInsumoItems.filter(item => {
+      const itemDescNorm = normDesc(item.descricao)
+      return itemDescNorm.length > 0 && (itemDescNorm.startsWith(compDescNorm) || compDescNorm.startsWith(itemDescNorm))
+    })
+    if (matches.length === 1) {
+      const m = matches[0]
+      compQtyByCode.set(c.codigo, m.quantidade ?? 0)
+      compMap.set(c.codigo, { descricao: m.descricao, unidade: m.unidade, quantidade: m.quantidade ?? 0, custo_unitario: m.custo_unitario ?? 0 })
+    }
+  }
+
+  // Custo efetivo por código: o orçamento mantém uma "tabela de preços" nos
+  // insumos avulsos (composicao_id null); quando existe um avulso para o código,
+  // seu custo prevalece sobre o custo (possivelmente zerado) gravado na linha do
+  // sub-insumo da composição — mesmo critério usado em getComposicoesByOrcamento.
+  const precoMap = new Map<string, number>()
+  for (const av of insumosAvulsos) precoMap.set(av.codigo, av.custo)
+
   type InsumoAccum = { descricao: string; unidade: string | null; custo_unitario: number; quantidade: number }
   const insumoMap = new Map<string, InsumoAccum>()
 
   for (const ins of allInsumos) {
-    // Exclui sub-composições (código de composição) e grupos de serviço (S, SER…)
+    // Exclui sub-composições (código de composição), para evitar dupla contagem
     if (compCodesSet.has(ins.codigo)) continue
-    const g = (ins.grupo ?? '').trim().toUpperCase()
-    if (g && (g === 'S' || g.startsWith('SER') || g.startsWith('SERVIC'))) continue
 
     const compCodigo = compIdToCode.get(ins.composicao_id)
     if (!compCodigo) continue
     const qtyComp = compQtyByCode.get(compCodigo) ?? 0
     if (qtyComp === 0) continue
+
+    // Quando a descrição do sub-insumo é apenas uma cópia do rótulo (curto/
+    // desatualizado) da própria composição, usamos a descrição do item da
+    // planilha (mais completa/atual) no lugar.
+    const descricaoEhCopiaDaComposicao = ins.descricao === compIdToDescricao.get(ins.composicao_id)
+    const descricao = descricaoEhCopiaDaComposicao ? (compMap.get(compCodigo)?.descricao ?? ins.descricao) : ins.descricao
+
+    const custoEfetivo = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : ins.custo
 
     const qtdUsada = ins.indice * qtyComp
     const existing = insumoMap.get(ins.codigo)
@@ -152,17 +225,29 @@ export function computeAbcCurves(
       existing.quantidade += qtdUsada
     } else {
       insumoMap.set(ins.codigo, {
-        descricao: ins.descricao,
+        descricao,
         unidade: ins.unidade,
-        custo_unitario: ins.custo,
+        custo_unitario: custoEfetivo,
         quantidade: qtdUsada,
       })
     }
   }
 
+  // Itens diretos da planilha cujo código não é "I" (ex: CZxxxx) podem ter um
+  // insumo avulso "I...." correspondente (mesma descrição) — usamos o código
+  // dele para que o item seja reconhecido como insumo real.
+  const avulsoCodigoByDescricao = new Map<string, string>()
+  for (const av of insumosAvulsos) {
+    if (av.codigo.toUpperCase().startsWith('I')) avulsoCodigoByDescricao.set(av.descricao, av.codigo)
+  }
+
   // Insumos diretos da planilha (itens sem composição com sub-insumos)
   for (const item of directInsumoItems) {
-    const key = item.codigo ?? `__nocode__${item.descricao}`
+    let key = item.codigo ?? `__nocode__${item.descricao}`
+    if (!item.codigo || !item.codigo.toUpperCase().startsWith('I')) {
+      const avulsoCodigo = avulsoCodigoByDescricao.get(item.descricao)
+      if (avulsoCodigo) key = avulsoCodigo
+    }
     const qty = item.quantidade ?? 0
     const custo = item.custo_unitario ?? 0
     const existing = insumoMap.get(key)
@@ -178,14 +263,17 @@ export function computeAbcCurves(
     }
   }
 
+  // Curva ABC de Insumos considera apenas códigos reais de insumos (prefixo "I")
   const abcInsumos = calcularCurvaAbc(
-    Array.from(insumoMap.entries()).map(([k, d]) => ({
-      codigo: k.startsWith('__nocode__') ? null : k,
-      descricao: d.descricao,
-      unidade: d.unidade,
-      quantidade: d.quantidade,
-      custo_unitario: d.custo_unitario,
-    }))
+    Array.from(insumoMap.entries())
+      .filter(([k]) => k.toUpperCase().startsWith('I'))
+      .map(([k, d]) => ({
+        codigo: k,
+        descricao: d.descricao,
+        unidade: d.unidade,
+        quantidade: d.quantidade,
+        custo_unitario: d.custo_unitario,
+      }))
   )
 
   return { abcServicos, abcInsumos }

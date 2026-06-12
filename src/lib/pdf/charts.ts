@@ -1,14 +1,6 @@
 import type { jsPDF } from 'jspdf'
 import { PDF_COLORS } from './abc-section'
 
-// ─── Paleta para gráfico de rosca ────────────────────────────────────────────
-
-export const DONUT_PALETTE = [
-  '#1f4e79', '#c55a11', '#548235', '#7c4180', '#bf8f00',
-  '#2e75b6', '#943634', '#70ad47', '#264478', '#9e480e',
-  '#636363', '#a5a5a5', '#ffc000', '#5b9bd5', '#ed7d31', '#375623',
-]
-
 export interface DonutSegment {
   label: string
   value: number

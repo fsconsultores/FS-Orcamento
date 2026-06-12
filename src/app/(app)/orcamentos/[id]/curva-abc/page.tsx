@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { computeAbcCurves, type EstruturaItemBasico, type InsumoComposicaoBasico } from '@/lib/curva-abc'
+import { computeAbcCurves, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
 
 export default async function CurvaAbcPage({
@@ -22,7 +22,7 @@ export default async function CurvaAbcPage({
       .eq('orcamento_id', orcamentoId)
       .eq('tipo', 'item'),
     sb.from('orcamento_composicoes')
-      .select('id, codigo')
+      .select('id, codigo, descricao')
       .eq('orcamento_id', orcamentoId),
   ])
 
@@ -47,7 +47,27 @@ export default async function CurvaAbcPage({
     }
   }
 
-  const { abcServicos, abcInsumos } = computeAbcCurves(estItems, composicoes ?? [], allInsumos)
+  // 3. Insumos avulsos (composicao_id null) — usados para mapear itens diretos
+  // da planilha com código não-"I" para o código "I" real correspondente
+  const insumosAvulsos: InsumoAvulsoBasico[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data } = await sb
+        .from('orcamento_insumos')
+        .select('codigo, descricao, custo')
+        .eq('orcamento_id', orcamentoId)
+        .is('composicao_id', null)
+        .range(start, start + BATCH - 1)
+      if (!data || data.length === 0) break
+      insumosAvulsos.push(...data)
+      if (data.length < BATCH) break
+      start += BATCH
+    }
+  }
+
+  const { abcServicos, abcInsumos } = computeAbcCurves(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
 
   return (
     <div className="space-y-4">

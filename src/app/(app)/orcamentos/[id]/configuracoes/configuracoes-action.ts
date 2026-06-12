@@ -16,6 +16,7 @@ export interface ConfigOrcamentoInput {
   area_equivalente: number | null
   numeracao_digitos: number[]
   servicos_estimados: { descricao: string; valor: number }[]
+  categorias_grafico: Record<string, string>
 }
 
 export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrcamentoInput): Promise<void> {
@@ -34,6 +35,7 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
       area_total: input.area_total,
       area_coberta: input.area_coberta,
       area_equivalente: input.area_equivalente,
+      categorias_grafico: input.categorias_grafico,
     })
     .eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao salvar dados do orçamento: ${error.message}`)

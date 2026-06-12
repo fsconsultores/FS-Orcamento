@@ -14,7 +14,6 @@ import {
   abcRowTextColor,
 } from '@/lib/pdf/abc-section'
 import {
-  DONUT_PALETTE,
   KPI_STYLE_NEUTRAL,
   KPI_STYLE_PRIMARY,
   drawDonutChart,
@@ -200,13 +199,11 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
   doc.setTextColor('#374151')
   doc.text('DISTRIBUIÇÃO DOS CUSTOS (A)', rightX, donutTop)
 
-  const segments: DonutSegment[] = data.arvore
-    .filter(n => n.total > 0)
-    .map((n, i) => ({
-      label: n.descricao,
-      value: n.total,
-      color: DONUT_PALETTE[i % DONUT_PALETTE.length],
-    }))
+  const segments: DonutSegment[] = data.distribuicaoCustos.map(d => ({
+    label: d.numero ? `${d.numero} ${d.label}` : d.label,
+    value: d.value,
+    color: d.color,
+  }))
 
   const outerR = 32
   const cx = rightX + outerR + 4

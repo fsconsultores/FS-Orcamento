@@ -19,6 +19,7 @@ export function ComposicoesTable({
   const [query, setQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
 
   const q = query.trim().toLowerCase()
   const visible = q
@@ -48,21 +49,62 @@ export function ComposicoesTable({
     setDeletingId(null)
   }
 
+  async function handleClear() {
+    if (composicoes.length === 0) return
+    if (!confirm(`Excluir todas as ${composicoes.length} composições deste orçamento e os insumos vinculados a elas? Esta ação não pode ser desfeita.`)) return
+    setClearing(true)
+    const sb = createClient() as any
+    const ids = composicoes.map(c => c.id)
+    try {
+      // Exclui primeiro os insumos vinculados: a FK orcamento_insumos.composicao_id é
+      // ON DELETE SET NULL, então excluir a composição direto os transformaria em avulsos.
+      for (let i = 0; i < ids.length; i += 100) {
+        const { error: errIns } = await sb
+          .from('orcamento_insumos')
+          .delete()
+          .in('composicao_id', ids.slice(i, i + 100))
+        if (errIns) throw new Error(errIns.message)
+      }
+      const { error } = await sb
+        .from('orcamento_composicoes')
+        .delete()
+        .eq('orcamento_id', orcamentoId)
+      if (error) throw new Error(error.message)
+      setComposicoes([])
+    } catch (err) {
+      alert(`Erro ao limpar composições: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    setClearing(false)
+  }
+
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
-          fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-        </svg>
-        <input
-          type="search"
-          placeholder="Buscar por código ou descrição..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+            fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+          </svg>
+          <input
+            type="search"
+            placeholder="Buscar por código ou descrição..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          />
+        </div>
+        <button
+          onClick={handleClear}
+          disabled={composicoes.length === 0 || clearing}
+          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          {clearing ? 'Limpando…' : 'Limpar composições'}
+        </button>
       </div>
 
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] rounded-lg border border-gray-200">

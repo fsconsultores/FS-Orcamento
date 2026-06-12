@@ -155,7 +155,12 @@ A distinção entre **Serviços** e **Insumos** na Curva ABC segue:
 
 1. **Serviço**: item da planilha cujo `codigo` referencia uma composição em `orcamento_composicoes` **e** essa composição possui sub-insumos em `orcamento_insumos`.
 2. **Insumo**: qualquer outro item — seja código sem composição correspondente, seja composição sem sub-itens cadastrados.
-3. Na aba Insumos, sub-composições (itens com `grupo = 'S'` ou código presente em `orcamento_composicoes`) são excluídas para evitar dupla contagem.
+3. Na aba Insumos, sub-composições (código presente em `orcamento_composicoes`) são excluídas para evitar dupla contagem; o resultado final é limitado a itens cujo `codigo` comece com `I` (insumos reais).
+4. Itens diretos da planilha sem código `I` podem ser remapeados para o código `I` de um insumo avulso (`composicao_id` nulo) com a mesma descrição.
+5. Quando a `descricao` de um sub-insumo é idêntica à `descricao` da própria composição (rótulo genérico/desatualizado de catálogo), usa-se a `descricao` do item da planilha correspondente, que reflete o uso real no projeto.
+6. A quantidade usada de cada composição é propagada por composições aninhadas: se a composição A (usada na planilha) tem entre seus sub-itens o `codigo` de outra composição B, a quantidade efetiva de B (e de seus sub-insumos) também passa a considerar `qtd(A) × índice(A→B)`, recursivamente.
+7. Quando o `codigo` de uma composição não corresponde a nenhum item da planilha (quantidade efetiva = 0) mas sua `descricao` coincide (por prefixo) com a de um único item direto da planilha, essa quantidade é usada como fallback — caso de itens cujo código foi reatribuído na planilha mas a composição manteve o código original.
+8. O custo unitário de um sub-insumo é o custo do insumo avulso (`composicao_id` nulo) com o mesmo `codigo`, quando existir — a "tabela de preços" do orçamento —, e só usa o `custo` gravado na própria linha do sub-insumo quando não há avulso correspondente. Esse é o mesmo critério usado em `getComposicoesByOrcamento` para calcular o `custo_unitario` das composições.
 
 ---
 
