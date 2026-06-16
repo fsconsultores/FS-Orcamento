@@ -24,6 +24,99 @@ import {
 
 const GROUP_FILL = '#ede9f3'
 
+// ─── Logo cache ───────────────────────────────────────────────────────────────
+let _logoDataUrl: string | null | undefined = undefined
+
+async function loadLogoDataUrl(): Promise<string | null> {
+  if (_logoDataUrl !== undefined) return _logoDataUrl
+  try {
+    const resp = await fetch('/logofs.png')
+    if (!resp.ok) { _logoDataUrl = null; return null }
+    const blob = await resp.blob()
+    _logoDataUrl = await new Promise<string | null>(resolve => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+    return _logoDataUrl
+  } catch {
+    _logoDataUrl = null
+    return null
+  }
+}
+
+// ─── Cabeçalho de documento (logo + cliente + obra + título + REV + data) ────
+
+function drawDocumentHeader(
+  doc: jsPDF,
+  data: CadernoData,
+  margin: number,
+  contentW: number,
+  titulo: string,
+  logoDataUrl: string | null,
+) {
+  const HEADER_H = 24
+  const LEFT_W   = 62
+  const RIGHT_W  = 52
+  const CTR_W    = contentW - LEFT_W - RIGHT_W
+  const lx = margin
+  const cx = margin + LEFT_W
+  const rx = cx + CTR_W
+  const ty = margin
+
+  const { nome_obra, cliente } = data.orcamento
+  const dateStr = new Date().toLocaleDateString('pt-BR')
+
+  // Fundo único
+  doc.setFillColor(PDF_COLORS.bannerBg)
+  doc.rect(lx, ty, contentW, HEADER_H, 'F')
+
+  // Divisórias internas (linha fina branca)
+  doc.setDrawColor('#ffffff')
+  doc.setLineWidth(0.15)
+  doc.line(cx, ty + 2, cx, ty + HEADER_H - 2)
+  doc.line(rx, ty + 2, rx, ty + HEADER_H - 2)
+
+  // Borda externa
+  doc.setDrawColor('#0f172a')
+  doc.setLineWidth(0.3)
+  doc.rect(lx, ty, contentW, HEADER_H)
+
+  // Logo
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, 'PNG', lx + 2, ty + 2, 28, 10)
+  } else {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor('#ffffff')
+    doc.text('FS CONSULTORES', lx + 2, ty + 8)
+  }
+
+  // Esquerda: cliente / obra
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor('#cbd5e1')
+  doc.text(doc.splitTextToSize(`Cliente: ${cliente || '—'}`, LEFT_W - 4)[0], lx + 2, ty + 15)
+  doc.text(doc.splitTextToSize(`Obra: ${nome_obra || '—'}`, LEFT_W - 4)[0], lx + 2, ty + 20)
+
+  // Centro: título
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor('#ffffff')
+  doc.text(titulo, cx + CTR_W / 2, ty + HEADER_H / 2 + 2, { align: 'center' })
+
+  // Direita: REV / Data
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor('#ffffff')
+  doc.text('REV 00', rx + RIGHT_W - 2, ty + 10, { align: 'right' })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor('#94a3b8')
+  doc.text(`Data: ${dateStr}`, rx + RIGHT_W - 2, ty + 17, { align: 'right' })
+}
+
 // ─── Helpers de layout ────────────────────────────────────────────────────────
 
 function addCoverPage(doc: jsPDF, data: CadernoData, pageW: number, pageH: number) {
@@ -307,8 +400,11 @@ function flattenArvore(nodes: CadernoNode[], depth = 0, out: { node: CadernoNode
 async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
   const { autoTable } = await import('jspdf-autotable')
 
+  const logoDataUrl = await loadLogoDataUrl()
+  const HEADER_H = 24
+  const tableTop = margin + HEADER_H + 4
+
   doc.addPage()
-  addSectionBanner(doc, margin, contentW, numero, 'PLANILHA DE PREÇOS UNITÁRIOS', subtitle)
 
   const flat = flattenArvore(data.arvore)
   const body: RowInput[] = flat.map(({ node, depth }) => {
@@ -332,12 +428,14 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   })
 
   autoTable(doc, {
-    startY: margin + 20,
-    margin: { left: margin, right: margin, bottom: margin },
+    startY: tableTop,
+    willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS', logoDataUrl) },
+    margin: { left: margin, right: margin, bottom: margin, top: tableTop },
     head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. (R$)', 'Total (R$)', '%']],
     body,
     foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeral), '100,00%']],
     showFoot: 'lastPage',
+    rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
     headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
@@ -456,6 +554,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     margin: { left: margin, right: margin, bottom: margin },
     head: [['Item', 'Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Total']],
     body,
+    rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
     headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
     columnStyles: {

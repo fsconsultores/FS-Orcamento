@@ -618,6 +618,67 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     ])
   }
 
+  async function addSheetHeader(wb: any, ws: any, titulo: string) {
+    const hFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+    const hBdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
+    const dataStr = dataOrcamento
+      ? new Date(dataOrcamento + 'T00:00:00').toLocaleDateString('pt-BR')
+      : new Date().toLocaleDateString('pt-BR')
+
+    const r1 = ws.addRow([]); r1.height = 32
+    const r2 = ws.addRow([]); r2.height = 22
+    const r3 = ws.addRow([]); r3.height = 5
+
+    ws.mergeCells('A1:B1')
+    ws.mergeCells('A2:B2')
+    ws.mergeCells('C1:E2')
+    ws.mergeCells('F1:G1')
+    ws.mergeCells('F2:G2')
+
+    try {
+      const resp = await fetch('/logofs.png')
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer()
+        const imgId = wb.addImage({ buffer: buf, extension: 'png' })
+        ws.addImage(imgId, { tl: { col: 0, row: 0 }, ext: { width: 130, height: 32 } })
+      }
+    } catch { /* logo opcional */ }
+
+    const outerBdr = { top: hBdr('medium', 'FF334155'), bottom: hBdr('medium', 'FF334155'), left: hBdr('medium', 'FF334155'), right: hBdr('medium', 'FF334155') }
+
+    const logoCell = ws.getCell('A1')
+    logoCell.fill = hFill('FFFFFFFF')
+    logoCell.border = { ...outerBdr, bottom: hBdr('thin', 'FFE2E8F0'), right: hBdr('thin', 'FFE2E8F0') }
+
+    const infoCell = ws.getCell('A2')
+    infoCell.value = `Cliente: ${cliente ?? '—'}     Obra: ${nomeOrcamento ?? '—'}`
+    infoCell.font = { name: 'Calibri', size: 8, color: { argb: 'FF374151' } }
+    infoCell.alignment = { vertical: 'middle', horizontal: 'left' }
+    infoCell.fill = hFill('FFF8FAFC')
+    infoCell.border = { ...outerBdr, top: hBdr('thin', 'FFE2E8F0'), right: hBdr('thin', 'FFE2E8F0') }
+
+    const titleCell = ws.getCell('C1')
+    titleCell.value = titulo
+    titleCell.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } }
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+    titleCell.fill = hFill('FF1E293B')
+    titleCell.border = { ...outerBdr, left: hBdr('thin', 'FF334155'), right: hBdr('thin', 'FF334155') }
+
+    const revCell = ws.getCell('F1')
+    revCell.value = 'REV 00'
+    revCell.font = { name: 'Calibri', size: 8, bold: true, color: { argb: 'FF374151' } }
+    revCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    revCell.fill = hFill('FFF8FAFC')
+    revCell.border = { ...outerBdr, left: hBdr('thin', 'FFE2E8F0'), bottom: hBdr('thin', 'FFE2E8F0') }
+
+    const dateCell = ws.getCell('F2')
+    dateCell.value = `Data: ${dataStr}`
+    dateCell.font = { name: 'Calibri', size: 8, color: { argb: 'FF374151' } }
+    dateCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    dateCell.fill = hFill('FFF8FAFC')
+    dateCell.border = { ...outerBdr, left: hBdr('thin', 'FFE2E8F0'), top: hBdr('thin', 'FFE2E8F0') }
+  }
+
   async function handleExport() {
     setExportError(null)
     try {
@@ -641,7 +702,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         { width:  6 }, { width: 12 }, { width: 15 }, { width: 16 },
       ]
 
-      // Cabeçalho
+      await addSheetHeader(wb, ws, 'PLANILHA DE ORÇAMENTO')
+
+      // Cabeçalho de colunas
       const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
       hRow.height = 20
       hRow.eachCell({ includeEmpty: true }, (cell, c) => {
@@ -810,7 +873,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         { width:  6 }, { width: 12 }, { width: 15 }, { width: 16 },
       ]
 
-      // Cabeçalho
+      await addSheetHeader(wb, ws, 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
+
+      // Cabeçalho de colunas
       const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
       hRow.height = 20
       hRow.eachCell({ includeEmpty: true }, (cell, c) => {
