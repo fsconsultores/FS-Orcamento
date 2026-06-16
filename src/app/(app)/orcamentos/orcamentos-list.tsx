@@ -605,8 +605,6 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Nome da Obra</th>
                 <th className="px-4 py-3">Cliente</th>
-                <th className="px-4 py-3 text-center">BDI</th>
-                <th className="px-4 py-3 text-center">Itens</th>
                 <th className="px-4 py-3">Inclusão</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -632,12 +630,6 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {orc.cliente ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center text-gray-700">
-                      {orc.bdi_global}%
-                    </td>
-                    <td className="px-4 py-3 text-center text-gray-600">
-                      {orc.tabela_itens_orcamento.length}
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}
