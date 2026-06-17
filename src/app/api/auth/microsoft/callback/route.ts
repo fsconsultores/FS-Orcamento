@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (linkError || !linkData?.properties?.action_link) {
+      console.error('[microsoft-callback] generateLink error:', JSON.stringify(linkError));
       return NextResponse.redirect(`${origin}/login?error=session_creation_failed`);
     }
 
