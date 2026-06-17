@@ -379,6 +379,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     return String(v).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
   }
 
+  // Map id→item para lookups O(1) — evita items.find() em loops O(n²)
+  const itemMap = useMemo(() => new Map(items.map(i => [i.id, i])), [items])
+
   // Rebuild tree — memoizado para não recalcular em cada keystroke/estado de UI
   const { tree, flat, grandTotal, grandTotalComBdi } = useMemo(() => {
     const t = buildTree(items)
@@ -404,10 +407,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     let pid = nodo.parent_id
     while (pid) {
       if (collapsed.has(pid)) return false
-      pid = items.find(i => i.id === pid)?.parent_id ?? null
+      pid = itemMap.get(pid)?.parent_id ?? null
     }
     return true
-  }), [flat, collapsed, items])
+  }), [flat, collapsed, itemMap])
 
   // ── Virtualização ─────────────────────────────────────────────────────────
   // Ativa quando: modo sintético + sem formulário inline + >50 linhas visíveis
@@ -458,12 +461,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       let pid = nodo.parent_id
       while (pid) {
         if (pid === addingParentId) { formHostId = nodo.id; break }
-        pid = items.find(i => i.id === pid)?.parent_id ?? null
+        pid = itemMap.get(pid)?.parent_id ?? null
       }
     }
   }
   const addingParentGroup = addingParentId && addingParentId !== 'root'
-    ? items.find(i => i.id === addingParentId) ?? null
+    ? itemMap.get(addingParentId) ?? null
     : null
 
   function toggleCollapse(id: string) {
@@ -585,7 +588,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     const toRemove = new Set<string>()
     function collect(itemId: string) {
       toRemove.add(itemId)
-      for (const it of items) if (it.parent_id === itemId) collect(it.id)
+      for (const it of itemMap.values()) if (it.parent_id === itemId) collect(it.id)
     }
     collect(id)
     setItems(prev => { const next = prev.filter(it => !toRemove.has(it.id)); agendarSincronizacaoComItems(next); return next })
@@ -992,7 +995,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     // Impede mover para dentro de descendente
     function isDesc(pid: string | null, target: string): boolean {
       let c: string | null = pid
-      while (c) { if (c === target) return true; c = items.find(i => i.id === c)?.parent_id ?? null }
+      while (c) { if (c === target) return true; c = itemMap.get(c)?.parent_id ?? null }
       return false
     }
     if (isDesc(overId === activeId ? null : overId, activeId)) return null
@@ -1031,7 +1034,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     const proj = computeProjection(String(active.id), String(over.id), dragDeltaX.current)
     if (!proj) return
 
-    const activeItem = items.find(i => i.id === active.id)
+    const activeItem = itemMap.get(String(active.id))
     if (!activeItem) return
 
     // Atualiza estado local
