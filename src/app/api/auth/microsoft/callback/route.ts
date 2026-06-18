@@ -77,6 +77,8 @@ export async function GET(request: NextRequest) {
 
     if (linkError || !linkData?.properties?.action_link) {
       console.error('[microsoft-callback] generateLink error:', JSON.stringify(linkError));
+      console.error('[microsoft-callback] supabase url:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+      console.error('[microsoft-callback] service key prefix:', process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 20));
       return NextResponse.redirect(`${origin}/login?error=session_creation_failed`);
     }
 
