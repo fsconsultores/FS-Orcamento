@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     redirect_uri: redirectUri,
     scope: 'openid email profile User.Read',
     response_mode: 'query',
+    prompt: 'select_account',
   });
 
   const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params}`;
