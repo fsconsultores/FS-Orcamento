@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { logAction } from '@/lib/log'
 
 export interface EstruturaItem {
   id: string
@@ -116,6 +117,16 @@ export async function importarEstrutura(
   }
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+
+  const { data: authData } = await supabase.auth.getUser()
+  logAction(supabase, {
+    usuario: authData?.user?.email ?? '',
+    tipo: erros.length > 0 ? 'info' : 'sucesso',
+    acao: 'importar_planilha',
+    mensagem: `Planilha importada: ${idMap.size} itens${erros.length > 0 ? `, ${erros.length} erros` : ''}`,
+    contexto: { orcamento_id: orcamentoId, total: idMap.size, erros: erros.length },
+  }).catch(console.error)
+
   return { ok: idMap.size, erros }
 }
 
@@ -242,6 +253,14 @@ export async function limparPlanilha(orcamentoId: string): Promise<void> {
   const sb = supabase as any
   await sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  const { data: authData } = await supabase.auth.getUser()
+  logAction(supabase, {
+    usuario: authData?.user?.email ?? '',
+    tipo: 'info',
+    acao: 'limpar_planilha',
+    mensagem: `Planilha do orçamento limpa`,
+    contexto: { orcamento_id: orcamentoId },
+  }).catch(console.error)
 }
 
 export interface SugestaoCodigo {

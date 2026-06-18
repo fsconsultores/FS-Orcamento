@@ -2,13 +2,22 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { logAction } from '@/lib/log'
 
 export async function deleteOrcamento(orcamentoId: string): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
+  const { data: orc } = await sb.from('tabela_orcamentos').select('nome_obra').eq('id', orcamentoId).single()
   const { error } = await sb.from('tabela_orcamentos').delete().eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao excluir orçamento: ${error.message}`)
   revalidatePath('/orcamentos')
+  const { data: authData } = await supabase.auth.getUser()
+  logAction(supabase, {
+    usuario: authData?.user?.email ?? '',
+    tipo: 'sucesso',
+    acao: 'excluir_orcamento',
+    mensagem: `Orçamento "${orc?.nome_obra ?? orcamentoId}" excluído`,
+  }).catch(console.error)
 }
 
 export type DuplicateResult = {
@@ -49,6 +58,14 @@ export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string
   await clonarInsumos(sb, orcamentoId, novoId, compIdMap)
 
   revalidatePath('/orcamentos')
+
+  logAction(supabase, {
+    usuario: user.email ?? '',
+    tipo: 'sucesso',
+    acao: 'duplicar_orcamento',
+    mensagem: `Orçamento "${nomeNovo}" criado como cópia`,
+    contexto: { orcamento_origem: orcamentoId, novo_id: novoId, codigo: novoCodigo },
+  }).catch(console.error)
 
   return {
     id: novoId,

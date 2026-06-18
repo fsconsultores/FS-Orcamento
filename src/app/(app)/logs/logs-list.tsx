@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 
 export type LogRow = {
   id: string
@@ -41,9 +42,15 @@ const FILTROS = [
   { value: 'erro' as const, label: 'Erro' },
 ]
 
-export function LogsList({ initialLogs }: { initialLogs: LogRow[] }) {
+export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; fetchError?: string }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
   const [filtroTipo, setFiltroTipo] = useState<'' | LogRow['tipo']>('')
   const [busca, setBusca] = useState('')
+
+  function atualizar() {
+    startTransition(() => router.refresh())
+  }
 
   const logs = useMemo(() => {
     return initialLogs.filter((log) => {
@@ -59,6 +66,22 @@ export function LogsList({ initialLogs }: { initialLogs: LogRow[] }) {
       return true
     })
   }, [initialLogs, filtroTipo, busca])
+
+  if (fetchError) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+        <p className="text-sm font-medium text-red-700">Erro ao carregar logs</p>
+        <p className="mt-1 font-mono text-xs text-red-500">{fetchError}</p>
+        <button
+          onClick={atualizar}
+          disabled={isPending}
+          className="mt-3 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {isPending ? 'Atualizando...' : 'Tentar novamente'}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -86,6 +109,13 @@ export function LogsList({ initialLogs }: { initialLogs: LogRow[] }) {
           className="flex-1 min-w-[220px] rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
         />
         <span className="text-xs text-gray-400">{logs.length} registro{logs.length !== 1 ? 's' : ''}</span>
+        <button
+          onClick={atualizar}
+          disabled={isPending}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50 transition-colors"
+        >
+          {isPending ? 'Atualizando...' : 'Atualizar'}
+        </button>
       </div>
 
       {logs.length === 0 ? (
@@ -114,6 +144,7 @@ export function LogsList({ initialLogs }: { initialLogs: LogRow[] }) {
                     <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cfg.badge}`}>
                       {cfg.label}
                     </span>
+                    <span className="text-xs text-gray-400 font-mono">{log.acao}</span>
                   </div>
                   <p className="mt-0.5 text-sm text-gray-900">{log.mensagem}</p>
                 </div>

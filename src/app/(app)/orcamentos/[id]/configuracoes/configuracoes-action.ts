@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { salvarConfigNumeracao } from '../planilha/planilha-action'
+import { logAction } from '@/lib/log'
 
 export interface ConfigOrcamentoInput {
   nome_obra: string
@@ -55,4 +56,13 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
   revalidatePath(`/orcamentos/${orcamentoId}/editar`)
   revalidatePath('/orcamentos')
+
+  const { data: authData } = await supabase.auth.getUser()
+  logAction(supabase, {
+    usuario: authData?.user?.email ?? '',
+    tipo: 'sucesso',
+    acao: 'salvar_configuracoes',
+    mensagem: `Configurações do orçamento "${input.nome_obra}" salvas`,
+    contexto: { orcamento_id: orcamentoId },
+  }).catch(console.error)
 }

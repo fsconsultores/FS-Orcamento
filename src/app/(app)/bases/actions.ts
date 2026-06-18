@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { logAction } from '@/lib/log'
 
 export async function createBase(orgao: string): Promise<{ id: string } | { error: string }> {
   if (!orgao.trim()) return { error: 'Nome obrigatório.' }
@@ -16,12 +17,19 @@ export async function createBase(orgao: string): Promise<{ id: string } | { erro
     .single()
   if (error) return { error: error.message }
   revalidatePath('/bases')
+  logAction(supabase, {
+    usuario: user.email ?? '',
+    tipo: 'sucesso',
+    acao: 'criar_base',
+    mensagem: `Base "${orgao.trim()}" criada`,
+  }).catch(console.error)
   return { id: data.id }
 }
 
 export async function deleteBase(baseId: string): Promise<{ error?: string }> {
   const supabase = await createClient()
   const sb = supabase as any
+  const { data: base } = await sb.from('tabela_bases').select('orgao').eq('id', baseId).single()
   // Remove itens dependentes em cascata
   const { data: comps } = await sb
     .from('tabela_composicoes')
@@ -38,5 +46,12 @@ export async function deleteBase(baseId: string): Promise<{ error?: string }> {
   const { error } = await sb.from('tabela_bases').delete().eq('id', baseId)
   if (error) return { error: error.message }
   revalidatePath('/bases')
+  const { data: authData } = await supabase.auth.getUser()
+  logAction(supabase, {
+    usuario: authData?.user?.email ?? '',
+    tipo: 'sucesso',
+    acao: 'excluir_base',
+    mensagem: `Base "${base?.orgao ?? baseId}" excluída`,
+  }).catch(console.error)
   return {}
 }

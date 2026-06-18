@@ -3,11 +3,11 @@ import { LogsList, type LogRow } from './logs-list'
 
 export default async function LogsPage() {
   const sb = (await createClient()) as any
-  const { data } = await sb
+  const { data, error } = await sb
     .from('tabela_logs')
     .select('id, created_at, empresa, usuario, tipo, acao, mensagem, contexto')
     .order('created_at', { ascending: false })
-    .limit(100)
+    .limit(200)
 
   const logs = (data ?? []) as LogRow[]
 
@@ -16,11 +16,11 @@ export default async function LogsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Logs do Sistema</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Registro de ações realizadas no sistema — últimos 100 eventos.
+          Registro de ações realizadas no sistema — últimos 200 eventos.
         </p>
       </div>
 
-      <LogsList initialLogs={logs} />
+      <LogsList initialLogs={logs} fetchError={error?.message} />
     </div>
   )
 }
