@@ -81,17 +81,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${origin}/login?error=session_creation_failed`);
     }
 
-    // Extrai o token_hash do link gerado e passa para o callback do Supabase
-    const actionUrl = new URL(linkData.properties.action_link);
-    const tokenHash = actionUrl.searchParams.get('token_hash');
-    const type = actionUrl.searchParams.get('type') ?? 'email';
-
+    const tokenHash = linkData.properties.hashed_token;
     if (!tokenHash) {
+      console.error('[microsoft-callback] hashed_token missing, properties:', JSON.stringify(linkData.properties));
       return NextResponse.redirect(`${origin}/login?error=session_creation_failed`);
     }
 
     return NextResponse.redirect(
-      `${origin}/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=${type}`
+      `${origin}/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=magiclink`
     );
   } catch {
     return NextResponse.redirect(`${origin}/login?error=microsoft_auth_failed`);
