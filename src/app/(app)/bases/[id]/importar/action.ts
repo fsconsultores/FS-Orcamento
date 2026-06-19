@@ -141,11 +141,14 @@ export async function importarComposicoesParaBase(
   const allItens = rowsUniq.flatMap(comp => {
     const compId = compCodeToId.get(comp.codigo)
     if (!compId) return []
-    return comp.insumos.filter(ins => codeToId.has(ins.codigo)).map(ins => ({
-      composicao_id: compId,
-      insumo_id: codeToId.get(ins.codigo)!,
-      indice: ins.indice ?? 1,
-    }))
+    const dedup = new Map<string, { composicao_id: string; insumo_id: string; indice: number }>()
+    for (const ins of comp.insumos) {
+      const insumoId = codeToId.get(ins.codigo)
+      if (!insumoId) continue
+      if (dedup.has(insumoId)) dedup.get(insumoId)!.indice += ins.indice ?? 1
+      else dedup.set(insumoId, { composicao_id: compId, insumo_id: insumoId, indice: ins.indice ?? 1 })
+    }
+    return [...dedup.values()]
   })
   const itemLotes = Array.from({ length: Math.ceil(allItens.length / 500) }, (_, i) => allItens.slice(i * 500, (i + 1) * 500))
   const insertItemResults = await Promise.all(itemLotes.map(lote => sb.from('tabela_itens_composicao').insert(lote)))

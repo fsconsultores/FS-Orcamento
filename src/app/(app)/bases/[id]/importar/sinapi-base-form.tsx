@@ -79,6 +79,111 @@ function parseDate(val: unknown): string | null {
   return null
 }
 
+function isSICROData(data: unknown[][]): boolean {
+  for (let i = 0; i < Math.min(data.length, 40); i++) {
+    for (const cell of data[i] as unknown[]) {
+      const s = String(cell ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (s.includes('sicro') || s.includes('sistema de custos referenciais')) return true
+    }
+  }
+  return false
+}
+
+function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const rows: ImportComposicaoRow[] = []
+  let current: ImportComposicaoRow | null = null
+  let secao: 'A'|'B'|'C'|'D'|'E'|null = null
+  let producao = 1
+  let compUnit = ''
+
+  const normS = (v: unknown) =>
+    String(v ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim()
+
+  function extractProducao(row: unknown[]): { val: number; unit: string } | null {
+    for (let k = 0; k < row.length; k++) {
+      const ns = normS(row[k])
+      if (!ns.includes('producao da equipe') && !ns.includes('producao equipe')) continue
+      for (let l = k; l < Math.min(row.length, k + 4); l++) {
+        const s = String(row[l] ?? '').trim()
+        const m = s.match(/([\d]+[.,][\d]+)/)
+        if (!m) continue
+        const val = parseNumber(m[1])
+        if (val <= 0 || val > 100000) continue
+        let unit = s.slice(s.indexOf(m[0]) + m[0].length).trim()
+        if (!unit) {
+          const nxt = String(row[l + 1] ?? '').trim()
+          if (nxt && nxt.length <= 10 && !/^\d/.test(nxt)) unit = nxt
+        }
+        return { val, unit }
+      }
+    }
+    return null
+  }
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i] as unknown[]
+    const cells = row.map(c => String(c ?? '').trim())
+    if (cells.every(c => !c)) continue
+
+    const first = cells.find(c => c) ?? ''
+    const firstN = normS(first)
+
+    const secM = firstN.match(/^([a-e])\s*[-–]\s*(equipament|mao de obra|material|atividad|tempo)/)
+    if (secM) {
+      secao = secM[1].toUpperCase() as 'A'|'B'|'C'|'D'|'E'
+      continue
+    }
+
+    const compM = first.match(/^(\d{7,})\s*(.*)/)
+    if (compM) {
+      const cod = compM[1]
+      let desc = compM[2].trim()
+      if (!desc) {
+        for (let j = 1; j < cells.length; j++) {
+          if (cells[j] && cells[j].length > 3) { desc = cells[j]; break }
+        }
+      }
+      producao = 1; compUnit = ''
+      for (let scan = Math.max(0, i - 5); scan < Math.min(data.length, i + 8); scan++) {
+        const p = extractProducao(data[scan] as unknown[])
+        if (p) { producao = p.val; compUnit = p.unit; break }
+      }
+      current = { codigo: cod, descricao: desc || cod, unidade: compUnit, base: null, insumos: [] }
+      rows.push(current)
+      secao = null
+      continue
+    }
+
+    if (!current || !secao) continue
+    if (!/^[A-Z]\d{4}/.test(first)) continue
+    if (/custo|total|subtotal|producao/.test(firstN)) continue
+
+    const desc2 = cells[1] ?? ''
+    const nums: number[] = []
+    let unit2 = ''
+    for (let j = 2; j < cells.length; j++) {
+      const v = parseNumber(cells[j])
+      if (v > 0) nums.push(v)
+      else if (!unit2 && cells[j] && cells[j].length <= 8 && !/^\d/.test(cells[j])) unit2 = cells[j]
+    }
+    if (!nums.length) continue
+
+    const qty = nums[0]
+    const unitCost = nums.length >= 2 ? nums[nums.length - 2] : nums[0]
+    const isLabor = secao === 'B' || secao === 'A'
+    const rawIndice = isLabor ? (producao > 0 ? qty / producao : qty) : qty
+    const indice = Math.min(Math.max(rawIndice, 0.000001), 99999999)
+    const custo = Math.min(unitCost, 9999999999)
+    if (!isFinite(indice) || !isFinite(custo)) continue
+    const grupo = secao === 'A' ? 'Equipamento' : secao === 'B' ? 'Mao de Obra'
+               : secao === 'C' ? 'Material' : secao === 'D' ? 'Atividade Auxiliar' : null
+
+    current.insumos.push({ codigo: first, descricao: desc2, unidade: unit2, custo, indice, grupo, base: null, data_ref: null })
+  }
+
+  return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
+}
+
 function isSudecap(header: string[]): boolean {
   const joined = header.map(normCol).join('|')
   return joined.includes('tipoitem') || joined.includes('insumocomposicao')
@@ -95,9 +200,11 @@ function inferSudecapRow(row: unknown[]): { codigo: string; descricao: string; u
   // Célula mais à direita com conteúdo
   let rightIdx = -1
   for (let j = cells.length - 1; j >= 0; j--) { if (cells[j]) { rightIdx = j; break } }
+  const rightRaw = rightIdx >= 0 ? row[rightIdx] : ''
   const rightVal = rightIdx >= 0 ? cells[rightIdx] : ''
-  const rightNum = parseFloat(rightVal.replace(',', '.'))
-  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000 && /[,.]/.test(rightVal)
+  const rightNum = typeof rightRaw === 'number' ? rightRaw : parseFloat(rightVal.replace(',', '.'))
+  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000
+    && (typeof rightRaw === 'number' || /[,.]/.test(rightVal))
 
   // Célula mais à esquerda com conteúdo = código
   let leftIdx = -1
@@ -328,6 +435,7 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
 // Detecta o melhor parser para uma aba de composições
 function parseComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[]; fmt: string } {
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'], fmt: 'vazio' }
+  if (isSICROData(data)) return { ...parseSICROSheet(data), fmt: 'DNIT/SICRO' }
   const headerIdx = findHeaderRow(data)
   const header = (data[headerIdx] as unknown[]).map(String)
   if (isSudecap(header)) return { ...parseSudecap(data), fmt: 'SUDECAP/CPU' }
@@ -405,7 +513,14 @@ async function importarComposicoes(sb: any, baseId: string, rows: ImportComposic
     const itens = lote.flatMap(comp => {
       const compId = compCodeToId.get(comp.codigo)
       if (!compId) return []
-      return comp.insumos.filter(ins => codeToId.has(ins.codigo)).map(ins => ({ composicao_id: compId, insumo_id: codeToId.get(ins.codigo)!, indice: ins.indice ?? 1 }))
+      const dedup = new Map<string, { composicao_id: string; insumo_id: string; indice: number }>()
+      for (const ins of comp.insumos) {
+        const insumoId = codeToId.get(ins.codigo)
+        if (!insumoId) continue
+        if (dedup.has(insumoId)) dedup.get(insumoId)!.indice += ins.indice ?? 1
+        else dedup.set(insumoId, { composicao_id: compId, insumo_id: insumoId, indice: ins.indice ?? 1 })
+      }
+      return [...dedup.values()]
     })
     if (itens.length > 0) {
       const { error } = await sb.from('tabela_itens_composicao').insert(itens)

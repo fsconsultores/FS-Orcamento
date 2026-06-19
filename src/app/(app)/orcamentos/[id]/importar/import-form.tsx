@@ -260,9 +260,11 @@ function inferSudecapRow(row: unknown[]): { codigo: string; descricao: string; u
   const cells = row.map(c => String(c ?? '').trim())
   let rightIdx = -1
   for (let j = cells.length - 1; j >= 0; j--) { if (cells[j]) { rightIdx = j; break } }
+  const rightRaw = rightIdx >= 0 ? row[rightIdx] : ''
   const rightVal = rightIdx >= 0 ? cells[rightIdx] : ''
-  const rightNum = parseFloat(rightVal.replace(',', '.'))
-  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000 && /[,.]/.test(rightVal)
+  const rightNum = typeof rightRaw === 'number' ? rightRaw : parseFloat(rightVal.replace(',', '.'))
+  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000
+    && (typeof rightRaw === 'number' || /[,.]/.test(rightVal))
   let leftIdx = -1
   for (let j = 0; j < cells.length; j++) { if (cells[j]) { leftIdx = j; break } }
   const codigo = leftIdx >= 0 ? cells[leftIdx] : ''
@@ -887,6 +889,279 @@ function ImportarSUDECAPTab({ orcamentoId }: { orcamentoId: string }) {
   )
 }
 
+// ─── Parser DNIT/SICRO ────────────────────────────────────────────────────────
+
+function isSICROData(data: unknown[][]): boolean {
+  for (let i = 0; i < Math.min(data.length, 40); i++) {
+    for (const cell of data[i] as unknown[]) {
+      const s = String(cell ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (s.includes('sicro') || s.includes('sistema de custos referenciais')) return true
+    }
+  }
+  return false
+}
+
+function parseSICROSheet(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const rows: ImportComposicaoRow[] = []
+  let current: ImportComposicaoRow | null = null
+  let secao: 'A'|'B'|'C'|'D'|'E'|null = null
+  let producao = 1
+  let compUnit = ''
+
+  const normS = (v: unknown) =>
+    String(v ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim()
+
+  function extractProducao(row: unknown[]): { val: number; unit: string } | null {
+    for (let k = 0; k < row.length; k++) {
+      const ns = normS(row[k])
+      if (!ns.includes('producao da equipe') && !ns.includes('producao equipe')) continue
+      for (let l = k; l < Math.min(row.length, k + 4); l++) {
+        const s = String(row[l] ?? '').trim()
+        const m = s.match(/([\d]+[.,][\d]+)/)
+        if (!m) continue
+        const val = parseNumber(m[1])
+        if (val <= 0 || val > 100000) continue
+        let unit = s.slice(s.indexOf(m[0]) + m[0].length).trim()
+        if (!unit) {
+          const nxt = String(row[l + 1] ?? '').trim()
+          if (nxt && nxt.length <= 10 && !/^\d/.test(nxt)) unit = nxt
+        }
+        return { val, unit }
+      }
+    }
+    return null
+  }
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i] as unknown[]
+    const cells = row.map(c => String(c ?? '').trim())
+    if (cells.every(c => !c)) continue
+
+    const first = cells.find(c => c) ?? ''
+    const firstN = normS(first)
+
+    // Section marker: "A - EQUIPAMENTOS", "B - MÃO DE OBRA", etc.
+    const secM = firstN.match(/^([a-e])\s*[-–]\s*(equipament|mao de obra|material|atividad|tempo)/)
+    if (secM) {
+      secao = secM[1].toUpperCase() as 'A'|'B'|'C'|'D'|'E'
+      continue
+    }
+
+    // Composition header: starts with 7+ digits
+    const compM = first.match(/^(\d{7,})\s*(.*)/)
+    if (compM) {
+      const cod = compM[1]
+      let desc = compM[2].trim()
+      if (!desc) {
+        for (let j = 1; j < cells.length; j++) {
+          if (cells[j] && cells[j].length > 3) { desc = cells[j]; break }
+        }
+      }
+      producao = 1; compUnit = ''
+      for (let scan = Math.max(0, i - 5); scan < Math.min(data.length, i + 8); scan++) {
+        const p = extractProducao(data[scan] as unknown[])
+        if (p) { producao = p.val; compUnit = p.unit; break }
+      }
+      current = { codigo: cod, descricao: desc || cod, unidade: compUnit, base: defaultBase ?? null, insumos: [] }
+      rows.push(current)
+      secao = null
+      continue
+    }
+
+    if (!current || !secao) continue
+    if (!/^[A-Z]\d{4}/.test(first)) continue
+    if (/custo|total|subtotal|producao/.test(firstN)) continue
+
+    const desc2 = cells[1] ?? ''
+    const nums: number[] = []
+    let unit2 = ''
+    for (let j = 2; j < cells.length; j++) {
+      const v = parseNumber(cells[j])
+      if (v > 0) nums.push(v)
+      else if (!unit2 && cells[j] && cells[j].length <= 8 && !/^\d/.test(cells[j])) unit2 = cells[j]
+    }
+    if (!nums.length) continue
+
+    const qty = nums[0]
+    const unitCost = nums.length >= 2 ? nums[nums.length - 2] : nums[0]
+    const isLabor = secao === 'B' || secao === 'A'
+    const rawIndice = isLabor ? (producao > 0 ? qty / producao : qty) : qty
+    const indice = Math.min(Math.max(rawIndice, 0.000001), 99999999)
+    const custo = Math.min(unitCost, 9999999999)
+    if (!isFinite(indice) || !isFinite(custo)) continue
+    const grupo = secao === 'A' ? 'Equipamento' : secao === 'B' ? 'Mao de Obra'
+               : secao === 'C' ? 'Material' : secao === 'D' ? 'Atividade Auxiliar' : null
+
+    current.insumos.push({ codigo: first, descricao: desc2, unidade: unit2, custo, indice, grupo, base: null, data_ref: null })
+  }
+
+  return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
+}
+
+// ─── Aba: Importar DNIT/SICRO ─────────────────────────────────────────────────
+
+function ImportarDNITTab({ orcamentoId }: { orcamentoId: string }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [sheets, setSheets] = useState<string[]>([])
+  const [selectedSheet, setSelectedSheet] = useState('')
+  const [wbRef, setWbRef] = useState<unknown>(null)
+  const [fileBase, setFileBase] = useState('DNIT/SICRO')
+  const [preview, setPreview] = useState<ImportComposicaoRow[] | null>(null)
+  const [parseErros, setParseErros] = useState<string[]>([])
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  function processData(data: unknown[][], base: string) {
+    if (data.length < 2) { setPreview([]); return }
+    const { rows, erros } = parseSICROSheet(data, base)
+    setPreview(rows); setParseErros(erros)
+  }
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResult(null); setPreview(null); setParseErros([])
+    const ab = await file.arrayBuffer()
+    const XLSX = await import('xlsx')
+    const wb = XLSX.read(ab, { type: 'array' })
+    setWbRef(wb)
+    const names = wb.SheetNames
+    setSheets(names)
+    setSelectedSheet(names[0])
+    const ws = (wb as any).Sheets[names[0]]
+    if (ws) {
+      const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+      processData(data, fileBase)
+    }
+  }
+
+  function onSheetChange(name: string) {
+    setSelectedSheet(name)
+    void import('xlsx').then(XLSX => {
+      const ws = (wbRef as any)?.Sheets[name]
+      if (!ws) return
+      const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+      processData(data, fileBase)
+    })
+  }
+
+  async function handleImport() {
+    if (!preview?.length) return
+    setLoading(true)
+    try {
+      const res = await importarComposicoes(orcamentoId, preview.map(c => ({ ...c, base: fileBase || null })))
+      setResult(res); setPreview(null)
+      if (inputRef.current) inputRef.current.value = ''
+      setSheets([]); setWbRef(null)
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: res.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_dnit',
+        mensagem: `DNIT/SICRO: ${res.composicoesCriadas} composição(ões), ${res.insumosCriados} insumo(s) importados`,
+        contexto: { orcamento_id: orcamentoId, ...res },
+      }).catch(console.error)
+    } catch (err) {
+      setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
+    } finally { setLoading(false) }
+  }
+
+  const totalInsumos = preview?.reduce((s, c) => s + c.insumos.length, 0) ?? 0
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+        <p className="font-semibold mb-1">Formato esperado: Fichas SICRO (DNIT)</p>
+        <p>Detecta seções <strong>A</strong> (Equipamentos), <strong>B</strong> (Mão de Obra), <strong>C</strong> (Material) e normaliza os coeficientes pela <em>Produção da Equipe</em>.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
+        <input type="text" value={fileBase} onChange={e => setFileBase(e.target.value)}
+          placeholder="ex: DNIT/SICRO Abril/2025"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+      <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
+        <p className="text-sm text-gray-500 mb-2">Arquivo <strong>.xlsx</strong> exportado do SICRO/DNIT</p>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+      </div>
+
+      {sheets.length > 1 && (
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Aba da planilha:</label>
+          <select value={selectedSheet} onChange={e => onSheetChange(e.target.value)}
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {sheets.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
+
+      {parseErros.length > 0 && (
+        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3">
+          <ul className="text-xs text-yellow-700 space-y-0.5">{parseErros.slice(0,10).map((e, i) => <li key={i}>• {e}</li>)}</ul>
+        </div>
+      )}
+
+      {preview && preview.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-700">{preview.length} composição(ões) · {totalInsumos} insumo(s)</p>
+            <button onClick={handleImport} disabled={loading}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {loading ? 'Importando...' : 'Confirmar Importação'}
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>{['Código', 'Descrição', 'Unid.', 'Insumos'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 uppercase">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {preview.slice(0, 50).map((comp, ci) => (
+                  <Fragment key={ci}>
+                    <tr className="bg-blue-50">
+                      <td className="px-3 py-2 font-mono text-blue-700">{comp.codigo}</td>
+                      <td className="px-3 py-2 font-medium text-blue-800" colSpan={2}>{comp.descricao}</td>
+                      <td className="px-3 py-2 text-blue-400">{comp.insumos.length} insumo(s)</td>
+                    </tr>
+                    {comp.insumos.slice(0, 4).map((ins, ii) => (
+                      <tr key={ii} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono text-gray-500 pl-6">{ins.codigo}</td>
+                        <td className="px-3 py-2 text-gray-700">{ins.descricao}{ins.grupo ? ` [${ins.grupo}]` : ''}</td>
+                        <td className="px-3 py-2 text-gray-500">{ins.unidade}</td>
+                        <td className="px-3 py-2 text-gray-400 tabular-nums">
+                          {ins.indice.toFixed(5)} × {ins.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </td>
+                      </tr>
+                    ))}
+                    {comp.insumos.length > 4 && (
+                      <tr><td colSpan={4} className="px-3 py-1 text-xs text-gray-400 pl-10 italic">...e mais {comp.insumos.length - 4} insumo(s)</td></tr>
+                    )}
+                  </Fragment>
+                ))}
+                {preview.length > 50 && (
+                  <tr><td colSpan={4} className="px-3 py-2 text-xs text-gray-400 text-center italic">Mostrando 50 de {preview.length} composições.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {preview && preview.length === 0 && (
+        <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+          Nenhuma composição SICRO encontrada. Verifique se o arquivo está no formato DNIT/SICRO.
+        </p>
+      )}
+
+      {result && <ResultBox result={result} />}
+    </div>
+  )
+}
+
 // ─── Detecção de regimes SINAPI ───────────────────────────────────────────────
 
 interface SINAPIRegime {
@@ -1229,7 +1504,7 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
 
 // ─── Form principal com abas ──────────────────────────────────────────────────
 
-type Tab = 'base' | 'sinapi' | 'sudecap' | 'composicoes' | 'insumos'
+type Tab = 'base' | 'sinapi' | 'sudecap' | 'dnit' | 'composicoes' | 'insumos'
 
 export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases: BaseInfo[] }) {
   const [tab, setTab] = useState<Tab>(bases.length > 0 ? 'base' : 'sinapi')
@@ -1241,6 +1516,7 @@ export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases:
           { key: 'base',        label: 'Da Base Global' },
           { key: 'sinapi',      label: 'SINAPI (arquivo)' },
           { key: 'sudecap',     label: 'SUDECAP (arquivo)' },
+          { key: 'dnit',        label: 'DNIT/SICRO (arquivo)' },
           { key: 'composicoes', label: 'Composições' },
           { key: 'insumos',     label: 'Insumos Avulsos' },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
@@ -1257,6 +1533,7 @@ export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases:
       {tab === 'base'        && <ImportarDaBaseTab       orcamentoId={orcamentoId} bases={bases} />}
       {tab === 'sinapi'      && <ImportarSINAPITab        orcamentoId={orcamentoId} />}
       {tab === 'sudecap'     && <ImportarSUDECAPTab       orcamentoId={orcamentoId} />}
+      {tab === 'dnit'        && <ImportarDNITTab          orcamentoId={orcamentoId} />}
       {tab === 'composicoes' && <ImportarComposicoesTab   orcamentoId={orcamentoId} />}
       {tab === 'insumos'     && <ImportarInsumosTab       orcamentoId={orcamentoId} />}
     </div>
