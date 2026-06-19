@@ -80,9 +80,96 @@ function parseDate(val: unknown): string | null {
 }
 
 function isSudecap(header: string[]): boolean {
-  const joined = header.join('|').toLowerCase()
-  return joined.includes('tipoitem') || joined.includes('insumo/composicao') || joined.includes('insumocomposicao')
+  const joined = header.map(normCol).join('|')
+  return joined.includes('tipoitem') || joined.includes('insumocomposicao')
     || joined.includes('origemcomposicao') || joined.includes('producaoequipe')
+}
+
+// ─── Parser SUDECAP Relatório (posicional, independente de cabeçalho) ──────────
+// Formato: CÓDIGO | CÓDIGO/DESCRIÇÃO | UND | CONSUMO
+// A detecção é feita pelos DADOS: linhas com número decimal no final = insumo.
+
+function inferSudecapRow(row: unknown[]): { codigo: string; descricao: string; unidade: string; consumoStr: string } {
+  const cells = row.map(c => String(c ?? '').trim())
+
+  // Célula mais à direita com conteúdo
+  let rightIdx = -1
+  for (let j = cells.length - 1; j >= 0; j--) { if (cells[j]) { rightIdx = j; break } }
+  const rightVal = rightIdx >= 0 ? cells[rightIdx] : ''
+  const rightNum = parseFloat(rightVal.replace(',', '.'))
+  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000 && /[,.]/.test(rightVal)
+
+  // Célula mais à esquerda com conteúdo = código
+  let leftIdx = -1
+  for (let j = 0; j < cells.length; j++) { if (cells[j]) { leftIdx = j; break } }
+  const codigo = leftIdx >= 0 ? cells[leftIdx] : ''
+
+  // UND: célula curta imediatamente antes do CONSUMO
+  let unidade = ''
+  if (isInsumo && rightIdx > 0) {
+    for (let j = rightIdx - 1; j > leftIdx; j--) {
+      const v = cells[j]
+      if (v && v.length <= 6 && !/\d{5}/.test(v)) { unidade = v; break }
+    }
+  }
+
+  // Descrição: célula mais longa que não seja código, UND ou CONSUMO
+  let descricao = ''
+  for (let j = leftIdx + 1; j < cells.length; j++) {
+    const v = cells[j]
+    if (!v || v === unidade || v === rightVal || j === rightIdx) continue
+    if (v.length > descricao.length) descricao = v
+  }
+
+  return { codigo, descricao, unidade, consumoStr: isInsumo ? rightVal : '' }
+}
+
+function sniffSudecapRelatorio(data: unknown[][]): boolean {
+  // Procura pelo menos 2 linhas com padrão insumo: número decimal à direita + código pontilhado
+  let hits = 0
+  for (let i = 0; i < Math.min(data.length, 60); i++) {
+    const { codigo, consumoStr } = inferSudecapRow(data[i] as unknown[])
+    if (consumoStr && /\d+\.\d+/.test(codigo)) hits++
+    if (hits >= 2) return true
+  }
+  return false
+}
+
+function parseSudecapRelatorio(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const rows: ImportComposicaoRow[] = []
+  if (data.length < 2) return { rows, erros: [] }
+
+  let current: ImportComposicaoRow | null = null
+  const GRUPOS_SUDECAP = new Set(['PC', 'A', 'S', 'E', 'H', 'HH', 'M', 'B', 'AC', 'L'])
+
+  for (let i = 0; i < data.length; i++) {
+    const { codigo, descricao, unidade, consumoStr } = inferSudecapRow(data[i] as unknown[])
+    if (!codigo && !descricao) continue
+
+    const consumo = parseNumber(consumoStr)
+
+    if (consumoStr && consumo > 0) {
+      if (!current) continue
+      let desc = descricao
+      let grupo: string | null = null
+      const m = desc.match(/\s+([A-Za-z]{1,3})$/)
+      if (m && GRUPOS_SUDECAP.has(m[1].toUpperCase())) {
+        grupo = m[1].toUpperCase()
+        desc = desc.slice(0, desc.length - m[0].length).trim()
+      }
+      current.insumos.push({ codigo, descricao: desc, unidade, custo: 0, indice: consumo, grupo, base: null, data_ref: null })
+    } else {
+      const dotCount = (codigo.match(/\./g) ?? []).length
+      if (dotCount >= 2) {
+        current = { codigo, descricao, unidade, base: null, insumos: [] }
+        rows.push(current)
+      } else {
+        current = null
+      }
+    }
+  }
+
+  return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
 }
 
 // Flat insumos (IS*, IS GESTOR, etc.)
@@ -249,6 +336,8 @@ function parseComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; err
     const fmt = ('codigo' in cols && 'codigo_item' in cols) ? 'Analítico SINAPI' : 'Analítico'
     return { ...parseAnalitico(data), fmt }
   }
+  // Detecta pelo padrão dos dados (independente do cabeçalho)
+  if (sniffSudecapRelatorio(data)) return { ...parseSudecapRelatorio(data), fmt: 'SUDECAP Relatório' }
   return { ...parseFlatComposicoes(data), fmt: 'Lista plana' }
 }
 

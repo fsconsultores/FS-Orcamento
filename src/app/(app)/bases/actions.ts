@@ -26,6 +26,61 @@ export async function createBase(orgao: string): Promise<{ id: string } | { erro
   return { id: data.id }
 }
 
+export async function preencherPrecos(
+  minhaBaseId: string,
+  referenciaBaseId: string
+): Promise<{ atualizados: number; naoEncontrados: number; error?: string }> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { atualizados: 0, naoEncontrados: 0, error: 'Não autenticado.' }
+
+  // Busca insumos da base própria sem preço
+  const { data: semPreco, error: e1 } = await sb
+    .from('tabela_insumos')
+    .select('id, codigo')
+    .eq('base_id', minhaBaseId)
+    .or('preco_base.is.null,preco_base.eq.0')
+  if (e1) return { atualizados: 0, naoEncontrados: 0, error: e1.message }
+
+  const insumos = (semPreco ?? []) as { id: string; codigo: string }[]
+  if (insumos.length === 0) return { atualizados: 0, naoEncontrados: 0 }
+
+  const codigos = insumos.map(i => i.codigo).filter(Boolean)
+  const codigoToId = new Map(insumos.map(i => [i.codigo, i.id]))
+
+  // Busca preços da base de referência por código
+  const lotesBusca = Array.from({ length: Math.ceil(codigos.length / 500) }, (_, i) => codigos.slice(i * 500, (i + 1) * 500))
+  const resultsBusca = await Promise.all(
+    lotesBusca.map(lote => sb.from('tabela_insumos').select('codigo, preco_base').eq('base_id', referenciaBaseId).in('codigo', lote))
+  )
+
+  const encontrados: { id: string; preco_base: number }[] = []
+  for (const { data } of resultsBusca) {
+    for (const ref of (data ?? []) as { codigo: string; preco_base: number }[]) {
+      const id = codigoToId.get(ref.codigo)
+      if (id && ref.preco_base > 0) encontrados.push({ id, preco_base: ref.preco_base })
+    }
+  }
+
+  // Atualiza em paralelo (grupos de 50)
+  const lotes = Array.from({ length: Math.ceil(encontrados.length / 50) }, (_, i) => encontrados.slice(i * 50, (i + 1) * 50))
+  await Promise.all(
+    lotes.flatMap(lote =>
+      lote.map(u => sb.from('tabela_insumos').update({ preco_base: u.preco_base }).eq('id', u.id))
+    )
+  )
+
+  logAction(supabase, {
+    usuario: user.email ?? '',
+    tipo: 'sucesso',
+    acao: 'preencher_precos',
+    mensagem: `${encontrados.length} preços preenchidos de base ${referenciaBaseId}`,
+  }).catch(console.error)
+
+  return { atualizados: encontrados.length, naoEncontrados: insumos.length - encontrados.length }
+}
+
 export async function deleteBase(baseId: string): Promise<{ error?: string }> {
   const supabase = await createClient()
   const sb = supabase as any

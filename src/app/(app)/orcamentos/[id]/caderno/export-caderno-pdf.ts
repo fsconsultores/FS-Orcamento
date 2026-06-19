@@ -442,7 +442,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
       1: { cellWidth: 18 },
-      2: { cellWidth: 85 },
+      2: { cellWidth: 79 },
       3: { cellWidth: 12, halign: 'center' },
       4: { cellWidth: 16, halign: 'right' },
       5: { cellWidth: 24, halign: 'right' },
@@ -560,7 +560,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
       1: { cellWidth: 20 },
-      2: { cellWidth: 141 },
+      2: { cellWidth: 135 },
       3: { cellWidth: 12, halign: 'center' },
       4: { cellWidth: 20, halign: 'right' },
       5: { cellWidth: 35, halign: 'right' },
@@ -618,7 +618,7 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
       columnStyles: {
         0: { cellWidth: 28 },
         1: { cellWidth: 24 },
-        2: { cellWidth: 125 },
+        2: { cellWidth: 119 },
         3: { cellWidth: 14, halign: 'center' },
         4: { cellWidth: 28, halign: 'right' },
         5: { cellWidth: 28, halign: 'right' },

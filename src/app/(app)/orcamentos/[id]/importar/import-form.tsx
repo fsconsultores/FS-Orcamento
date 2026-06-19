@@ -3,6 +3,8 @@
 import { useState, useRef, Fragment } from 'react'
 import { importarInsumos, importarComposicoes, importarDaBase } from './import-action'
 import type { ImportComposicaoRow, ImportInsumoRow, ImportResult, BaseInfo } from './import-action'
+import { createClient } from '@/lib/supabase/client'
+import { logAction } from '@/lib/log'
 
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
@@ -249,6 +251,81 @@ function parseFlatComposicoes(data: unknown[][], defaultBase?: string): { rows: 
   return { rows, erros }
 }
 
+// ─── Detecção e parser SUDECAP Relatório de Composições ──────────────────────
+// Formato: CÓDIGO | DESCRIÇÃO | UND | CONSUMO
+// Linhas sem CONSUMO = grupo ou composição (detectado pela profundidade do código)
+// Linhas com CONSUMO > 0 = insumo da última composição
+
+function inferSudecapRow(row: unknown[]): { codigo: string; descricao: string; unidade: string; consumoStr: string } {
+  const cells = row.map(c => String(c ?? '').trim())
+  let rightIdx = -1
+  for (let j = cells.length - 1; j >= 0; j--) { if (cells[j]) { rightIdx = j; break } }
+  const rightVal = rightIdx >= 0 ? cells[rightIdx] : ''
+  const rightNum = parseFloat(rightVal.replace(',', '.'))
+  const isInsumo = rightVal !== '' && !isNaN(rightNum) && rightNum > 0 && rightNum < 100000 && /[,.]/.test(rightVal)
+  let leftIdx = -1
+  for (let j = 0; j < cells.length; j++) { if (cells[j]) { leftIdx = j; break } }
+  const codigo = leftIdx >= 0 ? cells[leftIdx] : ''
+  let unidade = ''
+  if (isInsumo && rightIdx > 0) {
+    for (let j = rightIdx - 1; j > leftIdx; j--) {
+      const v = cells[j]
+      if (v && v.length <= 6 && !/\d{5}/.test(v)) { unidade = v; break }
+    }
+  }
+  let descricao = ''
+  for (let j = leftIdx + 1; j < cells.length; j++) {
+    const v = cells[j]
+    if (!v || v === unidade || v === rightVal || j === rightIdx) continue
+    if (v.length > descricao.length) descricao = v
+  }
+  return { codigo, descricao, unidade, consumoStr: isInsumo ? rightVal : '' }
+}
+
+function sniffSudecapRelatorio(data: unknown[][]): boolean {
+  let hits = 0
+  for (let i = 0; i < Math.min(data.length, 60); i++) {
+    const { codigo, consumoStr } = inferSudecapRow(data[i] as unknown[])
+    if (consumoStr && /\d+\.\d+/.test(codigo)) hits++
+    if (hits >= 2) return true
+  }
+  return false
+}
+
+function parseSudecapRelatorio(data: unknown[][], defaultBase?: string): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const rows: ImportComposicaoRow[] = []
+  if (data.length < 2) return { rows, erros: [] }
+  let current: ImportComposicaoRow | null = null
+  const GRUPOS_SUDECAP = new Set(['PC', 'A', 'S', 'E', 'H', 'HH', 'M', 'B', 'AC', 'L'])
+
+  for (let i = 0; i < data.length; i++) {
+    const { codigo, descricao, unidade, consumoStr } = inferSudecapRow(data[i] as unknown[])
+    if (!codigo && !descricao) continue
+    const consumo = parseNumber(consumoStr)
+
+    if (consumoStr && consumo > 0) {
+      if (!current) continue
+      let desc = descricao
+      let grupo: string | null = null
+      const m = desc.match(/\s+([A-Za-z]{1,3})$/)
+      if (m && GRUPOS_SUDECAP.has(m[1].toUpperCase())) {
+        grupo = m[1].toUpperCase()
+        desc = desc.slice(0, desc.length - m[0].length).trim()
+      }
+      current.insumos.push({ codigo, descricao: desc, unidade, custo: 0, indice: consumo, grupo, base: null, data_ref: null })
+    } else {
+      const dotCount = (codigo.match(/\./g) ?? []).length
+      if (dotCount >= 2) {
+        current = { codigo, descricao, unidade, base: defaultBase ?? null, insumos: [] }
+        rows.push(current)
+      } else {
+        current = null
+      }
+    }
+  }
+  return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
+}
+
 // ─── Parser CSV ──────────────────────────────────────────────────────────────
 function parseCsvText(text: string): unknown[][] {
   const cleaned = text.replace(/^﻿/, '') // remove BOM
@@ -345,6 +422,15 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
       setResult(res); setPreview(null)
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: res.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_insumos',
+        mensagem: `${res.insumosCriados} insumo(s) importados${fonteVal ? ` da base "${fonteVal}"` : ''}`,
+        contexto: { orcamento_id: orcamentoId, ...res },
+      }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
     } finally { setLoading(false) }
@@ -501,6 +587,15 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
       setResult(res); setPreview(null)
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: res.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_composicoes',
+        mensagem: `${res.composicoesCriadas} composição(ões) importada(s)${fonteVal ? ` da base "${fonteVal}"` : ''}`,
+        contexto: { orcamento_id: orcamentoId, ...res },
+      }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
     } finally { setLoading(false) }
@@ -622,6 +717,171 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
           </div>
         </div>
       )}
+      {result && <ResultBox result={result} />}
+    </div>
+  )
+}
+
+// ─── Aba: Importar SUDECAP ────────────────────────────────────────────────────
+
+function ImportarSUDECAPTab({ orcamentoId }: { orcamentoId: string }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [sheets, setSheets] = useState<string[]>([])
+  const [selectedSheet, setSelectedSheet] = useState('')
+  const [wbRef, setWbRef] = useState<unknown>(null)
+  const [fileBase, setFileBase] = useState('SUDECAP')
+  const [preview, setPreview] = useState<ImportComposicaoRow[] | null>(null)
+  const [parseErros, setParseErros] = useState<string[]>([])
+  const [result, setResult] = useState<ImportResult | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  function processData(data: unknown[][], base: string) {
+    if (data.length < 2) { setPreview([]); return }
+    const { rows, erros } = sniffSudecapRelatorio(data)
+      ? parseSudecapRelatorio(data, base)
+      : parseSudecap(data, base)
+    setPreview(rows); setParseErros(erros)
+  }
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResult(null); setPreview(null); setParseErros([])
+
+    const ab = await file.arrayBuffer()
+    const XLSX = await import('xlsx')
+    const wb = XLSX.read(ab, { type: 'array' })
+    setWbRef(wb)
+    const names = wb.SheetNames
+    setSheets(names)
+    setSelectedSheet(names[0])
+    const ws = (wb as any).Sheets[names[0]]
+    if (ws) {
+      const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+      processData(data, fileBase)
+    }
+  }
+
+  function onSheetChange(name: string) {
+    setSelectedSheet(name)
+    void import('xlsx').then(XLSX => {
+      const ws = (wbRef as any)?.Sheets[name]
+      if (!ws) return
+      const data = XLSX.utils.sheet_to_json(ws as any, { header: 1, defval: '' }) as unknown[][]
+      processData(data, fileBase)
+    })
+  }
+
+  async function handleImport() {
+    if (!preview?.length) return
+    setLoading(true)
+    try {
+      const res = await importarComposicoes(orcamentoId, preview.map(c => ({ ...c, base: fileBase || null })))
+      setResult(res); setPreview(null)
+      if (inputRef.current) inputRef.current.value = ''
+      setSheets([]); setWbRef(null)
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: res.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_sudecap',
+        mensagem: `SUDECAP: ${res.composicoesCriadas} composição(ões), ${res.insumosCriados} insumo(s) importados`,
+        contexto: { orcamento_id: orcamentoId, ...res },
+      }).catch(console.error)
+    } catch (err) {
+      setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
+    } finally { setLoading(false) }
+  }
+
+  const totalInsumos = preview?.reduce((s, c) => s + c.insumos.length, 0) ?? 0
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+        <p className="font-semibold mb-1">Formato esperado: Relatório de Composições de Custo Horário (SUDECAP)</p>
+        <p>Colunas: <strong>CÓDIGO · DESCRIÇÃO · UND · CONSUMO</strong> — linhas com CONSUMO preenchido = insumos; demais = grupos/composições.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
+        <input type="text" value={fileBase} onChange={e => setFileBase(e.target.value)}
+          placeholder="ex: SUDECAP Abril/2026"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+      <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
+        <p className="text-sm text-gray-500 mb-2">Arquivo <strong>.xlsx</strong> exportado da tabela SUDECAP</p>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+      </div>
+
+      {sheets.length > 1 && (
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Aba da planilha:</label>
+          <select value={selectedSheet} onChange={e => onSheetChange(e.target.value)}
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {sheets.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
+
+      {parseErros.length > 0 && (
+        <div className="rounded-lg border border-yellow-300 bg-yellow-50 p-3">
+          <ul className="text-xs text-yellow-700 space-y-0.5">{parseErros.slice(0,10).map((e, i) => <li key={i}>• {e}</li>)}</ul>
+        </div>
+      )}
+
+      {preview && preview.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-700">{preview.length} composição(ões) · {totalInsumos} insumo(s)</p>
+            <button onClick={handleImport} disabled={loading}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {loading ? 'Importando...' : 'Confirmar Importação'}
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>{['Código', 'Descrição', 'Unid.', 'Insumos'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 uppercase">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {preview.slice(0, 50).map((comp, ci) => (
+                  <Fragment key={ci}>
+                    <tr className="bg-blue-50">
+                      <td className="px-3 py-2 font-mono text-blue-700">{comp.codigo}</td>
+                      <td className="px-3 py-2 font-medium text-blue-800" colSpan={2}>{comp.descricao}</td>
+                      <td className="px-3 py-2 text-blue-400">{comp.insumos.length} insumo(s)</td>
+                    </tr>
+                    {comp.insumos.slice(0, 4).map((ins, ii) => (
+                      <tr key={ii} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-mono text-gray-500 pl-6">{ins.codigo}</td>
+                        <td className="px-3 py-2 text-gray-700">{ins.descricao}{ins.grupo ? ` [${ins.grupo}]` : ''}</td>
+                        <td className="px-3 py-2 text-gray-500">{ins.unidade}</td>
+                        <td className="px-3 py-2 text-gray-400 tabular-nums">{ins.indice}</td>
+                      </tr>
+                    ))}
+                    {comp.insumos.length > 4 && (
+                      <tr><td colSpan={4} className="px-3 py-1 text-xs text-gray-400 pl-10 italic">...e mais {comp.insumos.length - 4} insumo(s)</td></tr>
+                    )}
+                  </Fragment>
+                ))}
+                {preview.length > 50 && (
+                  <tr><td colSpan={4} className="px-3 py-2 text-xs text-gray-400 text-center italic">Mostrando 50 de {preview.length} composições.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {preview && preview.length === 0 && (
+        <p className="text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-3">
+          Nenhuma composição encontrada. Verifique se o arquivo está no formato SUDECAP (colunas CÓDIGO · DESCRIÇÃO · UND · CONSUMO).
+        </p>
+      )}
+
       {result && <ResultBox result={result} />}
     </div>
   )
@@ -752,7 +1012,18 @@ function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
       setResult(combined)
       setPendingData(null); setPreviewCounts(null)
       if (inputRef.current) inputRef.current.value = ''
-      setWbRef(null); setRegimes([]); setSelectedSuffix(null); setFileName('')
+      setWbRef(null); setRegimes([]); setSelectedSuffix(null)
+      const nomeSinapi = fileName.replace(/\.[^.]+$/, '')
+      setFileName('')
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: combined.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_sinapi',
+        mensagem: `SINAPI importado: ${combined.insumosCriados} insumo(s), ${combined.composicoesCriadas} composição(ões) — "${nomeSinapi}"`,
+        contexto: { orcamento_id: orcamentoId, ...combined },
+      }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
     } finally { setLoading(false) }
@@ -851,6 +1122,15 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
     try {
       const r = await importarDaBase(orcamentoId, selectedId, opcoes)
       setResult(r)
+      const sb = createClient()
+      const { data: { user } } = await sb.auth.getUser()
+      logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: r.erros.length > 0 ? 'info' : 'sucesso',
+        acao: 'importar_da_base',
+        mensagem: `Base "${base?.orgao ?? selectedId}" importada: ${r.insumosCriados} insumo(s), ${r.composicoesCriadas} composição(ões)`,
+        contexto: { orcamento_id: orcamentoId, base_id: selectedId, ...r },
+      }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
     } finally {
@@ -949,7 +1229,7 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
 
 // ─── Form principal com abas ──────────────────────────────────────────────────
 
-type Tab = 'base' | 'sinapi' | 'composicoes' | 'insumos'
+type Tab = 'base' | 'sinapi' | 'sudecap' | 'composicoes' | 'insumos'
 
 export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases: BaseInfo[] }) {
   const [tab, setTab] = useState<Tab>(bases.length > 0 ? 'base' : 'sinapi')
@@ -960,6 +1240,7 @@ export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases:
         {([
           { key: 'base',        label: 'Da Base Global' },
           { key: 'sinapi',      label: 'SINAPI (arquivo)' },
+          { key: 'sudecap',     label: 'SUDECAP (arquivo)' },
           { key: 'composicoes', label: 'Composições' },
           { key: 'insumos',     label: 'Insumos Avulsos' },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
@@ -975,6 +1256,7 @@ export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases:
       </div>
       {tab === 'base'        && <ImportarDaBaseTab       orcamentoId={orcamentoId} bases={bases} />}
       {tab === 'sinapi'      && <ImportarSINAPITab        orcamentoId={orcamentoId} />}
+      {tab === 'sudecap'     && <ImportarSUDECAPTab       orcamentoId={orcamentoId} />}
       {tab === 'composicoes' && <ImportarComposicoesTab   orcamentoId={orcamentoId} />}
       {tab === 'insumos'     && <ImportarInsumosTab       orcamentoId={orcamentoId} />}
     </div>

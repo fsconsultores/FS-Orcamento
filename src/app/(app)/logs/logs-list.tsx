@@ -138,7 +138,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
                 <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="text-xs text-gray-400 font-mono">[{data}]</span>
+                    <span suppressHydrationWarning className="text-xs text-gray-400 font-mono">[{data}]</span>
                     <span className="text-xs text-gray-500">{log.empresa}</span>
                     <span className="text-xs text-gray-400">({log.usuario})</span>
                     <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cfg.badge}`}>

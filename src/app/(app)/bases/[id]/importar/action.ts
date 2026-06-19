@@ -4,8 +4,6 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { ImportInsumoRow, ImportComposicaoRow, ImportResult } from '@/app/(app)/orcamentos/[id]/importar/import-action'
 
-export { type ImportInsumoRow, type ImportComposicaoRow, type ImportResult }
-
 export async function getBaseInfo(baseId: string) {
   const supabase = await createClient()
   const sb = supabase as any
