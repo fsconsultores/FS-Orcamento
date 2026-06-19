@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useTransition, useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { duplicateOrcamento, deleteOrcamento } from './actions';
-import type { DuplicateResult } from './actions';
+import type { DuplicateResult } from '@/lib/orcamento/duplicate';
 
 type OrcRow = {
   id: string;
