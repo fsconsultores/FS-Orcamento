@@ -24,28 +24,6 @@ import {
 
 const GROUP_FILL = '#ede9f3'
 
-// ─── Logo cache ───────────────────────────────────────────────────────────────
-let _logoDataUrl: string | null | undefined = undefined
-
-async function loadLogoDataUrl(): Promise<string | null> {
-  if (_logoDataUrl !== undefined) return _logoDataUrl
-  try {
-    const resp = await fetch('/logofs.png')
-    if (!resp.ok) { _logoDataUrl = null; return null }
-    const blob = await resp.blob()
-    _logoDataUrl = await new Promise<string | null>(resolve => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(blob)
-    })
-    return _logoDataUrl
-  } catch {
-    _logoDataUrl = null
-    return null
-  }
-}
-
 // ─── Cabeçalho de documento (logo + cliente + obra + título + REV + data) ────
 
 function drawDocumentHeader(
@@ -54,7 +32,6 @@ function drawDocumentHeader(
   margin: number,
   contentW: number,
   titulo: string,
-  logoDataUrl: string | null,
 ) {
   const HEADER_H = 24
   const LEFT_W   = 62
@@ -84,14 +61,10 @@ function drawDocumentHeader(
   doc.rect(lx, ty, contentW, HEADER_H)
 
   // Logo
-  if (logoDataUrl) {
-    doc.addImage(logoDataUrl, 'PNG', lx + 2, ty + 2, 28, 10)
-  } else {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor('#ffffff')
-    doc.text('FS CONSULTORES', lx + 2, ty + 8)
-  }
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor('#ffffff')
+  doc.text('FS CONSULTORES', lx + 2, ty + 8)
 
   // Esquerda: cliente / obra
   doc.setFont('helvetica', 'normal')
@@ -400,7 +373,6 @@ function flattenArvore(nodes: CadernoNode[], depth = 0, out: { node: CadernoNode
 async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
   const { autoTable } = await import('jspdf-autotable')
 
-  const logoDataUrl = await loadLogoDataUrl()
   const HEADER_H = 24
   const tableTop = margin + HEADER_H + 4
 
@@ -429,7 +401,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
 
   autoTable(doc, {
     startY: tableTop,
-    willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS', logoDataUrl) },
+    willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
     margin: { left: margin, right: margin, bottom: margin, top: tableTop },
     head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. (R$)', 'Total (R$)', '%']],
     body,
