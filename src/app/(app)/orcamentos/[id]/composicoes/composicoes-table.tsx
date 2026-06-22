@@ -134,24 +134,24 @@ export function ComposicoesTable({
                 <tr key={c.id}
                   className={`group cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all ${deletingId === c.id ? 'opacity-40' : ''}`}
                 >
-                  <td className="px-4 py-3 font-mono text-xs">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full">{c.codigo}</Link>
+                  <td className="p-0 font-mono text-xs">
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.codigo}</Link>
                   </td>
-                  <td className="px-4 py-3">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full">{c.descricao}</Link>
+                  <td className="p-0">
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.descricao}</Link>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full">{c.unidade}</Link>
+                  <td className="p-0 text-gray-500">
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.unidade}</Link>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-gray-700">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full">
+                  <td className="p-0 text-right tabular-nums text-gray-700">
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
                       {c.custo_unitario > 0
                         ? c.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                         : <span className="text-gray-300">—</span>}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full">{c.base ?? '—'}</Link>
+                  <td className="p-0 text-gray-500">
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.base ?? '—'}</Link>
                   </td>
                   <td className="px-2 py-3">
                     <button

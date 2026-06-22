@@ -36,23 +36,23 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
               key={c.id}
               className="cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all"
             >
-              <td className="px-3 py-1.5 w-28">
-                <Link href={`/composicoes/${c.id}`} className="block w-full h-full font-mono text-xs text-gray-600">
+              <td className="p-0 w-28">
+                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 font-mono text-xs text-gray-600">
                   {c.codigo}
                 </Link>
               </td>
-              <td className="px-3 py-1.5">
-                <Link href={`/composicoes/${c.id}`} className="block w-full h-full text-gray-900">
+              <td className="p-0">
+                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 text-gray-900">
                   {c.descricao}
                 </Link>
               </td>
-              <td className="px-3 py-1.5 w-20">
-                <Link href={`/composicoes/${c.id}`} className="block w-full h-full text-gray-600">
+              <td className="p-0 w-20">
+                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 text-gray-600">
                   {c.unidade}
                 </Link>
               </td>
-              <td className="px-3 py-1.5 w-32">
-                <Link href={`/composicoes/${c.id}`} className="block w-full h-full">
+              <td className="p-0 w-32">
+                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5">
                   {c.base_origem && c.tipo_base === 'propria' ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
                       {c.base_origem}
@@ -73,8 +73,8 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
                   )}
                 </Link>
               </td>
-              <td className="px-3 py-1.5 text-right font-medium text-gray-900 w-32">
-                <Link href={`/composicoes/${c.id}`} className="block w-full h-full">
+              <td className="p-0 text-right font-medium text-gray-900 w-32">
+                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5">
                   {formatCurrency(c.custo_unitario)}
                 </Link>
               </td>
