@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem } from './planilha-action'
+import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -369,6 +369,34 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [dragActiveId, setDragActiveId] = useState<string | null>(null)
   const dragDeltaX                      = useRef(0)
   const scrollContainerRef             = useRef<HTMLDivElement>(null)
+  const [calcTimestamp, setCalcTimestamp] = useState<Date>(() => new Date())
+  const [isCalculating, setIsCalculating] = useState(false)
+  const [calcPanelOpen, setCalcPanelOpen] = useState(false)
+  const calcPanelRef = useRef<HTMLDivElement>(null)
+  const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
+  const [valorFinalInput, setValorFinalInput] = useState('')
+
+  async function handleAtualizar() {
+    setIsCalculating(true)
+    try {
+      const fresh = await buscarItensEstrutura(orcamentoId)
+      setItems(fresh)
+      setCalcTimestamp(new Date())
+    } finally {
+      setIsCalculating(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!calcPanelOpen) return
+    function handleClickOutside(e: MouseEvent) {
+      if (calcPanelRef.current && !calcPanelRef.current.contains(e.target as Node)) {
+        setCalcPanelOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [calcPanelOpen])
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
@@ -1105,16 +1133,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">BDI Global</p>
             <p className="text-sm font-bold text-blue-700 mt-0.5">{bdiGlobal}%</p>
           </div>
-          <div className="ml-auto flex gap-6 items-end">
-            <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Total sem BDI</p>
-              <p className="text-sm font-semibold text-gray-700 mt-0.5 tabular-nums">{BRL(grandTotal)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Total com BDI</p>
-              <p className="text-base font-bold text-gray-900 mt-0.5 tabular-nums">{BRL(grandTotalComBdi)}</p>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1164,6 +1182,140 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </div>
           <div className="flex flex-col items-end gap-1">
             <div className="flex gap-2">
+              {/* Botão Calcular com painel suspenso */}
+              <div className="relative" ref={calcPanelRef}>
+                <button
+                  onClick={() => setCalcPanelOpen(v => !v)}
+                  className="flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600 transition-colors shadow-sm"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  Calcular
+                  <svg
+                    className={`w-3 h-3 transition-transform ${calcPanelOpen ? 'rotate-180' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {calcPanelOpen && (
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-xl border border-orange-200 bg-orange-50 shadow-2xl overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-orange-500 px-4 py-3 text-center">
+                      <p className="text-xs font-bold uppercase tracking-widest text-white">Cálculo da Planilha</p>
+                    </div>
+
+                    {/* Valores */}
+                    <div className="px-5 py-4 flex gap-6 justify-center border-b border-orange-200">
+                      <div className="text-center">
+                        <p className="text-[11px] text-orange-600 uppercase tracking-wider mb-1">Custo Orçamento</p>
+                        <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
+                      </div>
+                      <div className="w-px bg-orange-200" />
+                      <div className="text-center">
+                        <p className="text-[11px] text-orange-600 uppercase tracking-wider mb-1">Venda Orçamento</p>
+                        <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotalComBdi)}</p>
+                      </div>
+                    </div>
+
+                    {/* Timestamp + atualizar */}
+                    <div className="px-4 py-3 flex items-center justify-between gap-2">
+                      <p className="text-[11px] text-orange-700">
+                        Calculado em {calcTimestamp.toLocaleString('pt-BR')}
+                      </p>
+                      <button
+                        onClick={handleAtualizar}
+                        disabled={isCalculating}
+                        className="flex items-center gap-1 rounded-full bg-orange-500 text-white px-2.5 py-1 text-[11px] font-medium hover:bg-orange-600 disabled:opacity-60 transition-colors shrink-0"
+                      >
+                        <svg
+                          className={`w-3 h-3 ${isCalculating ? 'animate-spin' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        {isCalculating ? 'Atualizando...' : 'Atualizar cálculo'}
+                      </button>
+                    </div>
+
+                    {/* Ajustar valor do orçamento */}
+                    <div className="px-4 py-3 border-t border-orange-200 bg-orange-100/50">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-orange-700 mb-2">
+                        Ajustar valor do orçamento
+                      </p>
+                      <div className="flex gap-4 mb-3">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="tipoValorFinal"
+                            value="custo"
+                            checked={tipoValorFinal === 'custo'}
+                            onChange={() => setTipoValorFinal('custo')}
+                            className="accent-orange-500"
+                          />
+                          Valor final (Custo)
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="tipoValorFinal"
+                            value="venda"
+                            checked={tipoValorFinal === 'venda'}
+                            onChange={() => setTipoValorFinal('venda')}
+                            className="accent-orange-500"
+                          />
+                          Valor final (Venda)
+                        </label>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <span className="text-xs text-orange-700 font-medium shrink-0">R$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          value={valorFinalInput}
+                          onChange={e => setValorFinalInput(e.target.value.replace(/[^0-9,.]/g, ''))}
+                          className="flex-1 rounded-md border border-orange-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                        />
+                      </div>
+                      {(() => {
+                        const num = parseFloat(valorFinalInput.replace(/\./g, '').replace(',', '.'))
+                        if (!num || num <= 0) return null
+                        const base = tipoValorFinal === 'custo' ? grandTotal : grandTotalComBdi
+                        const fator = base > 0 ? num / base : 0
+                        const bdiNecessario = tipoValorFinal === 'venda' && grandTotal > 0
+                          ? (num / grandTotal - 1) * 100
+                          : null
+                        return (
+                          <div className="mt-2 rounded-md bg-white border border-orange-200 px-3 py-2 space-y-1">
+                            <div className="flex justify-between text-[11px]">
+                              <span className="text-gray-500">Fator de ajuste</span>
+                              <span className="font-semibold text-gray-800 tabular-nums">{fator.toFixed(4)}×</span>
+                            </div>
+                            {bdiNecessario !== null && (
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-gray-500">BDI necessário</span>
+                                <span className="font-semibold text-blue-700 tabular-nums">{bdiNecessario.toFixed(2)}%</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-[11px] border-t border-orange-100 pt-1 mt-1">
+                              <span className="text-gray-500">Diferença</span>
+                              <span className={`font-semibold tabular-nums ${num - base >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {num - base >= 0 ? '+' : ''}{BRL(num - base)}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button onClick={handleExport}
                 className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

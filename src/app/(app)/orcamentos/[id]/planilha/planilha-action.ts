@@ -48,6 +48,18 @@ function parentNorm(n: string): string | null {
   return parts.slice(0, -1).join('.')
 }
 
+export async function buscarItensEstrutura(orcamentoId: string): Promise<EstruturaItem[]> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  const { data } = await sb
+    .from('orcamento_estrutura')
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .eq('orcamento_id', orcamentoId)
+    .order('nivel', { ascending: true })
+    .order('ordem', { ascending: true })
+  return data ?? []
+}
+
 export async function importarEstrutura(
   orcamentoId: string,
   rows: EstruturaRow[]
