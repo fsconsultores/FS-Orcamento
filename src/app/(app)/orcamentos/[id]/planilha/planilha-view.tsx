@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura } from './planilha-action'
+import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   DragOverlay, type DragEndEvent, type DragStartEvent, type DragMoveEvent,
@@ -376,6 +377,83 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
   const [valorFinalInput, setValorFinalInput] = useState('')
 
+  // ── Dirty state / save tracking ───────────────────────────────────────────
+  const router = useRouter()
+  const [isDirty, setIsDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [invalidCodigos, setInvalidCodigos] = useState<Set<string>>(new Set())
+  const [showLeaveModal, setShowLeaveModal] = useState(false)
+  const [showInvalidModal, setShowInvalidModal] = useState(false)
+  const pendingHrefRef = useRef<string | null>(null)
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isSaving = saveStatus === 'saving'
+
+  function scheduleSaved() {
+    if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current)
+    setSaveStatus('saved')
+    saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000)
+  }
+
+  // Avisa o browser ao fechar aba / recarregar com alterações pendentes
+  useEffect(() => {
+    if (!isDirty) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [isDirty])
+
+  // Intercepta cliques em links internos quando há alterações pendentes
+  useEffect(() => {
+    if (!isDirty) return
+    function handle(e: MouseEvent) {
+      const a = (e.target as HTMLElement).closest('a')
+      if (!a) return
+      const href = a.getAttribute('href')
+      if (!href || href.startsWith('#') || href === window.location.pathname) return
+      e.preventDefault()
+      e.stopPropagation()
+      pendingHrefRef.current = href
+      setShowLeaveModal(true)
+    }
+    document.addEventListener('click', handle, true)
+    return () => document.removeEventListener('click', handle, true)
+  }, [isDirty])
+
+  async function handleSave() {
+    if (editingCell) {
+      saveField(editingCell.id, editingCell.field, cellDraft)
+      setEditingCell(null)
+    }
+    setSaveStatus('saving')
+    try {
+      const codigos = [...new Set(
+        items.filter(i => i.tipo === 'item' && i.codigo).map(i => i.codigo!)
+      )]
+      if (codigos.length > 0) {
+        const invalidos = await validarComposicoes(orcamentoId, codigos)
+        if (invalidos.length > 0) {
+          setInvalidCodigos(new Set(invalidos))
+          setShowInvalidModal(true)
+          setSaveStatus('error')
+          return
+        }
+      }
+      setInvalidCodigos(new Set())
+      setIsDirty(false)
+      scheduleSaved()
+    } catch {
+      setSaveStatus('error')
+    }
+  }
+
+  function handleConfirmLeave() {
+    setShowLeaveModal(false)
+    setIsDirty(false)
+    const href = pendingHrefRef.current
+    pendingHrefRef.current = null
+    if (href) router.push(href as any)
+  }
+
   async function handleAtualizar() {
     setIsCalculating(true)
     try {
@@ -519,6 +597,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     } else {
       value = draft.trim() || null
     }
+    // Ao editar o código, remove da lista de inválidos para revalidar no próximo save
+    if (field === 'codigo') {
+      const oldCodigo = items.find(i => i.id === id)?.codigo
+      if (oldCodigo) setInvalidCodigos(prev => { const s = new Set(prev); s.delete(oldCodigo); return s })
+    }
+    setIsDirty(true)
     setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
     atualizarItemEstrutura(id, orcamentoId, { [field]: value } as any)
   }
@@ -570,6 +654,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   // ── Operações de linha ──────────────────────────────────────────────────────
 
   async function handleInsert(nodo: Nodo, position: 'above' | 'below') {
+    setIsDirty(true)
     setContextMenu(null)
 
     // "Adicionar abaixo" num agrupador → cria filho
@@ -601,6 +686,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   }
 
   async function handleAfterCreate(newItem: EstruturaItem) {
+    setIsDirty(true)
     setItems(prev => {
       const next = [...prev, newItem]
       agendarSincronizacaoComItems(next)
@@ -612,6 +698,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
   async function handleDelete(id: string) {
     if (!confirm('Remover este item e todos seus sub-itens?')) return
+    setIsDirty(true)
     setDeletingId(id)
     const toRemove = new Set<string>()
     function collect(itemId: string) {
@@ -625,6 +712,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   }
 
   async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
+    setIsDirty(true)
     const siblings = items
       .filter(it => it.parent_id === nodo.parent_id)
       .sort((a, b) => a.ordem - b.ordem)
@@ -1058,6 +1146,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     const { active, over } = event
     setDragActiveId(null)
     if (!over || active.id === over.id) return
+    setIsDirty(true)
 
     const proj = computeProjection(String(active.id), String(over.id), dragDeltaX.current)
     if (!proj) return
@@ -1176,6 +1265,46 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
               {analiticaLoading ? '...' : 'Analítica'}
             </button>
           </div>
+          {/* Indicador de status + botão Salvar */}
+          <div className="flex items-center gap-2">
+            <div className="text-right text-[11px]">
+              {isSaving ? (
+                <span className="flex items-center gap-1 text-blue-600">
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Salvando...
+                </span>
+              ) : saveStatus === 'saved' ? (
+                <span className="flex items-center gap-1 text-green-600">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Todas as alterações foram salvas
+                </span>
+              ) : saveStatus === 'error' ? (
+                <span className="text-red-600">Falha ao salvar. Tente novamente.</span>
+              ) : isDirty ? (
+                <span className="flex items-center gap-1 text-orange-500">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
+                  Alterações não salvas
+                </span>
+              ) : null}
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || invalidCodigos.size > 0}
+              className="flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-60 transition-colors shadow-sm"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+              {isSaving ? 'Salvando...' : 'Salvar Planilha'}
+            </button>
+          </div>
+
           <div className="text-right">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Geral</p>
             <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
@@ -1343,6 +1472,70 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         </div>
       </div>
 
+      {/* Modal: Alterações não salvas */}
+      {showLeaveModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
+            <div className="bg-orange-500 px-6 py-4">
+              <h2 className="text-base font-bold text-white">Alterações não salvas</h2>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Existem alterações que ainda não foram salvas. Se você sair agora, todas as modificações realizadas serão perdidas.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowLeaveModal(false)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Continuar editando
+              </button>
+              <button
+                onClick={handleConfirmLeave}
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 transition-colors"
+              >
+                Sair sem salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Composições inválidas */}
+      {showInvalidModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
+            <div className="bg-red-600 px-6 py-4">
+              <h2 className="text-base font-bold text-white">Composições inválidas encontradas</h2>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Foram identificadas composições que não existem mais na base de dados. Corrija os itens destacados antes de sair ou salvar a planilha.
+              </p>
+              <ul className="mt-3 space-y-1">
+                {[...invalidCodigos].map(c => (
+                  <li key={c} className="flex items-center gap-2 text-xs text-red-700 bg-red-50 rounded px-2 py-1">
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Código <span className="font-mono font-bold">{c}</span> não encontrado
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 pb-5 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowInvalidModal(false)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                Permanecer na planilha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Menu de contexto (botão direito) */}
       {contextMenu && (
         <>
@@ -1477,7 +1670,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                 <Fragment key={nodo.id}>
                   <SortableRow
                     id={nodo.id}
-                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''}`}
+                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''} ${nodo.codigo && invalidCodigos.has(nodo.codigo) ? 'outline outline-2 outline-red-400 bg-red-50' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
 
@@ -1517,6 +1710,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                             onSelect={s => {
                               skipBlur.current = true
                               const hasCusto = s.custo_unitario != null
+                              const oldCodigo = nodo.codigo
+                              if (oldCodigo) setInvalidCodigos(prev => { const ns = new Set(prev); ns.delete(oldCodigo); return ns })
+                              setIsDirty(true)
                               setItems(prev => prev.map(it => it.id === nodo.id ? {
                                 ...it,
                                 codigo: s.codigo,
@@ -1534,9 +1730,22 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                             }}
                           />
                         )
+                        const isInvalid = !!nodo.codigo && invalidCodigos.has(nodo.codigo)
                         return (
-                          <div onClick={() => openCell(nodo.id, 'codigo')} className={CELL_HOVER}>
-                            {nodo.codigo ?? <span className="text-gray-400">—</span>}
+                          <div className="relative group/code">
+                            <div onClick={() => openCell(nodo.id, 'codigo')} className={`${CELL_HOVER} ${isInvalid ? 'text-red-600 font-semibold' : ''}`}>
+                              {nodo.codigo ?? <span className="text-gray-400">—</span>}
+                              {isInvalid && (
+                                <svg className="inline-block ml-1 w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                              )}
+                            </div>
+                            {isInvalid && (
+                              <div className="absolute left-0 top-full mt-1 z-50 whitespace-nowrap rounded bg-red-700 px-2 py-1 text-[10px] text-white shadow-lg opacity-0 group-hover/code:opacity-100 transition-opacity pointer-events-none">
+                                Composição não encontrada.
+                              </div>
+                            )}
                           </div>
                         )
                       })()}

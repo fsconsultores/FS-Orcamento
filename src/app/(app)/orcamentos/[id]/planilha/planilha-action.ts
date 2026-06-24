@@ -48,6 +48,22 @@ function parentNorm(n: string): string | null {
   return parts.slice(0, -1).join('.')
 }
 
+export async function validarComposicoes(
+  orcamentoId: string,
+  codigos: string[]
+): Promise<string[]> {
+  if (codigos.length === 0) return []
+  const supabase = await createClient()
+  const sb = supabase as any
+  const { data } = await sb
+    .from('orcamento_composicoes')
+    .select('codigo')
+    .eq('orcamento_id', orcamentoId)
+    .in('codigo', codigos)
+  const validos = new Set<string>((data ?? []).map((r: any) => r.codigo))
+  return codigos.filter(c => !validos.has(c))
+}
+
 export async function buscarItensEstrutura(orcamentoId: string): Promise<EstruturaItem[]> {
   const supabase = await createClient()
   const sb = supabase as any
