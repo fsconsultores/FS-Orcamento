@@ -96,6 +96,18 @@ export default async function InsumosPage({
             fileName="insumos.xlsx"
           />
           <Link
+            href={'/insumos/importar/cotacao' as any}
+            className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
+          >
+            Atualizar Preços
+          </Link>
+          <Link
+            href="/insumos/importar"
+            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Importar
+          </Link>
+          <Link
             href="/insumos/novo"
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >

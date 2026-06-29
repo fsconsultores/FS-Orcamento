@@ -1507,18 +1507,18 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
 type Tab = 'base' | 'sinapi' | 'sudecap' | 'dnit' | 'composicoes' | 'insumos'
 
 export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases: BaseInfo[] }) {
-  const [tab, setTab] = useState<Tab>(bases.length > 0 ? 'base' : 'sinapi')
+  const [tab, setTab] = useState<Tab>(bases.length > 0 ? 'base' : 'composicoes')
 
   return (
     <div className="space-y-0">
       <div className="flex gap-0 border-b border-gray-200 mb-6 overflow-x-auto">
         {([
           { key: 'base',        label: 'Da Base Global' },
+          { key: 'composicoes', label: 'Composições' },
+          { key: 'insumos',     label: 'Insumos Avulsos' },
           { key: 'sinapi',      label: 'SINAPI (arquivo)' },
           { key: 'sudecap',     label: 'SUDECAP (arquivo)' },
           { key: 'dnit',        label: 'DNIT/SICRO (arquivo)' },
-          { key: 'composicoes', label: 'Composições' },
-          { key: 'insumos',     label: 'Insumos Avulsos' },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
             className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${

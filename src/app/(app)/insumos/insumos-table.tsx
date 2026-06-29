@@ -41,6 +41,14 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
     try {
       const sb = createClient() as any;
       await sb.from('tabela_insumos').update({ preco_base: parsed }).eq('id', id);
+      const { data: { user } } = await sb.auth.getUser();
+      await sb.from('tabela_historico_precos').insert({
+        insumo_id:      id,
+        preco_anterior: current?.preco_base ?? null,
+        preco_novo:     parsed,
+        origem:         'manual',
+        usuario:        user?.email ?? null,
+      });
     } catch {
       setInsumos(prev => prev.map(ins => ins.id === id && current ? { ...ins, preco_base: current.preco_base } : ins));
       alert('Erro ao salvar. Verifique a conexão.');

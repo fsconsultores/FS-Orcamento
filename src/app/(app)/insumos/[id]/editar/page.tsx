@@ -30,6 +30,8 @@ export default function EditarInsumoPage() {
   const [grupos, setGrupos] = useState<string[]>([]);
   const grupoRef = useRef<HTMLDivElement>(null);
   const [baseInfo, setBaseInfo] = useState<{ orgao: string; tipo_base: string } | null>(null);
+  const [precoOriginal, setPrecoOriginal] = useState<number>(0);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [form, setForm] = useState({
     codigo: '',
     descricao: '',
@@ -42,11 +44,11 @@ export default function EditarInsumoPage() {
   useEffect(() => {
     async function load() {
       const sb = createClient() as any;
-      const res = await sb
-        .from('tabela_insumos')
-        .select('*, tabela_bases(orgao, tipo_base)')
-        .eq('id', id)
-        .single();
+      const [res, { data: { user } }] = await Promise.all([
+        sb.from('tabela_insumos').select('*, tabela_bases(orgao, tipo_base)').eq('id', id).single(),
+        sb.auth.getUser(),
+      ]);
+      setUserEmail(user?.email ?? null);
       if (res.error || !res.data) {
         setError('Insumo não encontrado.');
         setFetching(false);
@@ -61,6 +63,7 @@ export default function EditarInsumoPage() {
         data_referencia: d.data_referencia ?? '',
         observacao: d.observacao ?? '',
       });
+      setPrecoOriginal(d.preco_base);
       setGrupos(d.grupo ? d.grupo.split(',') : []);
       setBaseInfo(d.tabela_bases ?? null);
       setFetching(false);
@@ -113,7 +116,17 @@ export default function EditarInsumoPage() {
         .select('id');
       if (dbError) throw dbError;
       if (!updated?.length) throw new Error('RLS bloqueou o update.');
-      router.refresh();
+
+      if (Math.abs(preco - precoOriginal) > 0.00005) {
+        await sb.from('tabela_historico_precos').insert({
+          insumo_id:      id,
+          preco_anterior: precoOriginal,
+          preco_novo:     preco,
+          origem:         'manual',
+          usuario:        userEmail,
+        });
+      }
+
       router.push('/insumos');
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
@@ -157,8 +170,7 @@ export default function EditarInsumoPage() {
     <div className="max-w-2xl space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <Link href="/insumos" className="text-sm text-blue-600 hover:underline">← Insumos</Link>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900">
             {isExterna ? 'Visualizar insumo' : 'Editar insumo'}
           </h1>
           {baseInfo && (

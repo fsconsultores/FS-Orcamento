@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { logAction } from '@/lib/log'
 
 // 27 states in SINAPI file order (columns 6–32)
 const SINAPI_STATES = [
@@ -210,6 +211,7 @@ async function importarRows(
   rows: RowParsed[],
   mesAno: string,
   estado: StateCode,
+  userEmail: string,
 ): Promise<ImportResult> {
   const sb = createClient() as any
   const { data: baseId, error: baseErr } = await sb.rpc('get_or_create_propria_base')
@@ -218,17 +220,27 @@ async function importarRows(
   const dataReferencia = mesAno ? `${mesAno}-01` : null
   const codigos = rows.map(r => r.codigo)
   const existentesMap = new Map<string, string>()
+  const precosAtuaisMap = new Map<string, number>()
 
   for (let i = 0; i < codigos.length; i += 500) {
     const { data: exs } = await sb
       .from('tabela_insumos')
-      .select('id, codigo')
+      .select('id, codigo, preco_base')
       .eq('base_id', baseId)
       .in('codigo', codigos.slice(i, i + 500))
-    for (const e of (exs ?? []) as { id: string; codigo: string }[]) {
+    for (const e of (exs ?? []) as { id: string; codigo: string; preco_base: number }[]) {
       existentesMap.set(e.codigo, e.id)
+      precosAtuaisMap.set(e.codigo, e.preco_base)
     }
   }
+
+  await logAction(sb, {
+    usuario: userEmail,
+    tipo: 'info',
+    acao: 'importar_sinapi',
+    mensagem: 'Importação SINAPI iniciada.',
+    contexto: { estado, total: rows.length, para_atualizar: codigos.filter(c => existentesMap.has(c)).length },
+  })
 
   const aAtualizar = rows.filter(r => existentesMap.has(r.codigo))
   const aInserir   = rows.filter(r => !existentesMap.has(r.codigo))
@@ -246,7 +258,23 @@ async function importarRows(
       base_origem:     'SINAPI',
     }))
     const { data, error } = await sb.from('tabela_insumos').upsert(lote, { onConflict: 'id' }).select('id')
-    if (!error) atualizados += (data ?? []).length; else erros += lote.length
+    if (!error) {
+      atualizados += (data ?? []).length
+      const histRecords = aAtualizar.slice(i, i + 100)
+        .filter(r => Math.abs((precosAtuaisMap.get(r.codigo) ?? 0) - r.preco) > 0.00005)
+        .map(r => ({
+          insumo_id:      existentesMap.get(r.codigo)!,
+          preco_anterior: precosAtuaisMap.get(r.codigo) ?? null,
+          preco_novo:     r.preco,
+          origem:         'sinapi',
+          usuario:        userEmail,
+        }))
+      if (histRecords.length > 0) {
+        await sb.from('tabela_historico_precos').insert(histRecords)
+      }
+    } else {
+      erros += lote.length
+    }
   }
 
   for (let i = 0; i < aInserir.length; i += 100) {
@@ -264,6 +292,14 @@ async function importarRows(
     const { data, error } = await sb.from('tabela_insumos').insert(lote).select('id')
     if (!error) inseridos += (data ?? []).length; else erros += lote.length
   }
+
+  await logAction(sb, {
+    usuario: userEmail,
+    tipo: 'sucesso',
+    acao: 'importar_sinapi',
+    mensagem: `Importação SINAPI: ${atualizados} preços atualizados, ${inseridos} inseridos.`,
+    contexto: { estado, atualizados, inseridos, semPreco, erros },
+  })
 
   return { atualizados, inseridos, semPreco, erros }
 }
@@ -325,7 +361,10 @@ export default function ImportarSinapiPage() {
     setLoading(true)
     setGlobalError(null)
     try {
-      const result = await importarRows(rows, mesAno, estado)
+      const sb = createClient() as any
+      const { data: { user } } = await sb.auth.getUser()
+      const userEmail = user?.email ?? 'desconhecido'
+      const result = await importarRows(rows, mesAno, estado, userEmail)
       setResultado(result)
       setFileText('')
       setNomeArquivo('')

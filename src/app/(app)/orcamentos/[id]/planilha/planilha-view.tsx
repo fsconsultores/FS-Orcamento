@@ -386,6 +386,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [showInvalidModal, setShowInvalidModal] = useState(false)
   const pendingHrefRef = useRef<string | null>(null)
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dirtyItemsRef = useRef<Map<string, Partial<EstruturaItem>>>(new Map())
   const isSaving = saveStatus === 'saving'
 
   function scheduleSaved() {
@@ -426,6 +427,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     }
     setSaveStatus('saving')
     try {
+      // 1. Validar composições antes de persistir
       const codigos = [...new Set(
         items.filter(i => i.tipo === 'item' && i.codigo).map(i => i.codigo!)
       )]
@@ -438,6 +440,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           return
         }
       }
+      // 2. Persistir todos os campos acumulados desde o último save
+      const pending = [...dirtyItemsRef.current.entries()]
+      if (pending.length > 0) {
+        await Promise.all(
+          pending.map(([id, fields]) => atualizarItemEstrutura(id, orcamentoId, fields as any))
+        )
+        dirtyItemsRef.current.clear()
+      }
       setInvalidCodigos(new Set())
       setIsDirty(false)
       scheduleSaved()
@@ -447,6 +457,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   }
 
   function handleConfirmLeave() {
+    dirtyItemsRef.current.clear()
     setShowLeaveModal(false)
     setIsDirty(false)
     const href = pendingHrefRef.current
@@ -597,14 +608,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     } else {
       value = draft.trim() || null
     }
-    // Ao editar o código, remove da lista de inválidos para revalidar no próximo save
     if (field === 'codigo') {
       const oldCodigo = items.find(i => i.id === id)?.codigo
       if (oldCodigo) setInvalidCodigos(prev => { const s = new Set(prev); s.delete(oldCodigo); return s })
     }
     setIsDirty(true)
     setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
-    atualizarItemEstrutura(id, orcamentoId, { [field]: value } as any)
+    // Acumula no ref — só vai ao banco ao clicar "Salvar Planilha"
+    dirtyItemsRef.current.set(id, { ...dirtyItemsRef.current.get(id), [field]: value })
   }
 
   function navigateFrom(id: string, field: string, dir: 'tab' | 'back' | 'enter') {
@@ -1713,19 +1724,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                               const oldCodigo = nodo.codigo
                               if (oldCodigo) setInvalidCodigos(prev => { const ns = new Set(prev); ns.delete(oldCodigo); return ns })
                               setIsDirty(true)
-                              setItems(prev => prev.map(it => it.id === nodo.id ? {
-                                ...it,
+                              const fields = {
                                 codigo: s.codigo,
                                 descricao: s.descricao,
                                 unidade: s.unidade,
                                 ...(hasCusto ? { custo_unitario: s.custo_unitario } : {}),
-                              } : it))
-                              atualizarItemEstrutura(nodo.id, orcamentoId, {
-                                codigo: s.codigo,
-                                descricao: s.descricao,
-                                unidade: s.unidade,
-                                ...(hasCusto ? { custo_unitario: s.custo_unitario } : {}),
-                              })
+                              }
+                              setItems(prev => prev.map(it => it.id === nodo.id ? { ...it, ...fields } : it))
+                              dirtyItemsRef.current.set(nodo.id, { ...dirtyItemsRef.current.get(nodo.id), ...fields })
                               setEditingCell(null)
                             }}
                           />

@@ -243,6 +243,22 @@ export default function ImportarInsumosPage() {
         </div>
       )}
 
+      {/* Atalho Cotação */}
+      <Link
+        href={'/insumos/importar/cotacao' as any}
+        className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 hover:bg-green-100 transition-colors"
+      >
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-green-900">Importar Cotação de Preços (XLSX / CSV)</p>
+          <p className="text-xs text-green-700 mt-0.5">
+            Atualize preços em massa a partir de uma planilha de cotação. Compara preços atuais × importados, exibe prévia e grava histórico.
+          </p>
+        </div>
+        <svg className="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </Link>
+
       {/* Atalho SINAPI */}
       <Link
         href="/insumos/importar/sinapi"
