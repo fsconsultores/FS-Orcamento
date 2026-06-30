@@ -466,18 +466,23 @@ async function importarInsumos(sb: any, baseId: string, rows: ImportInsumoRow[])
 }
 
 async function importarComposicoes(sb: any, baseId: string, rows: ImportComposicaoRow[]): Promise<ImportResult> {
-  const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
+  const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [], gruposAtualizados: 0 }
   const insumosPorCodigo = new Map<string, ImportInsumoRow>()
   for (const comp of rows)
     for (const ins of comp.insumos)
       if (ins.codigo && !insumosPorCodigo.has(ins.codigo)) insumosPorCodigo.set(ins.codigo, ins)
   const todosCodigos = [...insumosPorCodigo.keys()]
   const codeToId = new Map<string, string>()
+  const codeToGrupoAtual = new Map<string, string | null>()
   for (let i = 0; i < todosCodigos.length; i += 500) {
-    const { data } = await sb.from('tabela_insumos').select('id, codigo').eq('base_id', baseId).in('codigo', todosCodigos.slice(i, i + 500))
-    for (const ins of (data ?? []) as { id: string; codigo: string }[]) codeToId.set(ins.codigo, ins.id)
+    const { data } = await sb.from('tabela_insumos').select('id, codigo, grupo').eq('base_id', baseId).in('codigo', todosCodigos.slice(i, i + 500))
+    for (const ins of (data ?? []) as { id: string; codigo: string; grupo: string | null }[]) {
+      codeToId.set(ins.codigo, ins.id)
+      codeToGrupoAtual.set(ins.codigo, ins.grupo)
+    }
   }
   const ausentes = todosCodigos.filter(c => !codeToId.has(c))
+  const ausentesSet = new Set(ausentes)
   for (let i = 0; i < ausentes.length; i += 500) {
     const lote = ausentes.slice(i, i + 500).map(codigo => {
       const ins = insumosPorCodigo.get(codigo)!
@@ -487,6 +492,26 @@ async function importarComposicoes(sb: any, baseId: string, rows: ImportComposic
     if (error) { result.erros.push(`Insumos automáticos: ${error.message}`); break }
     for (const ins of (data ?? []) as { id: string; codigo: string }[]) { codeToId.set(ins.codigo, ins.id); result.insumosCriados++ }
   }
+
+  // Backfill: insumos que já existiam na base sem grupo recebem o grupo desta importação
+  const grupoToIds = new Map<string, string[]>()
+  for (const codigo of todosCodigos) {
+    if (codeToGrupoAtual.get(codigo)) continue // já tem grupo — não sobrescreve
+    if (!codeToId.has(codigo) || ausentesSet.has(codigo)) continue // recém-criado, já saiu com grupo
+    const novoGrupo = insumosPorCodigo.get(codigo)?.grupo
+    if (!novoGrupo) continue
+    const id = codeToId.get(codigo)!
+    if (!grupoToIds.has(novoGrupo)) grupoToIds.set(novoGrupo, [])
+    grupoToIds.get(novoGrupo)!.push(id)
+  }
+  await Promise.all(
+    [...grupoToIds.entries()].flatMap(([grupo, ids]) =>
+      Array.from({ length: Math.ceil(ids.length / 500) }, (_, j) =>
+        sb.from('tabela_insumos').update({ grupo }).in('id', ids.slice(j * 500, (j + 1) * 500))
+      )
+    )
+  )
+  result.gruposAtualizados = [...grupoToIds.values()].reduce((acc, ids) => acc + ids.length, 0)
   const rowsMap = new Map<string, ImportComposicaoRow>()
   for (const r of rows) { if (!rowsMap.has(r.codigo)) rowsMap.set(r.codigo, r) }
   const rowsUniq = [...rowsMap.values()]
@@ -542,6 +567,7 @@ function ResultBox({ result }: { result: ImportResult }) {
       <p className="text-sm text-gray-700">
         {result.composicoesCriadas > 0 && <>{result.composicoesCriadas} composição(ões), </>}
         {result.insumosCriados} insumo(s) importados.
+        {!!result.gruposAtualizados && <> {result.gruposAtualizados} grupo(s) preenchido(s) em insumos existentes.</>}
       </p>
       {result.erros.length > 0 && (
         <ul className="mt-2 text-xs text-orange-700 space-y-1">
@@ -638,7 +664,7 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
     if (!pendingData) return
     setLoading(true)
     const sb = createClient() as any
-    const combined: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
+    const combined: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [], gruposAtualizados: 0 }
     try {
       if (pendingData.insumos.length > 0) {
         const r = await importarInsumos(sb, baseId, pendingData.insumos)
@@ -649,6 +675,7 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
         const r = await importarComposicoes(sb, baseId, pendingData.composicoes)
         combined.composicoesCriadas += r.composicoesCriadas
         combined.insumosCriados += r.insumosCriados
+        combined.gruposAtualizados = (combined.gruposAtualizados ?? 0) + (r.gruposAtualizados ?? 0)
         combined.erros.push(...r.erros)
       }
       setResult(combined)

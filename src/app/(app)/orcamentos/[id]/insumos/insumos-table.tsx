@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { sincronizarCustosPlanilha } from '@/lib/orcamento'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
@@ -112,6 +113,7 @@ export function OrcamentoInsumosTable({
   initialInsumos: OrcamentoInsumo[]
   orcamentoId: string
 }) {
+  const router = useRouter()
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
 
@@ -270,35 +272,53 @@ export function OrcamentoInsumosTable({
   }
 
   async function handleClear() {
-    const avulsos = insumos.filter(i => i.composicao_id === null)
-    if (avulsos.length === 0) return
-    if (!confirm(`Excluir todos os ${avulsos.length} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
-    setInsumos(prev => prev.filter(i => i.composicao_id !== null))
     const sb = createClient() as any
+
+    // Conta direto no banco — não confia no estado local, que pode estar
+    // desatualizado se a página não foi recarregada após uma importação/adição.
+    const { data: avulsosAtuais, error: countErr } = await sb
+      .from('orcamento_insumos')
+      .select('id, codigo, descricao, unidade, custo, grupo, base, data_ref, orcamento_id, composicao_id, created_at')
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+    if (countErr) {
+      alert(`Erro ao verificar insumos avulsos: ${countErr.message}`)
+      return
+    }
+    const totalAvulsos = avulsosAtuais?.length ?? 0
+    if (totalAvulsos === 0) {
+      alert('Não há insumos avulsos para remover. A lista será atualizada.')
+      router.refresh()
+      return
+    }
+    if (!confirm(`Excluir todos os ${totalAvulsos} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
+
     const { error, count } = await sb
       .from('orcamento_insumos')
       .delete({ count: 'exact' })
       .eq('orcamento_id', orcamentoId)
       .is('composicao_id', null)
     if (error) {
-      setInsumos(initialInsumos)
       alert(`Erro ao limpar insumos: ${error.message}`)
+      router.refresh()
       return
     }
     if (!count) {
-      setInsumos(initialInsumos)
       alert('Nenhum insumo foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados — entre em contato com o suporte para investigar.')
+      router.refresh()
       return
     }
+    setInsumos(prev => prev.filter(i => i.composicao_id !== null))
     const { data: { user } } = await sb.auth.getUser()
     logAction(sb, {
       usuario: user?.email ?? '',
       tipo: 'info',
       acao: 'limpar_insumos_avulsos',
       mensagem: `${count} insumo(s) avulso(s) removido(s) do orçamento`,
-      contexto: { orcamento_id: orcamentoId, insumos_apagados: avulsos },
+      contexto: { orcamento_id: orcamentoId, insumos_apagados: avulsosAtuais },
     }).catch(console.error)
     alert(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
+    router.refresh()
   }
 
   async function handleExport() {
@@ -351,7 +371,6 @@ export function OrcamentoInsumosTable({
         </button>
         <button
           onClick={handleClear}
-          disabled={insumos.filter(i => i.composicao_id === null).length === 0}
           className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

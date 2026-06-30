@@ -26,6 +26,7 @@ export interface ImportResult {
   composicoesCriadas: number
   insumosCriados: number
   erros: string[]
+  gruposAtualizados?: number
 }
 
 // Importação de insumos avulsos — importados sempre sobrescrevem os existentes
