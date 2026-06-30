@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import { logAction } from '@/lib/log'
 
 export type LogRow = {
   id: string
@@ -12,6 +14,18 @@ export type LogRow = {
   acao: string
   mensagem: string
   contexto: Record<string, unknown> | null
+}
+
+const RESTORABLE: Record<string, { table: string; field: string; label: string }> = {
+  limpar_planilha: { table: 'orcamento_estrutura', field: 'itens_apagados', label: 'item(ns) da planilha' },
+  limpar_insumos_avulsos: { table: 'orcamento_insumos', field: 'insumos_apagados', label: 'insumo(s) avulso(s)' },
+}
+
+function itemLabel(item: Record<string, unknown>): string {
+  if (typeof item.numero === 'string' && item.numero) {
+    return `${item.numero} — ${item.descricao ?? ''}`
+  }
+  return `${item.codigo ?? ''} — ${item.descricao ?? ''}`
 }
 
 const TIPO_CONFIG: Record<LogRow['tipo'], { label: string; row: string; badge: string; dot: string }> = {
@@ -47,9 +61,53 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
   const [isPending, startTransition] = useTransition()
   const [filtroTipo, setFiltroTipo] = useState<'' | LogRow['tipo']>('')
   const [busca, setBusca] = useState('')
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  const [restaurandoId, setRestaurandoId] = useState<string | null>(null)
 
   function atualizar() {
     startTransition(() => router.refresh())
+  }
+
+  function toggleExpandido(id: string) {
+    setExpandidos(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleRestaurar(log: LogRow) {
+    const cfg = RESTORABLE[log.acao]
+    if (!cfg) return
+    const itens = (log.contexto?.[cfg.field] as Record<string, unknown>[]) ?? []
+    if (itens.length === 0) return
+    if (!confirm(`Restaurar ${itens.length} ${cfg.label}?`)) return
+
+    setRestaurandoId(log.id)
+    try {
+      const sb = createClient() as any
+      const ordenados = [...itens].sort(
+        (a, b) => ((a.nivel as number) ?? 0) - ((b.nivel as number) ?? 0)
+      )
+      const { error } = await sb.from(cfg.table).insert(ordenados)
+      if (error) {
+        alert(`Erro ao restaurar: ${error.message}`)
+        return
+      }
+      const { data: { user } } = await sb.auth.getUser()
+      await logAction(sb, {
+        usuario: user?.email ?? '',
+        tipo: 'info',
+        acao: `restaurar_${log.acao}`,
+        mensagem: `${itens.length} ${cfg.label} restaurado(s) a partir do log de ${new Date(log.created_at).toLocaleString('pt-BR')}`,
+        contexto: { log_original_id: log.id },
+      }).catch(console.error)
+      alert('Restaurado com sucesso.')
+      atualizar()
+    } finally {
+      setRestaurandoId(null)
+    }
   }
 
   const logs = useMemo(() => {
@@ -130,6 +188,11 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
               dateStyle: 'short',
               timeStyle: 'short',
             })
+            const restoreCfg = RESTORABLE[log.acao]
+            const itensApagados = restoreCfg
+              ? ((log.contexto?.[restoreCfg.field] as Record<string, unknown>[]) ?? [])
+              : []
+            const expandido = expandidos.has(log.id)
             return (
               <div
                 key={log.id}
@@ -147,6 +210,34 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
                     <span className="text-xs text-gray-400 font-mono">{log.acao}</span>
                   </div>
                   <p className="mt-0.5 text-sm text-gray-900">{log.mensagem}</p>
+
+                  {itensApagados.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => toggleExpandido(log.id)}
+                        className="text-xs font-medium text-blue-600 hover:underline"
+                      >
+                        {expandido ? 'Ocultar itens apagados' : `Ver ${itensApagados.length} item(ns) apagado(s)`}
+                      </button>
+                      <button
+                        onClick={() => handleRestaurar(log)}
+                        disabled={restaurandoId === log.id}
+                        className="rounded-md border border-green-300 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                      >
+                        {restaurandoId === log.id ? 'Restaurando...' : 'Restaurar'}
+                      </button>
+                    </div>
+                  )}
+
+                  {expandido && itensApagados.length > 0 && (
+                    <ul className="mt-2 max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 p-2 text-xs text-gray-600">
+                      {itensApagados.map((item, i) => (
+                        <li key={(item.id as string) ?? i} className="truncate py-0.5">
+                          {itemLabel(item)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             )

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { sincronizarCustosPlanilha } from '@/lib/orcamento'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
+import { logAction } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
 
 const PAGE_SIZE = 100
@@ -274,15 +275,30 @@ export function OrcamentoInsumosTable({
     if (!confirm(`Excluir todos os ${avulsos.length} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
     setInsumos(prev => prev.filter(i => i.composicao_id !== null))
     const sb = createClient() as any
-    const { error } = await sb
+    const { error, count } = await sb
       .from('orcamento_insumos')
-      .delete()
+      .delete({ count: 'exact' })
       .eq('orcamento_id', orcamentoId)
       .is('composicao_id', null)
     if (error) {
       setInsumos(initialInsumos)
       alert(`Erro ao limpar insumos: ${error.message}`)
+      return
     }
+    if (!count) {
+      setInsumos(initialInsumos)
+      alert('Nenhum insumo foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados — entre em contato com o suporte para investigar.')
+      return
+    }
+    const { data: { user } } = await sb.auth.getUser()
+    logAction(sb, {
+      usuario: user?.email ?? '',
+      tipo: 'info',
+      acao: 'limpar_insumos_avulsos',
+      mensagem: `${count} insumo(s) avulso(s) removido(s) do orçamento`,
+      contexto: { orcamento_id: orcamentoId, insumos_apagados: avulsos },
+    }).catch(console.error)
+    alert(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
   }
 
   async function handleExport() {

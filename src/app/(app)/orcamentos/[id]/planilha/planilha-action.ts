@@ -276,19 +276,33 @@ export async function moverItem(
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 }
 
-export async function limparPlanilha(orcamentoId: string): Promise<void> {
+export async function limparPlanilha(orcamentoId: string): Promise<{ removidos: number }> {
   const supabase = await createClient()
   const sb = supabase as any
-  await sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId)
+  const { data: itensApagados } = await sb
+    .from('orcamento_estrutura')
+    .select('*')
+    .eq('orcamento_id', orcamentoId)
+  const { error, count } = await sb
+    .from('orcamento_estrutura')
+    .delete({ count: 'exact' })
+    .eq('orcamento_id', orcamentoId)
+  if (error) {
+    throw new Error(`Erro ao limpar planilha: ${error.message}`)
+  }
+  if ((itensApagados?.length ?? 0) > 0 && !count) {
+    throw new Error('Nenhum item foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados.')
+  }
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   const { data: authData } = await supabase.auth.getUser()
   logAction(supabase, {
     usuario: authData?.user?.email ?? '',
     tipo: 'info',
     acao: 'limpar_planilha',
-    mensagem: `Planilha do orçamento limpa`,
-    contexto: { orcamento_id: orcamentoId },
+    mensagem: `Planilha do orçamento limpa (${count ?? 0} item(ns) removido(s))`,
+    contexto: { orcamento_id: orcamentoId, itens_apagados: itensApagados ?? [] },
   }).catch(console.error)
+  return { removidos: count ?? 0 }
 }
 
 export interface SugestaoCodigo {

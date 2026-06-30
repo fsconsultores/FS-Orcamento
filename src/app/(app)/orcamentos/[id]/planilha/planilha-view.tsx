@@ -1249,8 +1249,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           <button
             onClick={async () => {
               if (!confirm('Excluir toda a planilha orçamentária? Esta ação não pode ser desfeita.')) return
-              await limparPlanilha(orcamentoId)
-              setItems([])
+              try {
+                const { removidos } = await limparPlanilha(orcamentoId)
+                setItems([])
+                alert(`${removidos} item(ns) removido(s) com sucesso.`)
+              } catch (err) {
+                alert((err as Error).message)
+              }
             }}
             className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
           >
