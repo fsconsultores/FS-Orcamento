@@ -4,6 +4,9 @@ import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
+import { calcularPlanilhaAction, criarPlanilhaAction, renomearPlanilhaAction, excluirPlanilhaAction, duplicarPlanilhaAction } from './calcular-action'
+import type { OrcamentoPlanilha } from '@/lib/orcamento/types'
+import type { CalculoResult } from '@/lib/orcamento/motor-calculo'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
@@ -240,7 +243,7 @@ function CodigoAutocomplete({
 // ─── Formulário de novo item ──────────────────────────────────────────────────
 
 function AddItemForm({
-  orcamentoId, parentId, parentNivel, parentNumero, parentDescricao, onClose, isGroup,
+  orcamentoId, parentId, parentNivel, parentNumero, parentDescricao, onClose, isGroup, planilhaId,
 }: {
   orcamentoId: string
   parentId: string | null
@@ -249,6 +252,7 @@ function AddItemForm({
   parentDescricao?: string
   onClose: (newItem?: EstruturaItem) => void
   isGroup?: boolean
+  planilhaId?: string | null
 }) {
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '', quantidade: '', custo_unitario: '' })
   const [loading, setLoading] = useState(false)
@@ -265,7 +269,7 @@ function AddItemForm({
         quantidade: isGroup ? null : (parseFloat(form.quantidade.replace(',', '.')) || null),
         custo_unitario: isGroup ? null : (parseFloat(form.custo_unitario.replace(',', '.')) || null),
         tipo: isGroup ? 'grupo' : 'item',
-      })
+      }, planilhaId)
       onClose(newItem)
     } finally { setLoading(false) }
   }
@@ -338,7 +342,7 @@ function fieldToStr(it: EstruturaItem, field: string): string {
 
 // ─── View principal ───────────────────────────────────────────────────────────
 
-export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1] }: {
+export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1], planilhas: initialPlanilhas = [], activePlanilhaId = null }: {
   initialItems: EstruturaItem[]
   orcamentoId: string
   nomeOrcamento?: string
@@ -346,6 +350,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   cliente?: string | null
   dataOrcamento?: string | null
   numeracaoDigitos?: number[]
+  planilhas?: OrcamentoPlanilha[]
+  activePlanilhaId?: string | null
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
 
@@ -374,6 +380,92 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const [isCalculating, setIsCalculating] = useState(false)
   const [calcPanelOpen, setCalcPanelOpen] = useState(false)
   const calcPanelRef = useRef<HTMLDivElement>(null)
+  const [calcLogs, setCalcLogs] = useState<string[]>([])
+  const [calcErro, setCalcErro] = useState<string | null>(null)
+
+  // ── Planilhas ────────────────────────────────────────────────────────────────
+  const [planilhas, setPlanilhas] = useState<OrcamentoPlanilha[]>(initialPlanilhas)
+  const [planilhaMenuId, setPlanilhaMenuId] = useState<string | null>(null)
+  const [planilhaRenomearId, setPlanilhaRenomearId] = useState<string | null>(null)
+  const [planilhaRenomearNome, setPlanilhaRenomearNome] = useState('')
+  const [planilhaLoading, setPlanilhaLoading] = useState(false)
+  const planilhaMenuRef = useRef<HTMLDivElement>(null)
+
+  // Fecha menu de planilha ao clicar fora
+  useEffect(() => {
+    if (!planilhaMenuId) return
+    function close(e: MouseEvent) {
+      if (planilhaMenuRef.current && !planilhaMenuRef.current.contains(e.target as Node)) setPlanilhaMenuId(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [planilhaMenuId])
+
+  async function handleCriarPlanilha() {
+    if (planilhaLoading) return
+    setPlanilhaLoading(true)
+    try {
+      const nome = `Planilha ${planilhas.length + 2}`
+      const nova = await criarPlanilhaAction(orcamentoId, nome, bdiGlobal)
+      setPlanilhas(prev => [...prev, nova])
+      router.push(`?planilha=${nova.id}` as any)
+    } finally {
+      setPlanilhaLoading(false)
+    }
+  }
+
+  async function handleRenomearPlanilha(planilhaId: string) {
+    if (!planilhaRenomearNome.trim() || planilhaLoading) return
+    setPlanilhaLoading(true)
+    try {
+      const atualizada = await renomearPlanilhaAction(planilhaId, planilhaRenomearNome.trim())
+      setPlanilhas(prev => prev.map(p => p.id === planilhaId ? atualizada : p))
+    } finally {
+      setPlanilhaLoading(false)
+      setPlanilhaRenomearId(null)
+    }
+  }
+
+  async function handleDuplicarPlanilha(planilhaId: string, nomeOriginal: string) {
+    if (planilhaLoading) return
+    setPlanilhaLoading(true)
+    try {
+      const nova = await duplicarPlanilhaAction(planilhaId, `Cópia de ${nomeOriginal}`)
+      setPlanilhas(prev => [...prev, nova])
+      router.push(`?planilha=${nova.id}` as any)
+    } finally {
+      setPlanilhaLoading(false)
+      setPlanilhaMenuId(null)
+    }
+  }
+
+  async function handleExcluirPlanilha(planilhaId: string) {
+    if (planilhas.length <= 1) { alert('Não é possível excluir a única planilha do orçamento.'); return }
+    if (!confirm('Excluir esta planilha e todos seus itens? Esta ação não pode ser desfeita.')) return
+    if (planilhaLoading) return
+    setPlanilhaLoading(true)
+    try {
+      await excluirPlanilhaAction(planilhaId)
+      const restantes = planilhas.filter(p => p.id !== planilhaId)
+      setPlanilhas(restantes)
+      if (activePlanilhaId === planilhaId && restantes.length > 0) {
+        router.push(`?planilha=${restantes[0].id}` as any)
+      }
+    } finally {
+      setPlanilhaLoading(false)
+      setPlanilhaMenuId(null)
+    }
+  }
+
+  function handleSwitchPlanilha(planilhaId: string) {
+    if (planilhaId === activePlanilhaId) return
+    if (isDirty) {
+      pendingHrefRef.current = `?planilha=${planilhaId}`
+      setShowLeaveModal(true)
+      return
+    }
+    router.push(`?planilha=${planilhaId}` as any)
+  }
   const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
   const [valorFinalInput, setValorFinalInput] = useState('')
 
@@ -466,9 +558,16 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   }
 
   async function handleAtualizar() {
+    if (isCalculating) return
     setIsCalculating(true)
+    setCalcLogs([])
+    setCalcErro(null)
     try {
-      const fresh = await buscarItensEstrutura(orcamentoId)
+      const result: CalculoResult = await calcularPlanilhaAction(orcamentoId, activePlanilhaId)
+      setCalcLogs(result.logs.map(l => l.msg))
+      if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
+      // Recarrega itens atualizados do banco
+      const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
       setCalcTimestamp(new Date())
     } finally {
@@ -673,14 +772,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       const newItem = await adicionarItemEstrutura(orcamentoId, nodo.id, nodo.nivel, {
         codigo: null, descricao: 'Novo item', unidade: null,
         quantidade: null, custo_unitario: null, tipo: 'item', numero: '',
-      })
+      }, activePlanilhaId)
       setItems(prev => { const next = [...prev, newItem]; agendarSincronizacaoComItems(next); return next })
       setCollapsed(prev => { const s = new Set(prev); s.delete(nodo.id); return s })
       setTimeout(() => openCell(newItem.id, 'descricao'), 50)
       return
     }
 
-    const newItem = await adicionarItemNaPosicao(orcamentoId, nodo.id, position)
+    const newItem = await adicionarItemNaPosicao(orcamentoId, nodo.id, position, activePlanilhaId)
     setItems(prev => {
       const next = [...prev, newItem].map(it => {
         if (it.id === newItem.id) return it
@@ -1236,6 +1335,99 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
         </div>
       </div>
 
+      {/* ── Tabs de planilhas ───────────────────────────────────────────────── */}
+      {planilhas.length > 0 && (
+        <div className="flex items-center gap-0.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+          {planilhas.map(p => (
+            <div key={p.id} className="relative flex items-center shrink-0 group">
+              {planilhaRenomearId === p.id ? (
+                <form
+                  onSubmit={e => { e.preventDefault(); handleRenomearPlanilha(p.id) }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-t-md border border-b-0 border-blue-300 bg-white"
+                >
+                  <input
+                    autoFocus
+                    value={planilhaRenomearNome}
+                    onChange={e => setPlanilhaRenomearNome(e.target.value)}
+                    onBlur={() => handleRenomearPlanilha(p.id)}
+                    onKeyDown={e => e.key === 'Escape' && setPlanilhaRenomearId(null)}
+                    className="text-xs w-32 outline-none border-none bg-transparent"
+                  />
+                </form>
+              ) : (
+                <button
+                  onClick={() => handleSwitchPlanilha(p.id)}
+                  onDoubleClick={() => { setPlanilhaRenomearId(p.id); setPlanilhaRenomearNome(p.nome) }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-t-md border border-b-0 transition-colors ${
+                    p.id === activePlanilhaId
+                      ? 'bg-white border-gray-200 text-gray-900 shadow-sm'
+                      : 'bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:text-gray-700'
+                  }`}
+                >
+                  {p.nome}
+                </button>
+              )}
+              {/* Menu de contexto da planilha */}
+              <button
+                onClick={() => setPlanilhaMenuId(prev => prev === p.id ? null : p.id)}
+                className="opacity-0 group-hover:opacity-100 ml-0.5 p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-opacity"
+                title="Opções"
+              >
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
+                </svg>
+              </button>
+              {planilhaMenuId === p.id && (
+                <div ref={planilhaMenuRef} className="absolute left-0 top-full mt-1 z-50 min-w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-xl text-xs">
+                  <button
+                    onClick={() => { setPlanilhaRenomearId(p.id); setPlanilhaRenomearNome(p.nome); setPlanilhaMenuId(null) }}
+                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50"
+                  >
+                    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Renomear
+                  </button>
+                  <button
+                    onClick={() => handleDuplicarPlanilha(p.id, p.nome)}
+                    disabled={planilhaLoading}
+                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Duplicar
+                  </button>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button
+                    onClick={() => handleExcluirPlanilha(p.id)}
+                    disabled={planilhaLoading || planilhas.length <= 1}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Excluir
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={handleCriarPlanilha}
+            disabled={planilhaLoading}
+            className="ml-1 flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 rounded-t-md border border-transparent hover:bg-white hover:text-gray-700 hover:border-gray-200 disabled:opacity-50 transition-colors"
+            title="Nova planilha"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nova
+          </button>
+          <div className="flex-1 border-b border-gray-200" />
+        </div>
+      )}
+
       {/* Barra de ferramentas */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2">
@@ -1250,7 +1442,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
             onClick={async () => {
               if (!confirm('Excluir toda a planilha orçamentária? Esta ação não pode ser desfeita.')) return
               try {
-                const { removidos } = await limparPlanilha(orcamentoId)
+                const { removidos } = await limparPlanilha(orcamentoId, activePlanilhaId)
                 setItems([])
                 alert(`${removidos} item(ns) removido(s) com sucesso.`)
               } catch (err) {
@@ -1366,7 +1558,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                       </div>
                     </div>
 
-                    {/* Timestamp + atualizar */}
+                    {/* Timestamp + botão Calcular */}
                     <div className="px-4 py-3 flex items-center justify-between gap-2">
                       <p className="text-[11px] text-orange-700">
                         Calculado em {calcTimestamp.toLocaleString('pt-BR')}
@@ -1383,9 +1575,33 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        {isCalculating ? 'Atualizando...' : 'Atualizar cálculo'}
+                        {isCalculating ? 'Calculando...' : 'Executar cálculo'}
                       </button>
                     </div>
+
+                    {/* Log de execução do motor */}
+                    {calcLogs.length > 0 && (
+                      <div className="px-4 pb-3 border-t border-orange-200">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-orange-700 mt-2 mb-1">Log de execução</p>
+                        <ul className="space-y-0.5">
+                          {calcLogs.map((msg, i) => {
+                            const isErro = msg.startsWith('Erro')
+                            const isConcluido = msg.includes('concluído')
+                            return (
+                              <li key={i} className={`flex items-start gap-1.5 text-[11px] ${isErro ? 'text-red-600' : isConcluido ? 'text-green-700 font-medium' : 'text-orange-800'}`}>
+                                <span className="shrink-0 mt-0.5">
+                                  {isErro ? '✕' : isConcluido ? '✓' : '·'}
+                                </span>
+                                {msg}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                        {calcErro && (
+                          <p className="mt-2 text-[11px] text-red-600 bg-red-50 rounded px-2 py-1">{calcErro}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Ajustar valor do orçamento */}
                     <div className="px-4 py-3 border-t border-orange-200 bg-orange-100/50">
@@ -1622,6 +1838,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
 
       {addingParentId === 'root' && (
         <AddItemForm orcamentoId={orcamentoId} parentId={null} parentNivel={0} parentNumero=""
+          planilhaId={activePlanilhaId}
           onClose={(newItem) => { if (newItem) handleAfterCreate(newItem); else setAddingParentId(undefined) }}
           isGroup={true} />
       )}
@@ -1914,6 +2131,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                         <AddItemForm orcamentoId={orcamentoId}
                           parentId={addingParentGroup.id} parentNivel={addingParentGroup.nivel}
                           parentNumero={addingParentGroup.numero} parentDescricao={addingParentGroup.descricao}
+                          planilhaId={activePlanilhaId}
                           onClose={(newItem) => { if (newItem) handleAfterCreate(newItem); else setAddingParentId(undefined) }}
                           isGroup={false} />
                       </td>

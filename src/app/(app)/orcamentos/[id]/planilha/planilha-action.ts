@@ -7,6 +7,7 @@ import { logAction } from '@/lib/log'
 export interface EstruturaItem {
   id: string
   parent_id: string | null
+  planilha_id: string | null
   numero: string
   nivel: number
   codigo: string | null
@@ -64,29 +65,38 @@ export async function validarComposicoes(
   return codigos.filter(c => !validos.has(c))
 }
 
-export async function buscarItensEstrutura(orcamentoId: string): Promise<EstruturaItem[]> {
+export async function buscarItensEstrutura(
+  orcamentoId: string,
+  planilhaId?: string | null
+): Promise<EstruturaItem[]> {
   const supabase = await createClient()
   const sb = supabase as any
-  const { data } = await sb
+  let q = sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .eq('orcamento_id', orcamentoId)
     .order('nivel', { ascending: true })
     .order('ordem', { ascending: true })
+  if (planilhaId) q = q.eq('planilha_id', planilhaId)
+  const { data } = await q
   return data ?? []
 }
 
 export async function importarEstrutura(
   orcamentoId: string,
-  rows: EstruturaRow[]
+  rows: EstruturaRow[],
+  planilhaId?: string | null
 ): Promise<ImportResult> {
   const supabase = await createClient()
   const sb = supabase as any
   const erros: string[] = []
 
-  // Apaga dados existentes
-  await sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId)
+  // Apaga dados existentes da planilha (ou do orçamento inteiro se sem planilha)
+  const delQ = planilhaId
+    ? sb.from('orcamento_estrutura').delete().eq('planilha_id', planilhaId)
+    : sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId)
 
+  await delQ
   if (rows.length === 0) return { ok: 0, erros: [] }
 
   // Insere nível por nível para garantir parent_ids corretos
@@ -112,17 +122,18 @@ export async function importarEstrutura(
       const parentId = parentNormKey ? (idMap.get(parentNormKey) ?? null) : null
 
       return {
-        orcamento_id: orcamentoId,
-        parent_id: parentId,
-        numero: r.numero,
-        nivel: r.nivel,
-        codigo: r.codigo,
-        descricao: r.descricao,
-        unidade: r.unidade,
-        quantidade: r.quantidade,
+        orcamento_id:  orcamentoId,
+        planilha_id:   planilhaId ?? null,
+        parent_id:     parentId,
+        numero:        r.numero,
+        nivel:         r.nivel,
+        codigo:        r.codigo,
+        descricao:     r.descricao,
+        unidade:       r.unidade,
+        quantidade:    r.quantidade,
         custo_unitario: r.custo_unitario,
-        tipo: r.tipo,
-        ordem: r.ordem,
+        tipo:          r.tipo,
+        ordem:         r.ordem,
       }
     })
 
@@ -276,20 +287,24 @@ export async function moverItem(
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 }
 
-export async function limparPlanilha(orcamentoId: string): Promise<{ removidos: number }> {
+export async function limparPlanilha(
+  orcamentoId: string,
+  planilhaId?: string | null
+): Promise<{ removidos: number }> {
   const supabase = await createClient()
   const sb = supabase as any
-  const { data: itensApagados } = await sb
-    .from('orcamento_estrutura')
-    .select('*')
-    .eq('orcamento_id', orcamentoId)
-  const { error, count } = await sb
-    .from('orcamento_estrutura')
-    .delete({ count: 'exact' })
-    .eq('orcamento_id', orcamentoId)
-  if (error) {
-    throw new Error(`Erro ao limpar planilha: ${error.message}`)
-  }
+
+  const selectQ = planilhaId
+    ? sb.from('orcamento_estrutura').select('*').eq('planilha_id', planilhaId)
+    : sb.from('orcamento_estrutura').select('*').eq('orcamento_id', orcamentoId)
+  const { data: itensApagados } = await selectQ
+
+  const deleteQ = planilhaId
+    ? sb.from('orcamento_estrutura').delete({ count: 'exact' }).eq('planilha_id', planilhaId)
+    : sb.from('orcamento_estrutura').delete({ count: 'exact' }).eq('orcamento_id', orcamentoId)
+  const { error, count } = await deleteQ
+
+  if (error) throw new Error(`Erro ao limpar planilha: ${error.message}`)
   if ((itensApagados?.length ?? 0) > 0 && !count) {
     throw new Error('Nenhum item foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados.')
   }
@@ -299,8 +314,8 @@ export async function limparPlanilha(orcamentoId: string): Promise<{ removidos: 
     usuario: authData?.user?.email ?? '',
     tipo: 'info',
     acao: 'limpar_planilha',
-    mensagem: `Planilha do orçamento limpa (${count ?? 0} item(ns) removido(s))`,
-    contexto: { orcamento_id: orcamentoId, itens_apagados: itensApagados ?? [] },
+    mensagem: `Planilha limpa (${count ?? 0} item(ns) removido(s))`,
+    contexto: { orcamento_id: orcamentoId, planilha_id: planilhaId, itens_apagados: itensApagados ?? [] },
   }).catch(console.error)
   return { removidos: count ?? 0 }
 }
@@ -385,13 +400,14 @@ export async function adicionarItemNaPosicao(
   orcamentoId: string,
   referenceId: string,
   position: 'above' | 'below',
+  planilhaId?: string | null
 ): Promise<EstruturaItem> {
   const supabase = await createClient()
   const sb = supabase as any
 
   const { data: ref } = await sb
     .from('orcamento_estrutura')
-    .select('parent_id, nivel, ordem')
+    .select('parent_id, planilha_id, nivel, ordem')
     .eq('id', referenceId)
     .single()
 
@@ -416,20 +432,21 @@ export async function adicionarItemNaPosicao(
 
   const { data } = await sb.from('orcamento_estrutura')
     .insert({
-      orcamento_id: orcamentoId,
-      parent_id: ref.parent_id,
-      numero: '',
-      nivel: ref.nivel,
-      codigo: null,
-      descricao: 'Novo item',
-      unidade: null,
-      quantidade: null,
+      orcamento_id:  orcamentoId,
+      planilha_id:   planilhaId ?? ref.planilha_id ?? null,
+      parent_id:     ref.parent_id,
+      numero:        '',
+      nivel:         ref.nivel,
+      codigo:        null,
+      descricao:     'Novo item',
+      unidade:       null,
+      quantidade:    null,
       custo_unitario: null,
       bdi_especifico: null,
-      tipo: 'item',
-      ordem: insertOrdem,
+      tipo:          'item',
+      ordem:         insertOrdem,
     })
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .single()
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
@@ -440,7 +457,8 @@ export async function adicionarItemEstrutura(
   orcamentoId: string,
   parentId: string | null,
   parentNivel: number,
-  row: { codigo: string | null; descricao: string; unidade: string | null; quantidade: number | null; custo_unitario: number | null; tipo: 'grupo' | 'item'; numero: string }
+  row: { codigo: string | null; descricao: string; unidade: string | null; quantidade: number | null; custo_unitario: number | null; tipo: 'grupo' | 'item'; numero: string },
+  planilhaId?: string | null
 ): Promise<EstruturaItem> {
   const supabase = await createClient()
   const sb = supabase as any
@@ -457,20 +475,21 @@ export async function adicionarItemEstrutura(
 
   const { data } = await sb.from('orcamento_estrutura')
     .insert({
-      orcamento_id: orcamentoId,
-      parent_id: parentId,
-      numero: row.numero,
-      nivel: parentNivel + 1,
-      codigo: row.codigo,
-      descricao: row.descricao,
-      unidade: row.unidade,
-      quantidade: row.quantidade,
+      orcamento_id:  orcamentoId,
+      planilha_id:   planilhaId ?? null,
+      parent_id:     parentId,
+      numero:        row.numero,
+      nivel:         parentNivel + 1,
+      codigo:        row.codigo,
+      descricao:     row.descricao,
+      unidade:       row.unidade,
+      quantidade:    row.quantidade,
       custo_unitario: row.custo_unitario,
       bdi_especifico: null,
-      tipo: row.tipo,
-      ordem: nextOrdem,
+      tipo:          row.tipo,
+      ordem:         nextOrdem,
     })
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   return data[0] as EstruturaItem

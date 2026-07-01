@@ -1,6 +1,15 @@
 // Tipos para insumos e composições vinculados a um orçamento específico.
 // Isolados por orcamento_id — nunca compartilhados entre orçamentos.
 
+export interface OrcamentoPlanilha {
+  id: string
+  orcamento_id: string
+  nome: string
+  bdi_global: number
+  ordem: number
+  created_at: string
+}
+
 export interface OrcamentoInsumo {
   id: string
   orcamento_id: string
@@ -24,8 +33,9 @@ export interface OrcamentoComposicao {
   descricao: string
   unidade: string
   base: string | null
-  // Calculado na leitura: soma de custo dos orcamento_insumos vinculados
+  // Calculado pelo motor ou na leitura
   custo_unitario: number
+  calculado_em?: string | null
   created_at: string
 }
 

@@ -120,7 +120,7 @@ async function parseXlsx(ab: ArrayBuffer): Promise<{ rows: EstruturaRow[]; sheet
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
+export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: string; planilhaId?: string | null }) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
@@ -162,7 +162,7 @@ export function ImportPlanilhaForm({ orcamentoId }: { orcamentoId: string }) {
     if (!preview?.length) return
     setLoading(true)
     try {
-      const res = await importarEstrutura(orcamentoId, preview)
+      const res = await importarEstrutura(orcamentoId, preview, planilhaId)
       setPreview(null)
       setOpen(false)
       if (inputRef.current) inputRef.current.value = ''
