@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { sincronizarCustosPlanilha } from '@/lib/orcamento'
+import { recalcularAutoAction } from '../planilha/calcular-action'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
 import { logAction } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
@@ -188,11 +188,8 @@ export function OrcamentoInsumosTable({
           .in('composicao_id', compIds.slice(i, i + 500))
       }
 
-      try {
-        await sincronizarCustosPlanilha(sb, orcamentoId)
-      } catch (syncErr) {
-        console.error('Erro ao sincronizar custos da planilha:', syncErr)
-      }
+      // Recalcula composições afetadas e propaga para a estrutura
+      recalcularAutoAction(orcamentoId).catch(console.error)
     } catch {
       setInsumos(prev => prev.map(ins =>
         ins.codigo === alvo.codigo

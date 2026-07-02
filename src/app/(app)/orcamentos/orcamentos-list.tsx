@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useTransition, useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -602,7 +603,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-3">Código</th>
+                <th className="px-4 py-3 w-28">Código</th>
                 <th className="px-4 py-3">Nome da Obra</th>
                 <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Inclusão</th>
@@ -618,22 +619,14 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                     key={orc.id}
                     onClick={() => {
                       if (isPending || isDeleting) return;
-                      router.push(`/orcamentos/${orc.id}/planilha`);
+                      router.push(`/orcamentos/${orc.id}`);
                     }}
                     className={`transition-all ${isPending ? 'opacity-60 animate-pulse pointer-events-none bg-blue-50' : 'cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6]'} ${isDeleting ? 'opacity-40' : ''}`}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                      {orc.codigo}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      {orc.nome_obra}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {orc.cliente ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}
-                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{orc.codigo}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{orc.nome_obra}</td>
+                    <td className="px-4 py-3 text-gray-600">{orc.cliente ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500">{formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}</td>
                     <td className="px-4 py-3">
                       {isPending ? (
                         <div className="flex items-center justify-end">
@@ -641,28 +634,16 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={(e) => handleEditClick(e, orc)}
-                            disabled={isDeleting}
-                            title="Editar orçamento"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
-                          >
+                          <button onClick={(e) => handleEditClick(e, orc)} disabled={isDeleting}
+                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors">
                             Editar
                           </button>
-                          <button
-                            onClick={(e) => handleDuplicateClick(e, orc)}
-                            disabled={isDeleting}
-                            title="Duplicar orçamento"
-                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors"
-                          >
+                          <button onClick={(e) => handleDuplicateClick(e, orc)} disabled={isDeleting}
+                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors">
                             Duplicar
                           </button>
-                          <button
-                            onClick={(e) => handleDeleteClick(e, orc)}
-                            disabled={isDeleting}
-                            title="Excluir orçamento"
-                            className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
-                          >
+                          <button onClick={(e) => handleDeleteClick(e, orc)} disabled={isDeleting}
+                            className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
                             {isDeleting ? '…' : 'Excluir'}
                           </button>
                         </div>

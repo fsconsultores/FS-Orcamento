@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 
 interface Props {
   orcamentoId: string
@@ -14,23 +15,28 @@ const TABS = [
   { suffix: 'relatorios', label: 'Relatórios' },
   { suffix: 'importar', label: 'Importar' },
   { suffix: 'configuracoes', label: 'Configurações' },
+  { suffix: 'logs', label: 'Logs' },
 ]
 
-export function OrcamentoSubNav({ orcamentoId }: Props) {
+function SubNavLinks({ orcamentoId }: Props) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const planilhaId = searchParams.get('planilha')
   const base = `/orcamentos/${orcamentoId}`
 
   return (
-    <div className="flex gap-0 border-b border-gray-200 mb-6 -mt-2">
+    <>
       {TABS.map(({ suffix, label }) => {
-        const href = suffix ? `${base}/${suffix}` : base
+        const baseHref = suffix ? `${base}/${suffix}` : base
+        // Preserva ?planilha= ao navegar entre abas para manter a planilha ativa
+        const href = planilhaId ? `${baseHref}?planilha=${planilhaId}` : baseHref
         const active = suffix
           ? pathname.startsWith(`${base}/${suffix}`)
           : pathname === base
 
         return (
           <Link
-            key={href}
+            key={suffix}
             href={href as any}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               active
@@ -42,6 +48,28 @@ export function OrcamentoSubNav({ orcamentoId }: Props) {
           </Link>
         )
       })}
+    </>
+  )
+}
+
+export function OrcamentoSubNav({ orcamentoId }: Props) {
+  const base = `/orcamentos/${orcamentoId}`
+
+  return (
+    <div className="flex gap-0 border-b border-gray-200 mb-6 -mt-2">
+      <Suspense
+        fallback={TABS.map(({ suffix, label }) => (
+          <Link
+            key={suffix}
+            href={`${base}/${suffix}` as any}
+            className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-500"
+          >
+            {label}
+          </Link>
+        ))}
+      >
+        <SubNavLinks orcamentoId={orcamentoId} />
+      </Suspense>
     </div>
   )
 }

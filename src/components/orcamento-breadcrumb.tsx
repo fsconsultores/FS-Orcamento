@@ -9,8 +9,13 @@ interface Props {
 }
 
 const SEGMENT_LABELS: Record<string, string> = {
+  planilha: 'Planilha',
   insumos: 'Insumos',
   composicoes: 'Composições',
+  relatorios: 'Relatórios',
+  importar: 'Importar',
+  configuracoes: 'Configurações',
+  logs: 'Logs',
   editar: 'Editar',
 }
 

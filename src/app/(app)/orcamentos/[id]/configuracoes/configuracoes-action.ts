@@ -41,6 +41,12 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
     .eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao salvar dados do orçamento: ${error.message}`)
 
+  // Propaga o BDI global para todas as planilhas do orçamento
+  await sb
+    .from('orcamento_planilhas')
+    .update({ bdi_global: input.bdi_global })
+    .eq('orcamento_id', orcamentoId)
+
   const { error: delError } = await sb.from('orcamento_servicos_estimados').delete().eq('orcamento_id', orcamentoId)
   if (delError) throw new Error(`Erro ao salvar serviços estimados: ${delError.message}`)
 
@@ -54,6 +60,7 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
   await salvarConfigNumeracao(orcamentoId, input.numeracao_digitos)
 
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   revalidatePath(`/orcamentos/${orcamentoId}/editar`)
   revalidatePath('/orcamentos')
 

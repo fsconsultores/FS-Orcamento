@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { recalcularComposicaoAction } from '../../planilha/calcular-action'
 
 type InsumoRow = {
   id: string
@@ -161,10 +162,22 @@ export function ComposicaoDetail({
   const [addSearch, setAddSearch] = useState('')
   const [addIndice, setAddIndice] = useState('1')
   const [selected, setSelected] = useState<Sugestao | null>(null)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'erro'>('idle')
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Custo total calculado localmente (usando preços dos avulsos quando possível)
-  // Simplificado: usa custo armazenado no registro
   const custoTotal = insumos.reduce((s, i) => s + (i.custo ?? 0) * (i.indice ?? 1), 0) || custoInicial
+
+  async function sincronizar(novosInsumos?: typeof insumos) {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+    setSyncStatus('syncing')
+    try {
+      await recalcularComposicaoAction(composicao.id, orcamentoId)
+      setSyncStatus('ok')
+      syncTimerRef.current = setTimeout(() => setSyncStatus('idle'), 2500)
+    } catch {
+      setSyncStatus('erro')
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!confirm('Remover este item da composição?')) return
@@ -177,6 +190,7 @@ export function ComposicaoDetail({
       alert(`Erro: ${error.message}`)
     }
     setDeletingId(null)
+    sincronizar()
   }
 
   async function handleSaveIndice(id: string) {
@@ -185,7 +199,8 @@ export function ComposicaoDetail({
     setInsumos(prev => prev.map(i => i.id === id ? { ...i, indice: val } : i))
     setEditingId(null)
     const sb = createClient() as any
-    await sb.from('orcamento_insumos').update({ indice: val }).eq('id', id)
+    await sb.from('orcamento_insumos').update({ indice: val, custo_atualizado_em: new Date().toISOString() }).eq('id', id)
+    sincronizar()
   }
 
   async function handleAdd() {
@@ -204,6 +219,7 @@ export function ComposicaoDetail({
       custo: selected.custo,
       indice,
       grupo: addTipo === 'composicao' ? 'COMPOSIÇÃO AUXILIAR' : null,
+      custo_atualizado_em: new Date().toISOString(),
     }
     const { data, error } = await sb.from('orcamento_insumos').insert(row).select('id, codigo, descricao, unidade, custo, indice, grupo').single()
     if (error) { alert(`Erro: ${error.message}`); setSaving(false); return }
@@ -213,6 +229,7 @@ export function ComposicaoDetail({
     setAddIndice('1')
     setAdding(false)
     setSaving(false)
+    sincronizar()
   }
 
   return (
@@ -232,7 +249,23 @@ export function ComposicaoDetail({
         <div className="text-right">
           <p className="text-sm text-gray-500">Custo unitário</p>
           <p className="text-2xl font-bold text-gray-900">{BRL(custoTotal)}</p>
-          <p className="text-xs text-gray-400">/{composicao.unidade}</p>
+          <div className="flex items-center justify-end gap-1 mt-0.5">
+            <p className="text-xs text-gray-400">/{composicao.unidade}</p>
+            {syncStatus === 'syncing' && (
+              <span className="text-[10px] text-orange-500 flex items-center gap-0.5">
+                <svg className="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                sincronizando…
+              </span>
+            )}
+            {syncStatus === 'ok' && (
+              <span className="text-[10px] text-green-600">✓ planilha atualizada</span>
+            )}
+            {syncStatus === 'erro' && (
+              <span className="text-[10px] text-red-500">⚠ erro ao sincronizar</span>
+            )}
+          </div>
         </div>
       </div>
 

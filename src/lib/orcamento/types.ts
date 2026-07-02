@@ -53,3 +53,42 @@ export type CreateComposicaoData = Omit<OrcamentoComposicao, 'id' | 'orcamento_i
 
 export type UpdateInsumoData = Partial<CreateInsumoData>
 export type UpdateComposicaoData = Partial<CreateComposicaoData>
+
+// ── Motor de Cálculo ──────────────────────────────────────────────────────────
+
+/** Modos de operação do motor de cálculo. */
+export type ModoCalculo = 'planilha' | 'todas' | 'forca' | 'limpar'
+
+export interface CalculoOptions {
+  modo: ModoCalculo
+  planilhaId?: string | null
+}
+
+export interface OrfaosDetectados {
+  composicoes: { id: string; codigo: string; descricao: string }[]
+  insumos: number
+}
+
+// ── Planilha com totais persistidos ──────────────────────────────────────────
+
+export interface OrcamentoPlanilhaComTotais extends OrcamentoPlanilha {
+  total_custo: number | null
+  total_com_bdi: number | null
+  invalidado_em: string | null
+  ultima_calculo_em: string | null
+}
+
+// ── Log de auditoria ─────────────────────────────────────────────────────────
+
+export type { ConsistenciaReport } from './motor-calculo'
+
+export interface OrcamentoLog {
+  id: string
+  orcamento_id: string
+  planilha_id: string | null
+  user_id: string | null
+  acao: string
+  mensagem: string
+  detalhes: Record<string, unknown> | null
+  created_at: string
+}

@@ -4,9 +4,9 @@ import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
-import { calcularPlanilhaAction, criarPlanilhaAction, renomearPlanilhaAction, excluirPlanilhaAction, duplicarPlanilhaAction } from './calcular-action'
-import type { OrcamentoPlanilha } from '@/lib/orcamento/types'
-import type { CalculoResult } from '@/lib/orcamento/motor-calculo'
+import { calcularPlanilhaAtualAction, recalcularProjetoAction, verificarConsistenciaAction, detectarOrfaosAction, confirmarLimpezaAction } from './calcular-action'
+import type { CalculoResult, ConsistenciaReport, TotaisPlanilha } from '@/lib/orcamento/motor-calculo'
+import type { OrfaosDetectados } from '@/lib/orcamento/types'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import {
@@ -37,6 +37,7 @@ function SortableRow({ id, children, className, onContextMenu }: {
       {/* Inject handle cell as first child */}
       <td
         className="px-1 py-0.5 w-6 border border-gray-200 cursor-grab active:cursor-grabbing select-none"
+        suppressHydrationWarning
         {...attributes}
         {...listeners}
       >
@@ -342,15 +343,15 @@ function fieldToStr(it: EstruturaItem, field: string): string {
 
 // ─── View principal ───────────────────────────────────────────────────────────
 
-export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1], planilhas: initialPlanilhas = [], activePlanilhaId = null }: {
+export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePlanilha, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1], activePlanilhaId = null }: {
   initialItems: EstruturaItem[]
   orcamentoId: string
   nomeOrcamento?: string
+  nomePlanilha?: string | null
   bdiGlobal?: number
   cliente?: string | null
   dataOrcamento?: string | null
   numeracaoDigitos?: number[]
-  planilhas?: OrcamentoPlanilha[]
   activePlanilhaId?: string | null
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
@@ -382,90 +383,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
   const calcPanelRef = useRef<HTMLDivElement>(null)
   const [calcLogs, setCalcLogs] = useState<string[]>([])
   const [calcErro, setCalcErro] = useState<string | null>(null)
+  const [orfaosDetectados, setOrfaosDetectados] = useState<OrfaosDetectados | null>(null)
+  const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
+  const [limpandoOrfaos, setLimpandoOrfaos] = useState(false)
+  const [consistenciaReport, setConsistenciaReport] = useState<ConsistenciaReport | null>(null)
+  const [verificando, setVerificando] = useState(false)
+  const [totaisProjetoResult, setTotaisProjetoResult] = useState<TotaisPlanilha[] | null>(null)
+  const [isCalculandoPlanilha, setIsCalculandoPlanilha] = useState(false)
 
-  // ── Planilhas ────────────────────────────────────────────────────────────────
-  const [planilhas, setPlanilhas] = useState<OrcamentoPlanilha[]>(initialPlanilhas)
-  const [planilhaMenuId, setPlanilhaMenuId] = useState<string | null>(null)
-  const [planilhaRenomearId, setPlanilhaRenomearId] = useState<string | null>(null)
-  const [planilhaRenomearNome, setPlanilhaRenomearNome] = useState('')
-  const [planilhaLoading, setPlanilhaLoading] = useState(false)
-  const planilhaMenuRef = useRef<HTMLDivElement>(null)
-
-  // Fecha menu de planilha ao clicar fora
-  useEffect(() => {
-    if (!planilhaMenuId) return
-    function close(e: MouseEvent) {
-      if (planilhaMenuRef.current && !planilhaMenuRef.current.contains(e.target as Node)) setPlanilhaMenuId(null)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [planilhaMenuId])
-
-  async function handleCriarPlanilha() {
-    if (planilhaLoading) return
-    setPlanilhaLoading(true)
-    try {
-      const nome = `Planilha ${planilhas.length + 2}`
-      const nova = await criarPlanilhaAction(orcamentoId, nome, bdiGlobal)
-      setPlanilhas(prev => [...prev, nova])
-      router.push(`?planilha=${nova.id}` as any)
-    } finally {
-      setPlanilhaLoading(false)
-    }
-  }
-
-  async function handleRenomearPlanilha(planilhaId: string) {
-    if (!planilhaRenomearNome.trim() || planilhaLoading) return
-    setPlanilhaLoading(true)
-    try {
-      const atualizada = await renomearPlanilhaAction(planilhaId, planilhaRenomearNome.trim())
-      setPlanilhas(prev => prev.map(p => p.id === planilhaId ? atualizada : p))
-    } finally {
-      setPlanilhaLoading(false)
-      setPlanilhaRenomearId(null)
-    }
-  }
-
-  async function handleDuplicarPlanilha(planilhaId: string, nomeOriginal: string) {
-    if (planilhaLoading) return
-    setPlanilhaLoading(true)
-    try {
-      const nova = await duplicarPlanilhaAction(planilhaId, `Cópia de ${nomeOriginal}`)
-      setPlanilhas(prev => [...prev, nova])
-      router.push(`?planilha=${nova.id}` as any)
-    } finally {
-      setPlanilhaLoading(false)
-      setPlanilhaMenuId(null)
-    }
-  }
-
-  async function handleExcluirPlanilha(planilhaId: string) {
-    if (planilhas.length <= 1) { alert('Não é possível excluir a única planilha do orçamento.'); return }
-    if (!confirm('Excluir esta planilha e todos seus itens? Esta ação não pode ser desfeita.')) return
-    if (planilhaLoading) return
-    setPlanilhaLoading(true)
-    try {
-      await excluirPlanilhaAction(planilhaId)
-      const restantes = planilhas.filter(p => p.id !== planilhaId)
-      setPlanilhas(restantes)
-      if (activePlanilhaId === planilhaId && restantes.length > 0) {
-        router.push(`?planilha=${restantes[0].id}` as any)
-      }
-    } finally {
-      setPlanilhaLoading(false)
-      setPlanilhaMenuId(null)
-    }
-  }
-
-  function handleSwitchPlanilha(planilhaId: string) {
-    if (planilhaId === activePlanilhaId) return
-    if (isDirty) {
-      pendingHrefRef.current = `?planilha=${planilhaId}`
-      setShowLeaveModal(true)
-      return
-    }
-    router.push(`?planilha=${planilhaId}` as any)
-  }
   const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
   const [valorFinalInput, setValorFinalInput] = useState('')
 
@@ -557,21 +482,76 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
     if (href) router.push(href as any)
   }
 
-  async function handleAtualizar() {
+  async function handleCalcularPlanilha() {
+    if (isCalculandoPlanilha || !activePlanilhaId) return
+    setIsCalculandoPlanilha(true)
+    setCalcLogs([])
+    setCalcErro(null)
+    setCalcPanelOpen(false)
+    try {
+      const result: CalculoResult = await calcularPlanilhaAtualAction(orcamentoId, activePlanilhaId)
+      setCalcLogs(result.logs.map(l => l.msg))
+      if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
+      const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
+      setItems(fresh)
+      setCalcTimestamp(new Date())
+    } finally {
+      setIsCalculandoPlanilha(false)
+    }
+  }
+
+  async function handleRecalcularProjeto() {
     if (isCalculating) return
     setIsCalculating(true)
     setCalcLogs([])
     setCalcErro(null)
+    setTotaisProjetoResult(null)
+    setCalcPanelOpen(false)
     try {
-      const result: CalculoResult = await calcularPlanilhaAction(orcamentoId, activePlanilhaId)
+      const result: CalculoResult = await recalcularProjetoAction(orcamentoId)
       setCalcLogs(result.logs.map(l => l.msg))
       if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
-      // Recarrega itens atualizados do banco
+      if (result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
       const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
       setCalcTimestamp(new Date())
     } finally {
       setIsCalculating(false)
+    }
+  }
+
+  async function handleVerificarConsistencia() {
+    setVerificando(true)
+    setCalcPanelOpen(false)
+    try {
+      const report = await verificarConsistenciaAction(orcamentoId)
+      setConsistenciaReport(report)
+    } finally {
+      setVerificando(false)
+    }
+  }
+
+  async function handleLimparProjeto() {
+    setCalcPanelOpen(false)
+    const orfaos = await detectarOrfaosAction(orcamentoId)
+    if (orfaos.composicoes.length === 0) {
+      alert('Nenhuma composição órfã encontrada. O projeto está limpo.')
+      return
+    }
+    setOrfaosDetectados(orfaos)
+    setConfirmarLimpeza(true)
+  }
+
+  async function handleLimparOrfaos() {
+    if (!orfaosDetectados || limpandoOrfaos) return
+    setLimpandoOrfaos(true)
+    try {
+      const ids = orfaosDetectados.composicoes.map(c => c.id)
+      await confirmarLimpezaAction(orcamentoId, ids)
+      setConfirmarLimpeza(false)
+      setOrfaosDetectados(null)
+    } finally {
+      setLimpandoOrfaos(false)
     }
   }
 
@@ -1314,6 +1294,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       {/* Resumo do orçamento */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm px-5 py-4">
         <div className="flex flex-wrap gap-x-8 gap-y-3 items-start">
+          {nomePlanilha && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Planilha ativa</p>
+              <p className="text-sm font-bold text-blue-700 mt-0.5">{nomePlanilha}</p>
+            </div>
+          )}
           {cliente && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cliente</p>
@@ -1334,99 +1320,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </div>
         </div>
       </div>
-
-      {/* ── Tabs de planilhas ───────────────────────────────────────────────── */}
-      {planilhas.length > 0 && (
-        <div className="flex items-center gap-0.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-          {planilhas.map(p => (
-            <div key={p.id} className="relative flex items-center shrink-0 group">
-              {planilhaRenomearId === p.id ? (
-                <form
-                  onSubmit={e => { e.preventDefault(); handleRenomearPlanilha(p.id) }}
-                  className="flex items-center gap-1 px-2 py-1 rounded-t-md border border-b-0 border-blue-300 bg-white"
-                >
-                  <input
-                    autoFocus
-                    value={planilhaRenomearNome}
-                    onChange={e => setPlanilhaRenomearNome(e.target.value)}
-                    onBlur={() => handleRenomearPlanilha(p.id)}
-                    onKeyDown={e => e.key === 'Escape' && setPlanilhaRenomearId(null)}
-                    className="text-xs w-32 outline-none border-none bg-transparent"
-                  />
-                </form>
-              ) : (
-                <button
-                  onClick={() => handleSwitchPlanilha(p.id)}
-                  onDoubleClick={() => { setPlanilhaRenomearId(p.id); setPlanilhaRenomearNome(p.nome) }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-t-md border border-b-0 transition-colors ${
-                    p.id === activePlanilhaId
-                      ? 'bg-white border-gray-200 text-gray-900 shadow-sm'
-                      : 'bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:text-gray-700'
-                  }`}
-                >
-                  {p.nome}
-                </button>
-              )}
-              {/* Menu de contexto da planilha */}
-              <button
-                onClick={() => setPlanilhaMenuId(prev => prev === p.id ? null : p.id)}
-                className="opacity-0 group-hover:opacity-100 ml-0.5 p-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-opacity"
-                title="Opções"
-              >
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
-                </svg>
-              </button>
-              {planilhaMenuId === p.id && (
-                <div ref={planilhaMenuRef} className="absolute left-0 top-full mt-1 z-50 min-w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-xl text-xs">
-                  <button
-                    onClick={() => { setPlanilhaRenomearId(p.id); setPlanilhaRenomearNome(p.nome); setPlanilhaMenuId(null) }}
-                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50"
-                  >
-                    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Renomear
-                  </button>
-                  <button
-                    onClick={() => handleDuplicarPlanilha(p.id, p.nome)}
-                    disabled={planilhaLoading}
-                    className="flex w-full items-center gap-2 px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    Duplicar
-                  </button>
-                  <div className="my-1 border-t border-gray-100" />
-                  <button
-                    onClick={() => handleExcluirPlanilha(p.id)}
-                    disabled={planilhaLoading || planilhas.length <= 1}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 disabled:opacity-40"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Excluir
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-          <button
-            onClick={handleCriarPlanilha}
-            disabled={planilhaLoading}
-            className="ml-1 flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 rounded-t-md border border-transparent hover:bg-white hover:text-gray-700 hover:border-gray-200 disabled:opacity-50 transition-colors"
-            title="Nova planilha"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Nova
-          </button>
-          <div className="flex-1 border-b border-gray-200" />
-        </div>
-      )}
 
       {/* Barra de ferramentas */}
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1519,17 +1412,19 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </div>
           <div className="flex flex-col items-end gap-1">
             <div className="flex gap-2">
-              {/* Botão Calcular com painel suspenso */}
+              {/* Botão Ferramentas com painel suspenso */}
               <div className="relative" ref={calcPanelRef}>
                 <button
                   onClick={() => setCalcPanelOpen(v => !v)}
-                  className="flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600 transition-colors shadow-sm"
+                  disabled={isCalculating || isCalculandoPlanilha || verificando}
+                  className="flex items-center gap-1.5 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60 transition-colors shadow-sm"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                  Calcular
+                  {isCalculating ? 'Calculando projeto…' : isCalculandoPlanilha ? 'Calculando planilha…' : verificando ? 'Verificando…' : 'Ferramentas'}
                   <svg
                     className={`w-3 h-3 transition-transform ${calcPanelOpen ? 'rotate-180' : ''}`}
                     fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -1539,45 +1434,99 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
                 </button>
 
                 {calcPanelOpen && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-xl border border-orange-200 bg-orange-50 shadow-2xl overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
                     {/* Header */}
-                    <div className="bg-orange-500 px-4 py-3 text-center">
-                      <p className="text-xs font-bold uppercase tracking-widest text-white">Cálculo da Planilha</p>
+                    <div className="bg-gray-700 px-4 py-3">
+                      <p className="text-xs font-bold uppercase tracking-widest text-white">Ferramentas do Projeto</p>
                     </div>
 
-                    {/* Valores */}
-                    <div className="px-5 py-4 flex gap-6 justify-center border-b border-orange-200">
+                    {/* Valores resumidos */}
+                    <div className="px-4 py-3 flex gap-4 justify-center border-b border-gray-100 bg-gray-50">
                       <div className="text-center">
-                        <p className="text-[11px] text-orange-600 uppercase tracking-wider mb-1">Custo Orçamento</p>
-                        <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Custo</p>
+                        <p className="text-sm font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
                       </div>
-                      <div className="w-px bg-orange-200" />
+                      <div className="w-px bg-gray-200" />
                       <div className="text-center">
-                        <p className="text-[11px] text-orange-600 uppercase tracking-wider mb-1">Venda Orçamento</p>
-                        <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotalComBdi)}</p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Com BDI</p>
+                        <p className="text-sm font-bold text-gray-900 tabular-nums">{BRL(grandTotalComBdi)}</p>
                       </div>
                     </div>
 
-                    {/* Timestamp + botão Calcular */}
-                    <div className="px-4 py-3 flex items-center justify-between gap-2">
-                      <p className="text-[11px] text-orange-700">
-                        Calculado em {calcTimestamp.toLocaleString('pt-BR')}
-                      </p>
+                    {/* Cálculo */}
+                    <div className="px-3 pt-2 pb-0.5">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Cálculo</p>
+                    </div>
+                    <div className="px-2 pb-1 space-y-0.5">
                       <button
-                        onClick={handleAtualizar}
-                        disabled={isCalculating}
-                        className="flex items-center gap-1 rounded-full bg-orange-500 text-white px-2.5 py-1 text-[11px] font-medium hover:bg-orange-600 disabled:opacity-60 transition-colors shrink-0"
+                        onClick={handleCalcularPlanilha}
+                        disabled={isCalculandoPlanilha || isCalculating}
+                        className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-blue-50 disabled:opacity-40 transition-colors"
                       >
-                        <svg
-                          className={`w-3 h-3 ${isCalculating ? 'animate-spin' : ''}`}
-                          fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        >
+                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>
+                          <span className="block font-medium">Calcular Planilha</span>
+                          <span className="text-[10px] text-gray-400 font-normal leading-tight">Recalcula apenas <strong className="text-gray-600">{nomePlanilha ?? 'esta planilha'}</strong>. Atualiza os preços e totais desta planilha.</span>
+                        </span>
+                      </button>
+                      <button
+                        onClick={handleRecalcularProjeto}
+                        disabled={isCalculating || isCalculandoPlanilha}
+                        className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-green-50 disabled:opacity-40 transition-colors"
+                      >
+                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span>
+                          <span className="block font-medium">Calcular Projeto</span>
+                          <span className="text-[10px] text-gray-400 font-normal leading-tight">Recalcula todas as planilhas do projeto. Exibe custo e valor com BDI por planilha.</span>
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Manutenção */}
+                    <div className="border-t border-gray-100 px-3 pt-2 pb-0.5">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Manutenção</p>
+                    </div>
+                    <div className="px-2 pb-2 space-y-0.5">
+                      <button
+                        onClick={handleVerificarConsistencia}
+                        disabled={verificando}
+                        className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-amber-50 disabled:opacity-40 transition-colors"
+                      >
+                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>
+                          <span className="block font-medium">Verificar Consistência</span>
+                          <span className="text-[10px] text-gray-400 font-normal leading-tight">Detecta referências quebradas, composições vazias e valores inválidos.</span>
+                        </span>
+                      </button>
+                      <button
+                        onClick={handleLimparProjeto}
+                        className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-red-700 hover:bg-red-50 transition-colors"
+                      >
+                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>
+                          <span className="block font-medium">Limpar Projeto</span>
+                          <span className="text-[10px] text-red-400 font-normal leading-tight">Remove composições e insumos não utilizados. Protege bases nacionais.</span>
+                        </span>
+                      </button>
+                    </div>
+
+                    {isCalculating && (
+                      <div className="px-4 py-2 border-t border-gray-100 flex items-center gap-2 text-[11px] text-gray-600 bg-gray-50">
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        {isCalculating ? 'Calculando...' : 'Executar cálculo'}
-                      </button>
-                    </div>
+                        Recalculando o projeto…
+                      </div>
+                    )}
 
                     {/* Log de execução do motor */}
                     {calcLogs.length > 0 && (
@@ -1703,6 +1652,76 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
           </div>
         </div>
       </div>
+
+      {/* Modal: Resultado Calcular Projeto */}
+      {totaisProjetoResult && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-2xl overflow-hidden">
+            <div className="bg-gray-800 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-white">Cálculo do Projeto</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Totais por planilha após recálculo completo</p>
+              </div>
+              <button onClick={() => setTotaisProjetoResult(null)} className="text-gray-400 hover:text-white transition-colors">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Planilha</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Custo</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Com BDI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {totaisProjetoResult.map(p => (
+                    <tr key={p.planilhaId} className={`hover:bg-gray-50 transition-colors ${p.planilhaId === activePlanilhaId ? 'bg-blue-50/60' : ''}`}>
+                      <td className="px-4 py-3 font-medium text-gray-800 flex items-center gap-2">
+                        {p.planilhaId === activePlanilhaId && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                        )}
+                        {p.nome}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-700">{BRL(p.totalCusto)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-gray-900">{BRL(p.totalComBdi)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {totaisProjetoResult.length > 1 && (
+                  <tfoot>
+                    <tr className="bg-gray-800">
+                      <td className="px-4 py-3 text-xs font-bold text-gray-200 uppercase tracking-wider">Total Projeto</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-gray-100">
+                        {BRL(totaisProjetoResult.reduce((s, p) => s + p.totalCusto, 0))}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-white">
+                        {BRL(totaisProjetoResult.reduce((s, p) => s + p.totalComBdi, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            {calcErro && (
+              <div className="px-6 py-3 bg-red-50 border-t border-red-200">
+                <p className="text-xs text-red-600">{calcErro}</p>
+              </div>
+            )}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setTotaisProjetoResult(null)}
+                className="rounded-lg bg-gray-800 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Alterações não salvas */}
       {showLeaveModal && (
@@ -2171,6 +2190,140 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, bdiGlob
       </DragOverlay>
       </SortableContext>
       </DndContext>
+      )}
+
+      {/* Modal: relatório de consistência */}
+      {consistenciaReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-xl overflow-hidden">
+            <div className={`px-5 py-4 ${consistenciaReport.ok ? 'bg-green-500' : 'bg-amber-500'}`}>
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                {consistenciaReport.ok ? '✓ Projeto consistente' : 'Problemas encontrados'}
+              </h2>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto px-5 py-4 space-y-4">
+              {consistenciaReport.ok && (
+                <p className="text-sm text-gray-600">Nenhum problema detectado. O projeto está em ordem.</p>
+              )}
+              {consistenciaReport.referenciasQuebradas.length > 0 && (
+                <section>
+                  <p className="text-xs font-bold text-red-700 uppercase tracking-wider mb-2">
+                    Referências quebradas ({consistenciaReport.referenciasQuebradas.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {consistenciaReport.referenciasQuebradas.map(r => (
+                      <li key={r.itemId} className="text-xs text-gray-700 flex gap-2 bg-red-50 px-3 py-1.5 rounded">
+                        <span className="font-mono text-red-500 shrink-0">{r.numero}</span>
+                        <span className="truncate">{r.descricao}</span>
+                        <span className="font-mono text-red-400 shrink-0">cod: {r.codigo}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {consistenciaReport.composicoesVazias.length > 0 && (
+                <section>
+                  <p className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2">
+                    Composições sem insumos ({consistenciaReport.composicoesVazias.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {consistenciaReport.composicoesVazias.map(c => (
+                      <li key={c.id} className="text-xs text-gray-700 flex gap-2 bg-amber-50 px-3 py-1.5 rounded">
+                        <span className="font-mono text-amber-500 shrink-0">{c.codigo}</span>
+                        <span className="truncate">{c.descricao}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {consistenciaReport.composicoesOrfas.length > 0 && (
+                <section>
+                  <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-2">
+                    Composições órfãs ({consistenciaReport.composicoesOrfas.length})
+                    <span className="ml-1 font-normal text-blue-500">— não referenciadas na planilha</span>
+                  </p>
+                  <ul className="space-y-1">
+                    {consistenciaReport.composicoesOrfas.map(c => (
+                      <li key={c.id} className="text-xs text-gray-700 flex gap-2 bg-blue-50 px-3 py-1.5 rounded">
+                        <span className="font-mono text-blue-500 shrink-0">{c.codigo}</span>
+                        <span className="truncate">{c.descricao}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {consistenciaReport.valoresInvalidos.length > 0 && (
+                <section>
+                  <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-2">
+                    Valores inválidos ({consistenciaReport.valoresInvalidos.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {consistenciaReport.valoresInvalidos.map((v, i) => (
+                      <li key={i} className="text-xs text-gray-700 flex gap-2 bg-orange-50 px-3 py-1.5 rounded">
+                        <span className="font-mono text-orange-500 shrink-0">{v.numero}</span>
+                        <span className="truncate">{v.descricao}</span>
+                        <span className="text-orange-400 shrink-0">— {v.problema}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setConsistenciaReport(null)}
+                className="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar limpeza de órfãos */}
+      {confirmarLimpeza && orfaosDetectados && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="text-base font-semibold text-gray-900">Limpar composições órfãs</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              As composições abaixo não estão em nenhuma planilha deste projeto.
+              Elas serão marcadas como removidas (soft delete) e não aparecerão mais nas importações e cálculos.
+            </p>
+
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 max-h-48 overflow-y-auto">
+              <ul className="divide-y divide-gray-100">
+                {orfaosDetectados.composicoes.map(c => (
+                  <li key={c.id} className="px-3 py-2 text-xs text-gray-700">
+                    <span className="font-mono text-gray-500 mr-2">{c.codigo}</span>
+                    {c.descricao}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="mt-3 text-xs text-gray-400">
+              {orfaosDetectados.composicoes.length} composição(ões) e {orfaosDetectados.insumos} insumo(s) serão removidos.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => { setConfirmarLimpeza(false); setOrfaosDetectados(null) }}
+                disabled={limpandoOrfaos}
+                className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Manter
+              </button>
+              <button
+                onClick={handleLimparOrfaos}
+                disabled={limpandoOrfaos}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {limpandoOrfaos ? 'Removendo…' : 'Remover órfãos'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
