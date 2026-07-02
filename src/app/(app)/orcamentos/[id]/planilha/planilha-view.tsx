@@ -377,8 +377,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [dragActiveId, setDragActiveId] = useState<string | null>(null)
   const dragDeltaX                      = useRef(0)
   const scrollContainerRef             = useRef<HTMLDivElement>(null)
-  const [calcTimestamp, setCalcTimestamp] = useState<Date>(() => new Date())
-  const [isCalculating, setIsCalculating] = useState(false)
+  const [calcMode, setCalcMode] = useState<'planilha' | 'projeto' | null>(null)
   const [calcPanelOpen, setCalcPanelOpen] = useState(false)
   const calcPanelRef = useRef<HTMLDivElement>(null)
   const [calcLogs, setCalcLogs] = useState<string[]>([])
@@ -389,7 +388,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [consistenciaReport, setConsistenciaReport] = useState<ConsistenciaReport | null>(null)
   const [verificando, setVerificando] = useState(false)
   const [totaisProjetoResult, setTotaisProjetoResult] = useState<TotaisPlanilha[] | null>(null)
-  const [isCalculandoPlanilha, setIsCalculandoPlanilha] = useState(false)
 
   const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
   const [valorFinalInput, setValorFinalInput] = useState('')
@@ -482,41 +480,25 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     if (href) router.push(href as any)
   }
 
-  async function handleCalcularPlanilha() {
-    if (isCalculandoPlanilha || !activePlanilhaId) return
-    setIsCalculandoPlanilha(true)
+  async function handleCalcular(modo: 'planilha' | 'projeto') {
+    if (calcMode) return
+    if (modo === 'planilha' && !activePlanilhaId) return
+    setCalcMode(modo)
     setCalcLogs([])
     setCalcErro(null)
+    if (modo === 'projeto') setTotaisProjetoResult(null)
     setCalcPanelOpen(false)
     try {
-      const result: CalculoResult = await calcularPlanilhaAtualAction(orcamentoId, activePlanilhaId)
+      const result: CalculoResult = modo === 'planilha'
+        ? await calcularPlanilhaAtualAction(orcamentoId, activePlanilhaId!)
+        : await recalcularProjetoAction(orcamentoId)
       setCalcLogs(result.logs.map(l => l.msg))
       if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
+      if (modo === 'projeto' && result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
       const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
-      setCalcTimestamp(new Date())
     } finally {
-      setIsCalculandoPlanilha(false)
-    }
-  }
-
-  async function handleRecalcularProjeto() {
-    if (isCalculating) return
-    setIsCalculating(true)
-    setCalcLogs([])
-    setCalcErro(null)
-    setTotaisProjetoResult(null)
-    setCalcPanelOpen(false)
-    try {
-      const result: CalculoResult = await recalcularProjetoAction(orcamentoId)
-      setCalcLogs(result.logs.map(l => l.msg))
-      if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
-      if (result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
-      const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
-      setItems(fresh)
-      setCalcTimestamp(new Date())
-    } finally {
-      setIsCalculating(false)
+      setCalcMode(null)
     }
   }
 
@@ -599,14 +581,23 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }, 1500)
   }
 
-  const visible = useMemo(() => flat.filter(({ nodo }) => {
-    let pid = nodo.parent_id
-    while (pid) {
-      if (collapsed.has(pid)) return false
-      pid = itemMap.get(pid)?.parent_id ?? null
+  // O(n) — uma passagem em DFS. Para cada nó: se seu pai está em hiddenBelow,
+  // o nó está oculto (e propaga a ocultação para seus filhos).
+  const visible = useMemo(() => {
+    if (collapsed.size === 0) return flat
+    const hiddenBelow = new Set<string>()
+    const result: typeof flat = []
+    for (const entry of flat) {
+      const { nodo } = entry
+      if (nodo.parent_id !== null && hiddenBelow.has(nodo.parent_id)) {
+        hiddenBelow.add(nodo.id)
+        continue
+      }
+      result.push(entry)
+      if (collapsed.has(nodo.id)) hiddenBelow.add(nodo.id)
     }
-    return true
-  }), [flat, collapsed, itemMap])
+    return result
+  }, [flat, collapsed])
 
   // ── Virtualização ─────────────────────────────────────────────────────────
   // Ativa quando: modo sintético + sem formulário inline + >50 linhas visíveis
@@ -650,17 +641,21 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     return map
   }, [flat, grandTotal])
 
-  let formHostId: string | null = null
-  if (addingParentId && addingParentId !== 'root') {
-    for (const { nodo } of visible) {
-      if (nodo.id === addingParentId) { formHostId = nodo.id; continue }
-      let pid = nodo.parent_id
-      while (pid) {
-        if (pid === addingParentId) { formHostId = nodo.id; break }
-        pid = itemMap.get(pid)?.parent_id ?? null
-      }
+  // Último item visível dentro do grupo onde o formulário inline vai ser injetado.
+  // O(n): passa uma vez por flat (DFS) para montar o conjunto de descendentes,
+  // depois uma vez por visible para achar o último.
+  const formHostId = useMemo<string | null>(() => {
+    if (!addingParentId || addingParentId === 'root') return null
+    const inSubtree = new Set<string>([addingParentId])
+    for (const { nodo } of flat) {
+      if (nodo.parent_id && inSubtree.has(nodo.parent_id)) inSubtree.add(nodo.id)
     }
-  }
+    let last: string | null = null
+    for (const { nodo } of visible) {
+      if (inSubtree.has(nodo.id)) last = nodo.id
+    }
+    return last
+  }, [flat, visible, addingParentId])
   const addingParentGroup = addingParentId && addingParentId !== 'root'
     ? itemMap.get(addingParentId) ?? null
     : null
@@ -1416,7 +1411,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               <div className="relative" ref={calcPanelRef}>
                 <button
                   onClick={() => setCalcPanelOpen(v => !v)}
-                  disabled={isCalculating || isCalculandoPlanilha || verificando}
+                  disabled={calcMode !== null || verificando}
                   className="flex items-center gap-1.5 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60 transition-colors shadow-sm"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1424,7 +1419,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                  {isCalculating ? 'Calculando projeto…' : isCalculandoPlanilha ? 'Calculando planilha…' : verificando ? 'Verificando…' : 'Ferramentas'}
+                  {calcMode === 'projeto' ? 'Calculando projeto…' : calcMode === 'planilha' ? 'Calculando planilha…' : verificando ? 'Verificando…' : 'Ferramentas'}
                   <svg
                     className={`w-3 h-3 transition-transform ${calcPanelOpen ? 'rotate-180' : ''}`}
                     fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -1459,8 +1454,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     </div>
                     <div className="px-2 pb-1 space-y-0.5">
                       <button
-                        onClick={handleCalcularPlanilha}
-                        disabled={isCalculandoPlanilha || isCalculating}
+                        onClick={() => handleCalcular('planilha')}
+                        disabled={calcMode !== null}
                         className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-blue-50 disabled:opacity-40 transition-colors"
                       >
                         <svg className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1472,8 +1467,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         </span>
                       </button>
                       <button
-                        onClick={handleRecalcularProjeto}
-                        disabled={isCalculating || isCalculandoPlanilha}
+                        onClick={() => handleCalcular('projeto')}
+                        disabled={calcMode !== null}
                         className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-green-50 disabled:opacity-40 transition-colors"
                       >
                         <svg className="w-4 h-4 shrink-0 mt-0.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1518,13 +1513,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       </button>
                     </div>
 
-                    {isCalculating && (
+                    {calcMode && (
                       <div className="px-4 py-2 border-t border-gray-100 flex items-center gap-2 text-[11px] text-gray-600 bg-gray-50">
                         <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        Recalculando o projeto…
+                        {calcMode === 'projeto' ? 'Recalculando o projeto…' : 'Recalculando a planilha…'}
                       </div>
                     )}
 

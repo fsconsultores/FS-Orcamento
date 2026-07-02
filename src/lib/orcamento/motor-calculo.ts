@@ -62,29 +62,40 @@ async function fetchComposicoes(supabase: SupabaseClient, orcamentoId: string): 
 }
 
 async function fetchInsumosPorComps(supabase: SupabaseClient, compIds: string[]): Promise<InsumoRow[]> {
-  const allRows: InsumoRow[] = []
+  const batches: Promise<InsumoRow[]>[] = []
   for (let i = 0; i < compIds.length; i += 100) {
-    const { data } = await supabase
-      .from('orcamento_insumos')
-      .select('composicao_id, codigo, custo, indice, custo_atualizado_em')
-      .in('composicao_id', compIds.slice(i, i + 100))
-    allRows.push(...((data ?? []) as InsumoRow[]))
+    const slice = compIds.slice(i, i + 100)
+    batches.push(
+      Promise.resolve(
+        supabase.from('orcamento_insumos')
+          .select('composicao_id, codigo, custo, indice, custo_atualizado_em')
+          .in('composicao_id', slice)
+      ).then(({ data }) => (data ?? []) as InsumoRow[])
+    )
   }
-  return allRows
+  return (await Promise.all(batches)).flat()
 }
 
-function calcularDirtyIds(
+function buildMapsInsumos(
   allComps: ComposicaoRow[],
-  allIns: InsumoRow[],
-  forcaTodos: boolean
-): Set<string> {
+  allIns: InsumoRow[]
+): { codigoToId: Map<string, string>; insByComp: Map<string, InsumoRow[]> } {
   const codigoToId = new Map(allComps.map(c => [c.codigo, c.id]))
   const insByComp = new Map<string, InsumoRow[]>()
   for (const ins of allIns) {
     if (!insByComp.has(ins.composicao_id)) insByComp.set(ins.composicao_id, [])
     insByComp.get(ins.composicao_id)!.push(ins)
   }
+  return { codigoToId, insByComp }
+}
 
+function calcularDirtyIds(
+  allComps: ComposicaoRow[],
+  allIns: InsumoRow[],
+  forcaTodos: boolean,
+  codigoToId: Map<string, string>,
+  insByComp: Map<string, InsumoRow[]>
+): Set<string> {
   const dirtyIds = new Set<string>()
 
   for (const comp of allComps) {
@@ -118,15 +129,10 @@ function calcularCustos(
   allComps: ComposicaoRow[],
   allIns: InsumoRow[],
   dirtyIds: Set<string>,
-  avulsoPrecos: Map<string, number>
+  avulsoPrecos: Map<string, number>,
+  codigoToId: Map<string, string>,
+  insByComp: Map<string, InsumoRow[]>
 ): Map<string, number> {
-  const codigoToId = new Map(allComps.map(c => [c.codigo, c.id]))
-
-  const insByComp = new Map<string, InsumoRow[]>()
-  for (const ins of allIns) {
-    if (!insByComp.has(ins.composicao_id)) insByComp.set(ins.composicao_id, [])
-    insByComp.get(ins.composicao_id)!.push(ins)
-  }
 
   // Inicia com os custos armazenados como ponto de partida para convergência
   const custoPorId = new Map<string, number>(allComps.map(c => [c.id, c.custo_unitario ?? 0]))
@@ -617,40 +623,28 @@ export async function verificarConsistencia(
 export async function executarCalculo(
   supabase: SupabaseClient,
   orcamentoId: string,
-  optionsOrPlanilhaId: CalculoOptions | string | null
+  options: CalculoOptions
 ): Promise<CalculoResult> {
-  // Retrocompatibilidade: aceita string ou null diretamente
-  let options: CalculoOptions
-  if (typeof optionsOrPlanilhaId === 'string' || optionsOrPlanilhaId === null) {
-    options = { modo: 'planilha', planilhaId: optionsOrPlanilhaId }
-  } else {
-    options = optionsOrPlanilhaId
-  }
-
   const { modo, planilhaId } = options
   const logs: LogEntry[] = []
   const log = (msg: string) => logs.push({ msg, ts: Date.now() })
   const forca = modo === 'forca' || modo === 'limpar'
+  const precisaTodasPlanilhas = modo === 'todas' || modo === 'limpar' || (modo === 'forca' && !planilhaId)
 
   try {
     log(`Iniciando cálculo [modo: ${modo}]...`)
 
-    // ── Determina quais planilhas serão atualizadas na estrutura ─────────────
-    let planilhaIdsParaAtualizar: string[]
+    // ── Buscar composições + planilhas em paralelo ───────────────────────────
+    const [allComps, planilhasData] = await Promise.all([
+      fetchComposicoes(supabase, orcamentoId),
+      precisaTodasPlanilhas
+        ? supabase.from('orcamento_planilhas').select('id').eq('orcamento_id', orcamentoId)
+        : Promise.resolve({ data: planilhaId ? [{ id: planilhaId }] : [] }),
+    ])
 
-    if (modo === 'todas' || modo === 'limpar' || (modo === 'forca' && !planilhaId)) {
-      const { data: todas } = await supabase
-        .from('orcamento_planilhas')
-        .select('id')
-        .eq('orcamento_id', orcamentoId)
-      planilhaIdsParaAtualizar = (todas ?? []).map((p: { id: string }) => p.id)
-      log(`Atualizando ${planilhaIdsParaAtualizar.length} planilha(s)...`)
-    } else {
-      planilhaIdsParaAtualizar = planilhaId ? [planilhaId] : []
-    }
+    const planilhaIdsParaAtualizar: string[] = ((planilhasData.data ?? []) as { id: string }[]).map(p => p.id)
+    if (precisaTodasPlanilhas) log(`Atualizando ${planilhaIdsParaAtualizar.length} planilha(s)...`)
 
-    // ── Buscar composições e insumos ─────────────────────────────────────────
-    const allComps = await fetchComposicoes(supabase, orcamentoId)
     if (allComps.length === 0) {
       log('Nenhuma composição encontrada.')
       log('Cálculo concluído.')
@@ -662,8 +656,11 @@ export async function executarCalculo(
 
     log(`Verificando insumos alterados... (${allComps.length} composição(ões))`)
 
+    // ── Constrói mapas uma única vez e compartilha entre as funções ──────────
+    const { codigoToId, insByComp } = buildMapsInsumos(allComps, allIns)
+
     // ── Delta detection / força ───────────────────────────────────────────────
-    const dirtyIds = calcularDirtyIds(allComps, allIns, forca)
+    const dirtyIds = calcularDirtyIds(allComps, allIns, forca, codigoToId, insByComp)
     log(`${dirtyIds.size} composição(ões) a recalcular.`)
 
     if (dirtyIds.size === 0 && allComps.length > 0) {
@@ -676,30 +673,30 @@ export async function executarCalculo(
       return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados: 0, totaisPlanilhas }
     }
 
-    // ── Buscar preços avulsos (têm prioridade sobre custo armazenado nos insumos) ──
+    // ── Buscar preços avulsos em paralelo (têm prioridade sobre custo nos insumos) ──
     log('Recalculando composições...')
     const avulsoPrecos = new Map<string, number>()
     {
-      // Inclui códigos de insumos das composições + códigos das próprias composições
-      // para suportar o caso em que o avulso tem o mesmo código da composição (mapeamento direto)
       const codigosIns  = allIns.map(i => i.codigo).filter(Boolean)
       const codigosComp = allComps.filter(c => dirtyIds.has(c.id)).map(c => c.codigo).filter(Boolean)
       const codigos = [...new Set([...codigosIns, ...codigosComp])]
+      const avsBatches: Promise<{ codigo: string; custo: number }[]>[] = []
       for (let i = 0; i < codigos.length; i += 500) {
-        const { data: avs } = await supabase
-          .from('orcamento_insumos')
-          .select('codigo, custo')
-          .eq('orcamento_id', orcamentoId)
-          .is('composicao_id', null)
-          .in('codigo', codigos.slice(i, i + 500))
-        for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
-          if (av.custo) avulsoPrecos.set(av.codigo, av.custo)
-        }
+        const slice = codigos.slice(i, i + 500)
+        avsBatches.push(
+          Promise.resolve(
+            supabase.from('orcamento_insumos').select('codigo, custo')
+              .eq('orcamento_id', orcamentoId).is('composicao_id', null).in('codigo', slice)
+          ).then(({ data }) => (data ?? []) as { codigo: string; custo: number }[])
+        )
+      }
+      for (const rows of await Promise.all(avsBatches)) {
+        for (const av of rows) if (av.custo) avulsoPrecos.set(av.codigo, av.custo)
       }
     }
 
     // ── Calcular custos ───────────────────────────────────────────────────────
-    const custoPorId = calcularCustos(allComps, allIns, dirtyIds, avulsoPrecos)
+    const custoPorId = calcularCustos(allComps, allIns, dirtyIds, avulsoPrecos, codigoToId, insByComp)
 
     // ── Persistir composições ─────────────────────────────────────────────────
     const dirtyComps = allComps.filter(c => dirtyIds.has(c.id))

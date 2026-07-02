@@ -426,8 +426,12 @@ export async function adicionarItemNaPosicao(
 
   const { data: siblings } = await sibQ
 
-  for (const sib of siblings ?? []) {
-    await sb.from('orcamento_estrutura').update({ ordem: sib.ordem + 1 }).eq('id', sib.id)
+  if ((siblings ?? []).length > 0) {
+    await Promise.all(
+      (siblings as { id: string; ordem: number }[]).map(sib =>
+        sb.from('orcamento_estrutura').update({ ordem: sib.ordem + 1 }).eq('id', sib.id)
+      )
+    )
   }
 
   const { data } = await sb.from('orcamento_estrutura')
