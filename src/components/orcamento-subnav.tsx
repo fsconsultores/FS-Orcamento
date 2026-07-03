@@ -54,6 +54,11 @@ function SubNavLinks({ orcamentoId }: Props) {
 
 export function OrcamentoSubNav({ orcamentoId }: Props) {
   const base = `/orcamentos/${orcamentoId}`
+  const pathname = usePathname()
+
+  // Na tela de listagem de planilhas (raiz do projeto), as abas ainda não
+  // fazem sentido: elas só se aplicam depois que uma planilha é escolhida.
+  if (pathname === base) return null
 
   return (
     <div className="flex gap-0 border-b border-gray-200 mb-6 -mt-2">

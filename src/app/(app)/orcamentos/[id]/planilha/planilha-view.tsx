@@ -382,6 +382,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const calcPanelRef = useRef<HTMLDivElement>(null)
   const [calcLogs, setCalcLogs] = useState<string[]>([])
   const [calcErro, setCalcErro] = useState<string | null>(null)
+  const [calcResultado, setCalcResultado] = useState<{ itens: number; comps: number } | null>(null)
   const [orfaosDetectados, setOrfaosDetectados] = useState<OrfaosDetectados | null>(null)
   const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
   const [limpandoOrfaos, setLimpandoOrfaos] = useState(false)
@@ -486,6 +487,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     setCalcMode(modo)
     setCalcLogs([])
     setCalcErro(null)
+    setCalcResultado(null)
     if (modo === 'projeto') setTotaisProjetoResult(null)
     setCalcPanelOpen(false)
     try {
@@ -493,7 +495,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         ? await calcularPlanilhaAtualAction(orcamentoId, activePlanilhaId!)
         : await recalcularProjetoAction(orcamentoId)
       setCalcLogs(result.logs.map(l => l.msg))
-      if (!result.ok) setCalcErro(result.erro ?? 'Erro desconhecido.')
+      if (!result.ok) {
+        setCalcErro(result.erro ?? 'Erro desconhecido.')
+      } else {
+        setCalcResultado({ itens: result.itensAtualizados, comps: result.composicoesRecalculadas })
+      }
       if (modo === 'projeto' && result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
       const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
@@ -1400,6 +1406,28 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               {isSaving ? 'Salvando...' : 'Salvar Planilha'}
             </button>
           </div>
+
+          {calcResultado && !calcErro && (
+            <div className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${calcResultado.itens === 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+              {calcResultado.itens === 0 ? (
+                <>
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Nenhum item atualizado — verifique se os códigos dos insumos correspondem à planilha
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  {calcResultado.itens} item(ns) atualizado(s)
+                  {calcResultado.comps > 0 && ` a partir de ${calcResultado.comps} composição(ões)`}
+                </>
+              )}
+              <button onClick={() => setCalcResultado(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+            </div>
+          )}
 
           <div className="text-right">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Geral</p>

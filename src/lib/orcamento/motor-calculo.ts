@@ -645,10 +645,28 @@ export async function executarCalculo(
     const planilhaIdsParaAtualizar: string[] = ((planilhasData.data ?? []) as { id: string }[]).map(p => p.id)
     if (precisaTodasPlanilhas) log(`Atualizando ${planilhaIdsParaAtualizar.length} planilha(s)...`)
 
+    // ── Modo direto: sem composições, aplica preços avulsos direto na estrutura ─
     if (allComps.length === 0) {
-      log('Nenhuma composição encontrada.')
+      log('Nenhuma composição encontrada — aplicando preços avulsos diretamente na estrutura...')
+      const { data: avs } = await supabase
+        .from('orcamento_insumos').select('codigo, custo')
+        .eq('orcamento_id', orcamentoId).is('composicao_id', null)
+      const precoAvulso = new Map<string, number>()
+      for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
+        if (av.custo) precoAvulso.set(av.codigo, av.custo)
+      }
+      if (precoAvulso.size === 0) {
+        log('Nenhum preço avulso cadastrado. Nada a atualizar.')
+        return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados: 0 }
+      }
+      const itensAtualizados = await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, precoAvulso)
+      const totaisPlanilhas = planilhaIdsParaAtualizar.length > 0
+        ? await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaAtualizar)
+        : undefined
+      log(`${itensAtualizados} item(ns) atualizado(s).`)
       log('Cálculo concluído.')
-      return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados: 0 }
+      await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo direto (sem composições) — ${itensAtualizados} item(ns)`, { modo, itensAtualizados })
+      return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados, totaisPlanilhas }
     }
 
     const compIds = allComps.map(c => c.id)

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PlanilhasPicker } from './planilhas-picker'
+import { getOrCreateDefaultPlanilha, getPlanilhasByOrcamento } from '@/lib/orcamento/planilhas'
 
 export default async function OrcamentoDetailPage({
   params,
@@ -18,14 +19,13 @@ export default async function OrcamentoDetailPage({
 
   if (!orc) notFound()
 
+  // Retrocompatibilidade: orçamentos criados antes do suporte a múltiplas
+  // planilhas ainda não têm nenhuma linha em orcamento_planilhas. Garante que
+  // ao menos a "Planilha Principal" exista antes de listar.
   let planilhas: { id: string; nome: string; bdi_global: number; ordem: number }[] = []
   try {
-    const { data } = await sb
-      .from('orcamento_planilhas')
-      .select('id, nome, bdi_global, ordem')
-      .eq('orcamento_id', id)
-      .order('ordem', { ascending: true })
-    planilhas = data ?? []
+    await getOrCreateDefaultPlanilha(sb, id)
+    planilhas = await getPlanilhasByOrcamento(sb, id)
   } catch {}
 
   return (
