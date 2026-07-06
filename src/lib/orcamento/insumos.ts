@@ -122,6 +122,55 @@ export async function deleteInsumo(
   if (error) throw new Error(`Erro ao excluir insumo: ${error.message}`)
 }
 
+/**
+ * Atualiza (ou cria, se não existir) o preço "avulso" (canônico) de um código
+ * de insumo no orçamento inteiro, e sincroniza as cópias do mesmo código
+ * dentro de composições — mesmo padrão já usado em insumos-table.tsx.
+ */
+export async function upsertAvulsoInsumo(
+  supabase: SupabaseClient,
+  orcamentoId: string,
+  codigo: string,
+  novoCusto: number,
+  extra?: { descricao?: string; unidade?: string; grupo?: string | null }
+): Promise<void> {
+  const { data: atualizados, error: updErr } = await supabase
+    .from(TABLE)
+    .update({ custo: novoCusto })
+    .eq('orcamento_id', orcamentoId)
+    .eq('codigo', codigo)
+    .is('composicao_id', null)
+    .select('id')
+  if (updErr) throw new Error(`Erro ao atualizar preço do insumo: ${updErr.message}`)
+
+  if (!atualizados || atualizados.length === 0) {
+    const { error: insErr } = await supabase.from(TABLE).insert({
+      orcamento_id: orcamentoId,
+      composicao_id: null,
+      codigo,
+      descricao: extra?.descricao ?? codigo,
+      unidade: extra?.unidade ?? '',
+      custo: novoCusto,
+      indice: 1,
+      grupo: extra?.grupo ?? null,
+      base: null,
+      data_ref: null,
+    })
+    if (insErr) throw new Error(`Erro ao criar preço do insumo: ${insErr.message}`)
+  }
+
+  // Sincroniza as cópias do mesmo código dentro de composições: o motor de
+  // cálculo já prioriza o avulso, mas outras telas (Planilha analítica) leem
+  // o `custo` da linha direto, sem passar pelo avulso.
+  const { error: syncErr } = await supabase
+    .from(TABLE)
+    .update({ custo: novoCusto })
+    .eq('orcamento_id', orcamentoId)
+    .eq('codigo', codigo)
+    .not('composicao_id', 'is', null)
+  if (syncErr) throw new Error(`Erro ao sincronizar cópias do insumo: ${syncErr.message}`)
+}
+
 export async function createInsumosBatch(
   supabase: SupabaseClient,
   orcamentoId: string,

@@ -83,20 +83,28 @@ export interface InsumoAvulsoBasico {
   codigo: string
   descricao: string
   custo: number
+  grupo?: string | null
+}
+
+interface InsumoAccum {
+  descricao: string
+  unidade: string | null
+  custo_unitario: number
+  quantidade: number
+  grupo: string | null
 }
 
 /**
- * Divide os itens da planilha em "Serviços" (itens cujo código é uma composição
- * com sub-insumos cadastrados) e "Insumos" (itens diretos + sub-insumos das
- * composições, ponderados pela quantidade usada na planilha) e calcula a Curva
- * ABC de cada conjunto.
+ * Monta o split Serviços × mapa-base de Insumos (antes do ranking ABC), para
+ * ser reaproveitado tanto pelo cálculo combinado (computeAbcCurves) quanto
+ * pelo cálculo por categoria (computeAbcCurvesPorCategoria).
  */
-export function computeAbcCurves(
+function buildAbcBase(
   estItems: EstruturaItemBasico[],
   composicoes: ComposicaoBasica[],
   allInsumos: InsumoComposicaoBasico[],
-  insumosAvulsos: InsumoAvulsoBasico[] = [],
-): { abcServicos: AbcItem[]; abcInsumos: AbcItem[] } {
+  insumosAvulsos: InsumoAvulsoBasico[],
+): { abcServicos: AbcItem[]; insumoMap: Map<string, InsumoAccum> } {
   const compIdToCode = new Map<string, string>()
   const compCodesSet = new Set<string>()
   const compIdToDescricao = new Map<string, string>()
@@ -197,9 +205,12 @@ export function computeAbcCurves(
   // seu custo prevalece sobre o custo (possivelmente zerado) gravado na linha do
   // sub-insumo da composição — mesmo critério usado em getComposicoesByOrcamento.
   const precoMap = new Map<string, number>()
-  for (const av of insumosAvulsos) precoMap.set(av.codigo, av.custo)
+  const grupoAvulsoPorCodigo = new Map<string, string | null>()
+  for (const av of insumosAvulsos) {
+    precoMap.set(av.codigo, av.custo)
+    grupoAvulsoPorCodigo.set(av.codigo, av.grupo ?? null)
+  }
 
-  type InsumoAccum = { descricao: string; unidade: string | null; custo_unitario: number; quantidade: number }
   const insumoMap = new Map<string, InsumoAccum>()
 
   for (const ins of allInsumos) {
@@ -229,6 +240,7 @@ export function computeAbcCurves(
         unidade: ins.unidade,
         custo_unitario: custoEfetivo,
         quantidade: qtdUsada,
+        grupo: ins.grupo ?? grupoAvulsoPorCodigo.get(ins.codigo) ?? null,
       })
     }
   }
@@ -259,9 +271,27 @@ export function computeAbcCurves(
         unidade: item.unidade,
         custo_unitario: custo,
         quantidade: qty,
+        grupo: grupoAvulsoPorCodigo.get(key) ?? null,
       })
     }
   }
+
+  return { abcServicos, insumoMap }
+}
+
+/**
+ * Divide os itens da planilha em "Serviços" (itens cujo código é uma composição
+ * com sub-insumos cadastrados) e "Insumos" (itens diretos + sub-insumos das
+ * composições, ponderados pela quantidade usada na planilha) e calcula a Curva
+ * ABC de cada conjunto.
+ */
+export function computeAbcCurves(
+  estItems: EstruturaItemBasico[],
+  composicoes: ComposicaoBasica[],
+  allInsumos: InsumoComposicaoBasico[],
+  insumosAvulsos: InsumoAvulsoBasico[] = [],
+): { abcServicos: AbcItem[]; abcInsumos: AbcItem[] } {
+  const { abcServicos, insumoMap } = buildAbcBase(estItems, composicoes, allInsumos, insumosAvulsos)
 
   // Curva ABC de Insumos considera apenas códigos reais de insumos (prefixo "I")
   const abcInsumos = calcularCurvaAbc(
@@ -277,4 +307,61 @@ export function computeAbcCurves(
   )
 
   return { abcServicos, abcInsumos }
+}
+
+// ─── Curva ABC única, com categoria por item (Materiais / Mão de Obra / Equipamentos / Serviços) ──
+
+export type CategoriaAbc = 'materiais' | 'mao_de_obra' | 'equipamentos' | 'servicos'
+
+/**
+ * Classifica um insumo (pelo campo `grupo`) em uma das 4 categorias da Curva
+ * ABC. Mesma lógica de classificarLabel em caderno.ts (E→Equipamento,
+ * H/HH/MO*→Mão de Obra, S/SER*→Serviço de terceiros, senão→Material), só que
+ * retornando um enum em vez de rótulo de exibição. Mantida separada de
+ * classificarGrupo (caderno.ts) porque aquela função serve o breakdown
+ * MAT/MO/TERCEIROS do Caderno (3 categorias) e não deve mudar.
+ */
+export function classificarCategoriaAbc(grupo: string | null | undefined): CategoriaAbc {
+  const g = (grupo ?? '').trim().toUpperCase()
+  if (g === 'E') return 'equipamentos'
+  if (g === 'H' || g === 'HH' || g.startsWith('MO')) return 'mao_de_obra'
+  if (g === 'S' || g.startsWith('SER')) return 'servicos'
+  return 'materiais'
+}
+
+export interface AbcItemComCategoria extends AbcItem {
+  categoria: CategoriaAbc
+}
+
+/**
+ * Curva ABC única do orçamento: decompõe TODO o projeto até o nível de
+ * insumo/serviço-de-terceiros (via buildAbcBase.insumoMap — que já propaga
+ * quantidades por composições aninhadas) e classifica cada entrada em uma das
+ * 4 categorias. Importante: NÃO soma abcServicos (o total agregado por
+ * composição) por cima disso — abcServicos é a MESMA quantia decomposta aqui,
+ * só que vista por linha de serviço da planilha; somar as duas contaria o
+ * mesmo custo em dobro. O total desta curva já reflete o custo real do
+ * projeto (dentro da mesma margem de itens sem insumo cadastrado que o
+ * restante do sistema já aceita, ex. em "Lista de Insumos" do Caderno).
+ */
+export function computeAbcCurvaUnica(
+  estItems: EstruturaItemBasico[],
+  composicoes: ComposicaoBasica[],
+  allInsumos: InsumoComposicaoBasico[],
+  insumosAvulsos: InsumoAvulsoBasico[] = [],
+): AbcItemComCategoria[] {
+  const { insumoMap } = buildAbcBase(estItems, composicoes, allInsumos, insumosAvulsos)
+
+  const entries = Array.from(insumoMap.entries())
+  const categoriaPorCodigo = new Map<string, CategoriaAbc>()
+  for (const [k, d] of entries) categoriaPorCodigo.set(k, classificarCategoriaAbc(d.grupo))
+
+  const geral = calcularCurvaAbc(
+    entries.map(([k, d]) => ({ codigo: k, descricao: d.descricao, unidade: d.unidade, quantidade: d.quantidade, custo_unitario: d.custo_unitario }))
+  )
+
+  return geral.map(item => ({
+    ...item,
+    categoria: item.codigo ? (categoriaPorCodigo.get(item.codigo) ?? 'materiais') : 'materiais',
+  }))
 }

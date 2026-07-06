@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
 import { calcularPlanilhaAtualAction, recalcularProjetoAction, verificarConsistenciaAction, detectarOrfaosAction, confirmarLimpezaAction } from './calcular-action'
+import { atualizarPrecoInsumoAction } from '../atualizar-preco-insumo-action'
 import type { CalculoResult, ConsistenciaReport, TotaisPlanilha } from '@/lib/orcamento/motor-calculo'
 import type { OrfaosDetectados } from '@/lib/orcamento/types'
 import { createClient } from '@/lib/supabase/client'
@@ -370,8 +371,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [exportAnaliticaLoading, setExportAnaliticaLoading] = useState(false)
   const [exportAnaliticaError, setExportAnaliticaError]     = useState<string | null>(null)
   const [viewMode, setViewMode]         = useState<'sintetica' | 'analitica'>('sintetica')
-  const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>>(new Map())
+  const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>>(new Map())
   const [analiticaLoading, setAnaliticaLoading] = useState(false)
+  const [editingInsumoCodigo, setEditingInsumoCodigo] = useState<string | null>(null)
+  const [salvandoInsumoCodigo, setSalvandoInsumoCodigo] = useState<string | null>(null)
   const skipBlur                        = useRef(false)
   const syncTimerRef                    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [dragActiveId, setDragActiveId] = useState<string | null>(null)
@@ -978,7 +981,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }
   }
 
-  async function fetchInsumosByCodigo(): Promise<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>> {
+  async function fetchInsumosByCodigo(): Promise<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>> {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 30_000)
     try {
@@ -992,7 +995,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       const idToCodigo = new Map<string, string>()
       for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
       const compIds = (composicoes ?? []).map((c: any) => c.id)
-      const result = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number }[]>()
+      const result = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>()
       if (compIds.length > 0) {
         const { data: insumos, error: insError } = await sb
           .from('orcamento_insumos')
@@ -1004,7 +1007,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           const cod = idToCodigo.get(ins.composicao_id)
           if (!cod) continue
           if (!result.has(cod)) result.set(cod, [])
-          result.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0 })
+          result.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0, origem: 'orcamento' })
         }
       }
 
@@ -1043,6 +1046,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               unidade: insumo.unidade ?? null,
               custo: insumo.preco_base ?? 0,
               indice: it.indice ?? 0,
+              origem: 'base',
             })
           }
         }
@@ -1187,6 +1191,32 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       // silently ignore — analítica view shows empty insumos on failure
     } finally {
       setAnaliticaLoading(false)
+    }
+  }
+
+  // Edita o preço canônico de um insumo a partir da visão Analítica. Atualiza
+  // localmente TODAS as ocorrências desse código na árvore (não só a linha
+  // clicada) — o preço é do insumo no projeto inteiro, não da linha.
+  async function handleSalvarCustoInsumo(codigo: string, descricao: string, unidade: string | null, custoAtual: number, rawValue: string) {
+    setEditingInsumoCodigo(null)
+    const str = rawValue.trim().replace(',', '.')
+    const parsed = str === '' ? 0 : parseFloat(str)
+    if (isNaN(parsed) || parsed < 0 || parsed === custoAtual) return
+
+    setSalvandoInsumoCodigo(codigo)
+    try {
+      await atualizarPrecoInsumoAction(orcamentoId, codigo, parsed, { descricao, unidade: unidade ?? undefined })
+      setAnaliticaInsumos(prev => {
+        const next = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>()
+        for (const [comp, lista] of prev) {
+          next.set(comp, lista.map(ins => (ins.codigo === codigo ? { ...ins, custo: parsed } : ins)))
+        }
+        return next
+      })
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar custo do insumo.')
+    } finally {
+      setSalvandoInsumoCodigo(null)
     }
   }
 
@@ -2160,7 +2190,31 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">
                           {ins.indice.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                         </td>
-                        <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">{BRL(ins.custo)}</td>
+                        <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">
+                          {ins.origem === 'orcamento' && editingInsumoCodigo === ins.codigo ? (
+                            <input
+                              autoFocus
+                              type="number"
+                              min="0"
+                              step="any"
+                              defaultValue={ins.custo}
+                              onBlur={e => handleSalvarCustoInsumo(ins.codigo, ins.descricao, ins.unidade, ins.custo, e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); handleSalvarCustoInsumo(ins.codigo, ins.descricao, ins.unidade, ins.custo, (e.target as HTMLInputElement).value) }
+                                if (e.key === 'Escape') { e.preventDefault(); setEditingInsumoCodigo(null) }
+                              }}
+                              className="block w-full text-right rounded border border-blue-400 bg-white px-1 py-0 text-[10px] outline-none ring-2 ring-blue-400/20 tabular-nums"
+                            />
+                          ) : (
+                            <span
+                              onClick={() => ins.origem === 'orcamento' && setEditingInsumoCodigo(ins.codigo)}
+                              className={ins.origem === 'orcamento' ? 'cursor-pointer hover:underline decoration-dotted' : ''}
+                              title={ins.origem === 'orcamento' ? 'Clique para editar' : undefined}
+                            >
+                              {salvandoInsumoCodigo === ins.codigo ? '…' : BRL(ins.custo)}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">{BRL(ins.indice * ins.custo)}</td>
                         <td colSpan={4} className="border border-gray-100" />
                       </tr>

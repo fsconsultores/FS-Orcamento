@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { computeAbcCurves, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
+import { computeAbcCurvaUnica, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
 
 export default async function CurvaAbcPage({
@@ -56,7 +56,7 @@ export default async function CurvaAbcPage({
     while (true) {
       const { data } = await sb
         .from('orcamento_insumos')
-        .select('codigo, descricao, custo')
+        .select('codigo, descricao, custo, grupo')
         .eq('orcamento_id', orcamentoId)
         .is('composicao_id', null)
         .range(start, start + BATCH - 1)
@@ -67,7 +67,7 @@ export default async function CurvaAbcPage({
     }
   }
 
-  const { abcServicos, abcInsumos } = computeAbcCurves(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
+  const items = computeAbcCurvaUnica(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
 
   return (
     <div className="space-y-4">
@@ -77,7 +77,7 @@ export default async function CurvaAbcPage({
           Classificação dos itens por impacto financeiro no orçamento.
         </p>
       </div>
-      <CurvaAbcView abcServicos={abcServicos} abcInsumos={abcInsumos} orcamentoNome={orcamento?.nome_obra} />
+      <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
     </div>
   )
 }

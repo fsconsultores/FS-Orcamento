@@ -11,6 +11,10 @@ export interface ConsistenciaReport {
 
 const BASES_NACIONAIS = new Set(['SINAPI', 'DNIT', 'DER', 'SUDECAP'])
 
+// Normaliza código para comparação: dados importados de CSV/Excel frequentemente
+// trazem espaços invisíveis que quebram o match exato entre item ↔ composição/insumo.
+const norm = (s: string | null | undefined): string => (s ?? '').trim()
+
 export interface LogEntry {
   msg: string
   ts: number
@@ -210,12 +214,42 @@ async function persistirComposicoes(
   }
 }
 
+/**
+ * Busca preços de insumos avulsos (sem composição) que não correspondem a
+ * nenhum código de composição — cobre itens da planilha que referenciam um
+ * insumo diretamente, sem passar por uma composição.
+ */
+async function fetchAvulsosDiretos(
+  supabase: SupabaseClient,
+  orcamentoId: string,
+  codigosComposicao: Set<string>
+): Promise<Map<string, number>> {
+  const { data } = await supabase
+    .from('orcamento_insumos')
+    .select('codigo, custo')
+    .eq('orcamento_id', orcamentoId)
+    .is('composicao_id', null)
+
+  const mapa = new Map<string, number>()
+  for (const av of (data ?? []) as { codigo: string; custo: number }[]) {
+    const codigo = norm(av.codigo)
+    if (av.custo && !codigosComposicao.has(codigo)) mapa.set(codigo, av.custo)
+  }
+  return mapa
+}
+
 async function atualizarEstrutura(
   supabase: SupabaseClient,
   orcamentoId: string,
   planilhaIds: string[] | null,
-  custoPorCodigo: Map<string, number>
+  custoPorCodigoRaw: Map<string, number>,
+  log?: (msg: string) => void
 ): Promise<number> {
+  // Normaliza as chaves (trim) para não perder o match por espaços invisíveis
+  // vindos de importação de CSV/Excel.
+  const custoPorCodigo = new Map<string, number>()
+  for (const [codigo, custo] of custoPorCodigoRaw) custoPorCodigo.set(norm(codigo), custo)
+
   let query = supabase
     .from('orcamento_estrutura')
     .select('id, codigo, custo_unitario')
@@ -232,9 +266,20 @@ async function atualizarEstrutura(
   const { data: itens, error: itensErr } = await query
   if (itensErr) throw new Error(`Erro ao buscar itens da planilha: ${itensErr.message}`)
 
-  const updates = ((itens ?? []) as { id: string; codigo: string; custo_unitario: number | null }[])
-    .filter(item => custoPorCodigo.has(item.codigo) && custoPorCodigo.get(item.codigo) !== item.custo_unitario)
-    .map(item => ({ id: item.id, custo_unitario: custoPorCodigo.get(item.codigo)! }))
+  const todosItens = (itens ?? []) as { id: string; codigo: string; custo_unitario: number | null }[]
+  const elegiveis = todosItens.filter(item => custoPorCodigo.has(norm(item.codigo)))
+  const updates = elegiveis
+    .filter(item => custoPorCodigo.get(norm(item.codigo)) !== item.custo_unitario)
+    .map(item => ({ id: item.id, custo_unitario: custoPorCodigo.get(norm(item.codigo))! }))
+
+  if (log) {
+    log(`Verificados ${todosItens.length} item(ns) da planilha: ${elegiveis.length} usam código(s) recalculado(s), ${updates.length} com valor diferente do já salvo.`)
+    if (elegiveis.length > updates.length) {
+      const jaCorretos = elegiveis.filter(item => custoPorCodigo.get(norm(item.codigo)) === item.custo_unitario)
+      const amostra = jaCorretos.slice(0, 5).map(i => `${i.codigo}=${i.custo_unitario}`).join(', ')
+      log(`${jaCorretos.length} já estavam com o custo correto (${amostra}${jaCorretos.length > 5 ? '…' : ''}).`)
+    }
+  }
 
   if (updates.length === 0) return 0
 
@@ -659,7 +704,7 @@ export async function executarCalculo(
         log('Nenhum preço avulso cadastrado. Nada a atualizar.')
         return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados: 0 }
       }
-      const itensAtualizados = await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, precoAvulso)
+      const itensAtualizados = await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, precoAvulso, log)
       const totaisPlanilhas = planilhaIdsParaAtualizar.length > 0
         ? await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaAtualizar)
         : undefined
@@ -682,13 +727,19 @@ export async function executarCalculo(
     log(`${dirtyIds.size} composição(ões) a recalcular.`)
 
     if (dirtyIds.size === 0 && allComps.length > 0) {
-      log('Nenhuma alteração detectada desde o último cálculo.')
+      log('Nenhuma alteração detectada nas composições — verificando insumos usados diretamente...')
+      // Itens da planilha podem referenciar um insumo diretamente (sem composição).
+      // O delta acima só cobre composições, então isso é checado à parte.
+      const avulsoDireto = await fetchAvulsosDiretos(supabase, orcamentoId, new Set([...codigoToId.keys()].map(norm)))
+      const itensAtualizados = avulsoDireto.size > 0
+        ? await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, avulsoDireto, log)
+        : 0
       const totaisPlanilhas = planilhaIdsParaAtualizar.length > 0
         ? await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaAtualizar)
         : undefined
       log('Cálculo concluído com sucesso.')
-      await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo executado [${modo}] — nenhuma alteração`, { modo, composicoesRecalculadas: 0 })
-      return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados: 0, totaisPlanilhas }
+      await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo executado [${modo}] — nenhuma alteração em composições, ${itensAtualizados} item(ns) via insumo direto`, { modo, composicoesRecalculadas: 0, itensAtualizados })
+      return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados, totaisPlanilhas }
     }
 
     // ── Buscar preços avulsos em paralelo (têm prioridade sobre custo nos insumos) ──
@@ -730,7 +781,13 @@ export async function executarCalculo(
         .filter(c => custoPorId.has(c.id))
         .map(c => [c.codigo, custoPorId.get(c.id)!])
     )
-    const itensAtualizados = await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, custoPorCodigo)
+    // Itens da planilha que referenciam um insumo diretamente (sem composição)
+    // não aparecem em custoPorCodigo acima — mescla os preços avulsos correspondentes.
+    const avulsoDireto = await fetchAvulsosDiretos(supabase, orcamentoId, new Set([...codigoToId.keys()].map(norm)))
+    for (const [codigo, custo] of avulsoDireto) {
+      if (!custoPorCodigo.has(codigo)) custoPorCodigo.set(codigo, custo)
+    }
+    const itensAtualizados = await atualizarEstrutura(supabase, orcamentoId, planilhaIdsParaAtualizar, custoPorCodigo, log)
 
     // ── Persistir totais ──────────────────────────────────────────────────────
     let totaisPlanilhas: TotaisPlanilha[] | undefined

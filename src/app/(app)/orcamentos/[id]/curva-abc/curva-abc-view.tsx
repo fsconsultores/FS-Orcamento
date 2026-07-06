@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import type { AbcItem } from '@/lib/curva-abc'
+import { useRouter } from 'next/navigation'
+import type { AbcItem, AbcItemComCategoria, CategoriaAbc } from '@/lib/curva-abc'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
 import { exportCurvaAbcPdf } from './export-pdf'
 
@@ -125,30 +126,68 @@ const ROW_BG: Record<'A' | 'B' | 'C', string> = {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+type CategoriaFiltro = 'todas' | CategoriaAbc
+
+const CATEGORIA_LABELS: Record<CategoriaFiltro, string> = {
+  todas: 'Todos',
+  materiais: 'Materiais',
+  mao_de_obra: 'Mão de Obra',
+  equipamentos: 'Equipamentos',
+  servicos: 'Serviços',
+}
+
 export function CurvaAbcView({
-  abcServicos,
-  abcInsumos,
+  orcamentoId,
+  items: todosItens,
   orcamentoNome,
 }: {
-  abcServicos: AbcItem[]
-  abcInsumos: AbcItem[]
+  orcamentoId: string
+  items: AbcItemComCategoria[]
   orcamentoNome?: string
 }) {
-  const [tab, setTab] = useState<'servicos' | 'insumos'>('servicos')
+  const router = useRouter()
+  const [categoria, setCategoria] = useState<CategoriaFiltro>('todas')
   const [filtro, setFiltro] = useState<'todos' | 'A' | 'B' | 'C'>('todos')
   const [exportandoPdf, setExportandoPdf] = useState(false)
+  const [editandoCodigo, setEditandoCodigo] = useState<string | null>(null)
+  const [salvandoCodigo, setSalvandoCodigo] = useState<string | null>(null)
 
-  const items = tab === 'servicos' ? abcServicos : abcInsumos
+  // A curva ABC é uma só (percentuais/classes calculados uma única vez sobre
+  // todos os itens); o filtro por categoria só restringe quais linhas aparecem,
+  // sem recalcular percentual/acumulado/classe.
+  const items = categoria === 'todas' ? todosItens : todosItens.filter(i => i.categoria === categoria)
   const filtered = filtro === 'todos' ? items : items.filter(i => i.classe === filtro)
 
   const total = items.reduce((s, i) => s + i.valor_total, 0)
   const byClass = (c: 'A' | 'B' | 'C') => items.filter(i => i.classe === c)
 
+  async function handleSalvarCusto(item: AbcItemComCategoria, rawValue: string) {
+    setEditandoCodigo(null)
+    if (!item.codigo) return
+    const str = rawValue.trim().replace(',', '.')
+    const parsed = str === '' ? 0 : parseFloat(str)
+    if (isNaN(parsed) || parsed < 0 || parsed === item.custo_unitario) return
+
+    setSalvandoCodigo(item.codigo)
+    try {
+      const { atualizarPrecoInsumoAction } = await import('../atualizar-preco-insumo-action')
+      await atualizarPrecoInsumoAction(orcamentoId, item.codigo, parsed, {
+        descricao: item.descricao,
+        unidade: item.unidade ?? undefined,
+      })
+      router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar custo.')
+    } finally {
+      setSalvandoCodigo(null)
+    }
+  }
+
   async function handleExportXlsx() {
     const ExcelJS = (await import('exceljs')).default
     const wb = new ExcelJS.Workbook()
     wb.creator = 'FS Orçamento'
-    const sheetName = tab === 'servicos' ? 'ABC Serviços' : 'ABC Insumos'
+    const sheetName = `Curva ABC${categoria === 'todas' ? '' : ' - ' + CATEGORIA_LABELS[categoria]}`
     const ws = wb.addWorksheet(sheetName)
 
     const C = {
@@ -217,14 +256,14 @@ export function CurvaAbcView({
     const buf = await wb.xlsx.writeBuffer()
     const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
     const a   = document.createElement('a')
-    a.href = url; a.download = `curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
+    a.href = url; a.download = `curva_abc_${categoria}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
     URL.revokeObjectURL(url)
   }
 
   async function handleExportPdf() {
     setExportandoPdf(true)
     try {
-      await exportCurvaAbcPdf(items, tab, orcamentoNome)
+      await exportCurvaAbcPdf(items, categoria === 'todas' ? 'geral' : categoria, orcamentoNome)
     } finally {
       setExportandoPdf(false)
     }
@@ -232,25 +271,26 @@ export function CurvaAbcView({
 
   return (
     <div className="space-y-5">
-      {/* Tabs composições / insumos */}
-      <div className="flex gap-0 border-b border-gray-200">
-        {([
-          { key: 'servicos', label: 'Serviços', count: abcServicos.length },
-          { key: 'insumos', label: 'Insumos', count: abcInsumos.length },
-        ] as const).map(({ key, label, count }) => (
-          <button
-            key={key}
-            onClick={() => { setTab(key); setFiltro('todos') }}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {label}
-            <span className="ml-1.5 text-xs text-gray-400">({count})</span>
-          </button>
-        ))}
+      {/* Filtro por categoria — a curva é única; isto só restringe as linhas exibidas */}
+      <div className="flex flex-wrap gap-1.5">
+        {(['todas', 'materiais', 'mao_de_obra', 'equipamentos', 'servicos'] as const).map((key) => {
+          const count = key === 'todas' ? todosItens.length : todosItens.filter(i => i.categoria === key).length
+          const active = categoria === key
+          return (
+            <button
+              key={key}
+              onClick={() => { setCategoria(key); setFiltro('todos') }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {CATEGORIA_LABELS[key]}
+              <span className={active ? 'ml-1.5 text-blue-100' : 'ml-1.5 text-gray-400'}>({count})</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Summary cards */}
@@ -400,7 +440,31 @@ export function CurvaAbcView({
                   <td className="px-3 py-1.5 text-gray-900">{item.descricao}</td>
                   <td className="px-3 py-1.5 text-center text-xs text-gray-500">{item.unidade ?? '—'}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{fmtQtd(item.quantidade)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{fmt(item.custo_unitario)}</td>
+                  <td className="px-3 py-1.5 text-right w-32">
+                    {item.codigo && editandoCodigo === item.codigo ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        min="0"
+                        step="any"
+                        defaultValue={item.custo_unitario}
+                        onBlur={e => handleSalvarCusto(item, e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); handleSalvarCusto(item, (e.target as HTMLInputElement).value) }
+                          if (e.key === 'Escape') { e.preventDefault(); setEditandoCodigo(null) }
+                        }}
+                        className="block w-full text-right rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 tabular-nums"
+                      />
+                    ) : (
+                      <span
+                        onClick={() => item.codigo && setEditandoCodigo(item.codigo)}
+                        className={`block tabular-nums ${item.codigo ? 'cursor-pointer hover:underline decoration-dotted' : ''} ${salvandoCodigo === item.codigo ? 'text-gray-400' : 'text-gray-700'}`}
+                        title={item.codigo ? 'Clique para editar' : undefined}
+                      >
+                        {salvandoCodigo === item.codigo ? '…' : fmt(item.custo_unitario)}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmt(item.valor_total)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{fmtPct(item.percentual)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{fmtPct(item.percentual_acumulado)}</td>

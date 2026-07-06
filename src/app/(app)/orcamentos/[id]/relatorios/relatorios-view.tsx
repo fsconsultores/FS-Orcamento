@@ -8,6 +8,7 @@ type LoadingKey =
   | 'caderno-pdf'
   | 'planilha-xlsx'
   | 'analitica-xlsx'
+  | 'analitica-decomposta-xlsx'
   | 'abc-servicos-pdf'
   | 'abc-servicos-xlsx'
   | 'abc-insumos-pdf'
@@ -317,6 +318,115 @@ export function RelatoriosView({ data }: { data: CadernoData }) {
     }
   }
 
+  async function handleAnaliticaDecompostaXlsx() {
+    start('analitica-decomposta-xlsx')
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      wb.creator = 'FS Orçamento'
+      const ws = wb.addWorksheet('Planilha Analítica Decomposta')
+
+      const C = {
+        slate800: 'FF1E293B', slate700: 'FF334155', slate50: 'FFF8FAFC',
+        blue50: 'FFEFF6FF', blue950: 'FF172554',
+        white: 'FFFFFFFF', gray700: 'FF374151',
+        headerBg: 'FFF1F5F9', headerFg: 'FF64748B',
+        border: 'FFE2E8F0', borderDk: 'FF475569',
+        insumoFg: 'FF4B5563', insumoBdr: 'FFF0F4F8',
+      }
+      const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+      const bdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
+
+      ws.columns = [
+        { width: 10 }, { width: 13 }, { width: 55 },
+        { width: 6 },  { width: 12 }, { width: 15 }, { width: 16 },
+      ]
+
+      await addSheetHeader(wb, ws, 'PLANILHA ANALÍTICA DECOMPOSTA', data.orcamento)
+
+      const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
+      hRow.height = 20
+      hRow.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
+        cell.fill = fill(C.headerBg)
+        cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: C.headerFg } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.borderDk), bottom: bdr('medium', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+      })
+
+      for (const row of data.planilhaAnaliticaDecomposta) {
+        if (row.tipo === 'grupo') {
+          const r = ws.addRow([row.numero, '', sanitize(row.descricao) || '', '', '', '', ''])
+          r.height = 18
+          r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
+            cell.fill = fill(C.slate800)
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: C.white } }
+            cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle' }
+            cell.border = { top: bdr('thin', C.borderDk), bottom: bdr('thin', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+          })
+        } else if (row.tipo === 'item') {
+          const r = ws.addRow([
+            row.numero,
+            sanitize(row.codigo)   || '',
+            sanitize(row.descricao) || '',
+            sanitize(row.unidade)  || '',
+            '',
+            row.custoUnitario > 0 ? row.custoUnitario : '',
+            row.custoTotal    > 0 ? row.custoTotal    : '',
+          ])
+          r.height = 15
+          r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
+            cell.fill = fill(C.slate50)
+            cell.font = { name: 'Calibri', size: 9, bold: false, color: { argb: C.gray700 } }
+            cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+            cell.border = { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+            if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+          })
+        } else if (row.tipo === 'insumo') {
+          const indent = '    '.repeat(row.nivel)
+          const r = ws.addRow([
+            '',
+            sanitize(row.codigo)                 || '',
+            sanitize(indent + row.descricao)      || '',
+            sanitize(row.unidade)                || '',
+            row.indice   > 0 ? row.indice   : '',
+            row.custoUnit > 0 ? row.custoUnit : '',
+            row.custoTotal > 0 ? row.custoTotal : '',
+          ])
+          r.height = 13
+          r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
+            cell.fill = fill(C.white)
+            cell.font = { name: 'Calibri', size: 8, bold: false, color: { argb: C.insumoFg } }
+            cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+            cell.border = { top: bdr('thin', C.insumoBdr), bottom: bdr('thin', C.insumoBdr), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+            if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+            if (c === 5 && typeof cell.value === 'number')              cell.numFmt = '#,##0.0000'
+          })
+        }
+      }
+
+      const tRow = ws.addRow(['', '', 'TOTAL GERAL', '', '', '', data.totalGeral])
+      tRow.height = 20
+      tRow.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
+        cell.fill = fill(C.slate800)
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: c === 3 ? C.headerFg : C.white } }
+        cell.alignment = { horizontal: c >= 5 ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
+        cell.border = { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
+        if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+      })
+
+      const slug = (data.orcamento.nome_obra ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
+      const buf  = await wb.xlsx.writeBuffer()
+      const url  = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a    = document.createElement('a')
+      a.href = url; a.download = `${slug}_analitica_decomposta.xlsx`; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setErr('analitica-decomposta-xlsx', e instanceof Error ? e.message : 'Erro ao gerar Excel')
+    } finally {
+      stop('analitica-decomposta-xlsx')
+    }
+  }
+
   async function handleAbcPdf(tab: 'servicos' | 'insumos', key: LoadingKey) {
     start(key)
     try {
@@ -532,6 +642,17 @@ export function RelatoriosView({ data }: { data: CadernoData }) {
           errorKeys={['analitica-xlsx']}
         >
           <BtnXlsx loadingKey="analitica-xlsx" onClick={handleAnaliticaXlsx} />
+        </Card>
+
+        {/* Planilha analítica decomposta */}
+        <Card
+          icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h10M4 14h13M4 18h7" /></svg>}
+          title="Planilha Analítica Decomposta"
+          description="Igual à Planilha Analítica, mas expande também as sub-composições em seus próprios insumos, recursivamente."
+          meta={`${data.planilhaAnaliticaDecomposta.filter(r => r.tipo === 'item').length} itens com insumos`}
+          errorKeys={['analitica-decomposta-xlsx']}
+        >
+          <BtnXlsx loadingKey="analitica-decomposta-xlsx" onClick={handleAnaliticaDecompostaXlsx} />
         </Card>
 
         {/* Curva ABC Serviços */}

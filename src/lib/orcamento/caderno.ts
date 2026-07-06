@@ -34,7 +34,7 @@ export interface CadernoNode {
 export type PlanilhaAnaliticaRow =
   | { tipo: 'grupo'; numero: string; descricao: string }
   | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; custoUnitario: number; custoTotal: number }
-  | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number }
+  | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number; nivel: number }
 
 export interface ListaInsumoItem {
   codigo: string
@@ -83,6 +83,7 @@ export interface CadernoData {
   abcInsumos: AbcItem[]
   abcServicos: AbcItem[]
   planilhaAnalitica: PlanilhaAnaliticaRow[]
+  planilhaAnaliticaDecomposta: PlanilhaAnaliticaRow[]
   listaInsumos: ListaInsumoGrupo[]
   distribuicaoCustos: DistribuicaoCustoItem[]
 }
@@ -446,6 +447,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
             indice: ins.indice,
             custoUnit,
             custoTotal: custoUnit * ins.indice,
+            nivel: 1,
           })
         }
       }
@@ -454,6 +456,69 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   }
 
   const planilhaAnalitica = buildPlanilhaAnalitica(arvore)
+
+  // ── Planilha Analítica Decomposta ────────────────────────────────────────────
+  // Igual à Planilha Analítica, mas quando um insumo é, na verdade, o código de
+  // outra composição (sub-composição), expande recursivamente os insumos dela
+  // também, acumulando o índice (índice do pai × índice do filho) e a
+  // profundidade (nivel) para indentação no export.
+  function buildPlanilhaAnaliticaDecomposta(nodes: CadernoNode[]): PlanilhaAnaliticaRow[] {
+    const rows: PlanilhaAnaliticaRow[] = []
+
+    function expandirInsumo(ins: InsumoComposicaoBasico, indiceAcumulado: number, nivel: number, visitados: Set<string>) {
+      const custoUnit = precoEfetivoMap.get(ins.codigo) ?? ins.custo
+      rows.push({
+        tipo: 'insumo',
+        codigo: ins.codigo,
+        descricao: ins.descricao,
+        unidade: ins.unidade ?? '',
+        indice: indiceAcumulado,
+        custoUnit,
+        custoTotal: custoUnit * indiceAcumulado,
+        nivel,
+      })
+
+      const subCompId = compCodeToId.get(ins.codigo)
+      if (!subCompId || visitados.has(ins.codigo)) return
+      const subInsumos = compInsumosByCompId.get(subCompId)
+      if (!subInsumos || subInsumos.length === 0) return
+
+      const proximosVisitados = new Set(visitados).add(ins.codigo)
+      for (const sub of subInsumos.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
+        expandirInsumo(sub, indiceAcumulado * sub.indice, nivel + 1, proximosVisitados)
+      }
+    }
+
+    for (const node of nodes) {
+      if (node.tipo === 'grupo') {
+        rows.push({ tipo: 'grupo', numero: node.numero, descricao: node.descricao })
+        rows.push(...buildPlanilhaAnaliticaDecomposta(node.filhos))
+        continue
+      }
+
+      rows.push({
+        tipo: 'item',
+        numero: node.numero,
+        codigo: node.codigo ?? '',
+        descricao: node.descricao,
+        unidade: node.unidade ?? '',
+        custoUnitario: node.custoUnitario,
+        custoTotal: node.total,
+      })
+
+      const compId = node.codigo ? compCodeToId.get(node.codigo) : undefined
+      const insumosArr = compId ? compInsumosByCompId.get(compId) : undefined
+      if (insumosArr && insumosArr.length > 0) {
+        const visitadosRaiz = new Set(node.codigo ? [node.codigo] : [])
+        for (const ins of insumosArr.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
+          expandirInsumo(ins, ins.indice, 1, visitadosRaiz)
+        }
+      }
+    }
+    return rows
+  }
+
+  const planilhaAnaliticaDecomposta = buildPlanilhaAnaliticaDecomposta(arvore)
 
   // ── Consumo total de cada insumo no orçamento (expande composições recursivamente) ──
   const consumoMap = new Map<string, number>()
@@ -528,6 +593,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     abcInsumos,
     abcServicos,
     planilhaAnalitica,
+    planilhaAnaliticaDecomposta,
     listaInsumos,
     distribuicaoCustos,
   }

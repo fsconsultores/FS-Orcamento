@@ -13,9 +13,18 @@ import {
 
 // ─── PDF principal ────────────────────────────────────────────────────────────
 
+const TAB_TITLES: Record<string, string> = {
+  geral: 'GERAL',
+  materiais: 'MATERIAIS',
+  mao_de_obra: 'MÃO DE OBRA',
+  equipamentos: 'EQUIPAMENTOS',
+  servicos: 'SERVIÇOS',
+  insumos: 'INSUMOS', // usado pelas abas legadas de Relatórios (abcServicos/abcInsumos)
+}
+
 export async function exportCurvaAbcPdf(
   items: AbcItem[],
-  tab: 'servicos' | 'insumos',
+  tab: 'geral' | 'materiais' | 'mao_de_obra' | 'equipamentos' | 'servicos' | 'insumos',
   orcamentoNome?: string,
 ) {
   const { jsPDF } = await import('jspdf')
@@ -33,7 +42,7 @@ export async function exportCurvaAbcPdf(
   doc.setTextColor(PDF_COLORS.bannerFg)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
-  doc.text(`CURVA ABC — ${tab === 'servicos' ? 'SERVIÇOS' : 'INSUMOS'}`, margin + 4, margin + 7)
+  doc.text(`CURVA ABC — ${TAB_TITLES[tab] ?? tab.toUpperCase()}`, margin + 4, margin + 7)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   const subtitle = [orcamentoNome, `Gerado em ${new Date().toLocaleDateString('pt-BR')}`]

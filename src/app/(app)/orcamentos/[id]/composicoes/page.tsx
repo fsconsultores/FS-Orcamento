@@ -3,6 +3,7 @@ import { getComposicoesByOrcamento } from '@/lib/orcamento'
 import { NovaComposicaoForm } from './nova-composicao-form'
 import { ComposicoesTable } from './composicoes-table'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
+import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
 import type { ComposicaoParaExport } from '@/components/export-composicoes-button'
 
@@ -60,6 +61,7 @@ export default async function OrcamentoComposicoesPage({
           <p className="text-sm text-gray-500 mt-1">{composicoes.length} composição(ões)</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportComposicaoModeloButton />
           <ExportComposicoesButton composicoes={composicoesParaExport} />
         </div>
       </div>

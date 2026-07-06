@@ -81,20 +81,6 @@ function parseCsv(text: string): RowParsed[] {
     // Linhas totalmente vazias → pular silenciosamente
     if (!comp_codigo && !ins_codigo && !tipo_item) return;
 
-    // Tipo 'C' = subcomposição auxiliar → ignorada
-    if (tipo_item === 'C') {
-      result.push({
-        linha: linhaNum,
-        comp_codigo: comp_codigo || lastComp.codigo,
-        comp_descricao: comp_descricao || lastComp.descricao,
-        comp_unidade: comp_unidade || lastComp.unidade,
-        tipo_item, ins_codigo, ins_descricao, ins_unidade,
-        indice: isNaN(indice) ? 0 : indice, grupo,
-        status: 'ignorado', erro: null,
-      });
-      return;
-    }
-
     // Linhas de continuação: comp_codigo vazio mas ins_codigo preenchido
     // → herda dados da composição anterior
     if (!comp_codigo && ins_codigo) {
@@ -105,7 +91,14 @@ function parseCsv(text: string): RowParsed[] {
       lastComp = { codigo: comp_codigo, descricao: comp_descricao, unidade: comp_unidade };
     }
 
-    // Sem ins_codigo e sem tipo 'C' → ignorado (outros tipos desconhecidos)
+    // Tipo 'C' = composição auxiliar usada como item de outra composição.
+    // É importada como um insumo normal cujo código bate com o código de outra
+    // composição — o restante do sistema (motor de cálculo, Curva ABC, Planilha
+    // Analítica Decomposta) já reconhece esse padrão e trata como sub-composição,
+    // decompondo recursivamente. Antes esse tipo de linha era descartado no
+    // import, o que impedia qualquer decomposição da composição auxiliar depois.
+
+    // Sem ins_codigo → ignorado (linha sem dados de insumo)
     if (!ins_codigo) {
       result.push({
         linha: linhaNum, comp_codigo, comp_descricao, comp_unidade, tipo_item,
@@ -339,7 +332,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   ok: 'OK',
-  ignorado: 'Ignorado (sub-composição)',
+  ignorado: 'Ignorado (sem insumo)',
 };
 
 export default function ImportarComposicoesPage() {
@@ -447,7 +440,7 @@ export default function ImportarComposicoesPage() {
         <p className="mt-1 text-sm text-gray-500">
           {targetBase
             ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>. Insumos ausentes são criados automaticamente.</>
-            : 'Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são ignoradas.'}
+            : 'Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são importadas como item — o preço real é assumido do cálculo da composição auxiliar.'}
         </p>
       </div>
 
