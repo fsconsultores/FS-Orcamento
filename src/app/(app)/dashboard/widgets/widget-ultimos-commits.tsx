@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { WidgetCard, WidgetEmpty } from './widget-card'
+import { IconCommit } from './icons'
+import { formatRelative } from './format-relative'
 
 type Row = {
   id: string
@@ -26,17 +28,18 @@ export async function WidgetUltimosCommits() {
   }
 
   return (
-    <WidgetCard title="Últimos commits">
+    <WidgetCard title="Últimos commits" icon={<IconCommit />}>
       {rows.length === 0 ? (
         <WidgetEmpty mensagem="Nenhuma versão criada ainda." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {rows.map(r => (
             <li key={r.id} className="text-sm">
               <Link href={`/orcamentos/${r.orcamento_id}/versoes` as any} className="text-gray-700 hover:text-blue-600">
                 <span className="block truncate">{r.mensagem}</span>
-                <span className="block text-xs text-gray-400 truncate">
-                  {r.tabela_orcamentos?.nome_obra ?? '—'} · {r.autor_email ?? 'sistema'}
+                <span className="flex items-center justify-between gap-2 text-xs text-gray-400">
+                  <span className="truncate">{r.tabela_orcamentos?.nome_obra ?? '—'} · {r.autor_email ?? 'sistema'}</span>
+                  <span className="shrink-0" title={new Date(r.criado_em).toLocaleString('pt-BR')}>{formatRelative(r.criado_em)}</span>
                 </span>
               </Link>
             </li>

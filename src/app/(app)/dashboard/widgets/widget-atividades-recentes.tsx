@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { WidgetCard, WidgetEmpty } from './widget-card'
-import { ACAO_LABELS } from '@/lib/historico-labels'
+import { ACAO_LABELS, ACAO_COLORS } from '@/lib/historico-labels'
+import { IconPulse } from './icons'
+import { formatRelative } from './format-relative'
 
 type Row = { id: string; acao: string; mensagem: string; created_at: string }
 
@@ -23,16 +25,21 @@ export async function WidgetAtividadesRecentes() {
   }
 
   return (
-    <WidgetCard title="Atividades recentes" href="/logs">
+    <WidgetCard title="Atividades recentes" href="/logs" icon={<IconPulse />}>
       {rows.length === 0 ? (
         <WidgetEmpty mensagem="Nenhuma atividade registrada ainda." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {rows.map(r => (
             <li key={r.id} className="text-sm">
               <span className="block text-gray-700 truncate">{r.mensagem}</span>
-              <span className="block text-xs text-gray-400">
-                {ACAO_LABELS[r.acao] ?? r.acao} · {new Date(r.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+              <span className="mt-1 flex items-center justify-between gap-2">
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${ACAO_COLORS[r.acao] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {ACAO_LABELS[r.acao] ?? r.acao}
+                </span>
+                <span className="shrink-0 text-xs text-gray-400" title={new Date(r.created_at).toLocaleString('pt-BR')}>
+                  {formatRelative(r.created_at)}
+                </span>
               </span>
             </li>
           ))}

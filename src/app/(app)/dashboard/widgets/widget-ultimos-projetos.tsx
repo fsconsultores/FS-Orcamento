@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { WidgetCard, WidgetEmpty } from './widget-card'
+import { IconClock } from './icons'
+import { formatRelative } from './format-relative'
 
 type Row = { id: string; nome_obra: string; codigo: string | null; ultimo_acesso: string | null }
 
@@ -19,19 +21,26 @@ export async function WidgetUltimosProjetos() {
   }
 
   return (
-    <WidgetCard title="Últimos projetos" href="/orcamentos">
+    <WidgetCard title="Últimos projetos" href="/orcamentos" icon={<IconClock />}>
       {rows.length === 0 ? (
         <WidgetEmpty mensagem="Nenhum orçamento ainda." />
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="space-y-2.5">
           {rows.map(r => (
             <li key={r.id}>
               <Link
                 href={`/orcamentos/${r.id}` as any}
-                className="flex items-center justify-between text-sm text-gray-700 hover:text-blue-600 truncate"
+                className="flex items-center justify-between gap-2 text-sm text-gray-700 hover:text-blue-600"
               >
                 <span className="truncate">{r.nome_obra}</span>
-                {r.codigo && <span className="ml-2 shrink-0 font-mono text-xs text-gray-400">{r.codigo}</span>}
+                <span className="ml-2 flex shrink-0 items-center gap-2">
+                  {r.codigo && <span className="font-mono text-xs text-gray-400">{r.codigo}</span>}
+                  {r.ultimo_acesso && (
+                    <span className="text-xs text-gray-400" title={new Date(r.ultimo_acesso).toLocaleString('pt-BR')}>
+                      {formatRelative(r.ultimo_acesso)}
+                    </span>
+                  )}
+                </span>
               </Link>
             </li>
           ))}

@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { computeAbcCurvaUnica, fmt, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { WidgetCard, WidgetEmpty } from './widget-card'
+import { IconBars } from './icons'
 
 export async function WidgetCurvaAbcResumida() {
   let orcamentoId: string | null = null
@@ -47,18 +48,26 @@ export async function WidgetCurvaAbcResumida() {
     // mantém vazio
   }
 
+  const max = top.length > 0 ? Math.max(...top.map(i => i.valor_total)) : 0
+
   return (
-    <WidgetCard title="Curva ABC resumida" href={orcamentoId ? `/orcamentos/${orcamentoId}/curva-abc` : undefined}>
+    <WidgetCard title="Curva ABC resumida" href={orcamentoId ? `/orcamentos/${orcamentoId}/curva-abc` : undefined} icon={<IconBars />} wide>
       {!orcamentoId || top.length === 0 ? (
         <WidgetEmpty mensagem="Sem dados de Curva ABC ainda." />
       ) : (
         <>
-          <p className="text-xs text-gray-400 mb-2 truncate">Top Classe A — {nomeObra}</p>
-          <ul className="space-y-1">
+          <p className="text-xs text-gray-400 mb-3 truncate">Top Classe A — {nomeObra}</p>
+          <ul className="space-y-2.5">
             {top.map((i, idx) => (
-              <li key={idx} className="flex items-center justify-between text-sm gap-2">
-                <span className="truncate text-gray-700">{i.descricao}</span>
-                <span className="shrink-0 tabular-nums text-gray-500">{fmt(i.valor_total)}</span>
+              <li key={idx} className="flex items-center gap-3 text-sm">
+                <span className="w-1/2 truncate text-gray-700 sm:w-2/5">{i.descricao}</span>
+                <span className="relative h-1.5 flex-1 rounded-full bg-gray-100">
+                  <span
+                    className="absolute inset-y-0 left-0 rounded-full bg-blue-500"
+                    style={{ width: max > 0 ? `${(i.valor_total / max) * 100}%` : '0%' }}
+                  />
+                </span>
+                <span className="w-28 shrink-0 text-right tabular-nums text-gray-500">{fmt(i.valor_total)}</span>
               </li>
             ))}
           </ul>

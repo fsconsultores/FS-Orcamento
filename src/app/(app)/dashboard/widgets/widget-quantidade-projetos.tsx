@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { WidgetCard } from './widget-card'
+import { WidgetStat } from './widget-card'
+import { IconBuilding } from './icons'
 
 export async function WidgetQuantidadeProjetos() {
   let total = 0
@@ -12,9 +13,12 @@ export async function WidgetQuantidadeProjetos() {
   }
 
   return (
-    <WidgetCard title="Projetos" href="/orcamentos">
-      <p className="text-3xl font-bold text-gray-900 tabular-nums">{total}</p>
-      <p className="text-xs text-gray-400 mt-1">orçamento{total !== 1 ? 's' : ''} cadastrado{total !== 1 ? 's' : ''}</p>
-    </WidgetCard>
+    <WidgetStat
+      title="Projetos"
+      href="/orcamentos"
+      icon={<IconBuilding />}
+      value={total}
+      caption={`orçamento${total !== 1 ? 's' : ''} cadastrado${total !== 1 ? 's' : ''}`}
+    />
   )
 }

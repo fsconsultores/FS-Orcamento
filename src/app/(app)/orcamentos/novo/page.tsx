@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { registrarHistorico } from '@/lib/log';
 import { listBases, importarDaBase } from '../[id]/importar/import-action';
 import type { BaseInfo } from '../[id]/importar/import-action';
+import { createPlanilha } from '@/lib/orcamento/planilhas';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
@@ -84,6 +85,10 @@ export default function NovoOrcamentoPage() {
         mensagem: `Orçamento "${form.nome_obra.trim()}" criado com sucesso`,
       });
 
+      // Cria a planilha principal já aqui — sem isso, ela só nasceria de forma
+      // preguiçosa quando a tela /planilha fosse aberta pela primeira vez.
+      await createPlanilha(supabase, data.id, 'Planilha Principal', bdi);
+
       // Importa as bases selecionadas, uma de cada vez (evita corrida entre
       // duas importações mexendo nas mesmas tabelas do orçamento ao mesmo tempo).
       if (basesSelecionadas.size > 0) {
@@ -115,6 +120,7 @@ export default function NovoOrcamentoPage() {
         }
       }
 
+      router.refresh();
       router.push(`/orcamentos/${data.id}/planilha`);
     } catch {
       setError('Erro ao salvar. Tente novamente.');

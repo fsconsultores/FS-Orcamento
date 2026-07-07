@@ -7,6 +7,7 @@ import { WidgetValorTotal } from './widgets/widget-valor-total';
 import { WidgetUltimosCommits } from './widgets/widget-ultimos-commits';
 import { WidgetCurvaAbcResumida } from './widgets/widget-curva-abc-resumida';
 import { WidgetAtividadesRecentes } from './widgets/widget-atividades-recentes';
+import { IconPlus } from './widgets/icons';
 
 export default async function DashboardPage() {
   return (
@@ -18,37 +19,43 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="rounded-xl border bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-900">Ações rápidas</h2>
         <div className="flex flex-wrap gap-3">
           <Link
             href="/orcamentos/novo"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
+            <IconPlus />
             Cadastrar Novo Orçamento
           </Link>
         </div>
       </div>
 
       {/* Widgets — cada um independente, com sua própria busca e streaming próprio */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Suspense fallback={<WidgetSkeleton title="Projetos" />}>
+
+      {/* KPIs de abertura: os dois números que a diretoria olha primeiro */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Suspense fallback={<WidgetSkeleton title="Projetos" stat />}>
           <WidgetQuantidadeProjetos />
         </Suspense>
-        <Suspense fallback={<WidgetSkeleton title="Valor total dos orçamentos" />}>
+        <Suspense fallback={<WidgetSkeleton title="Valor total dos orçamentos" stat />}>
           <WidgetValorTotal />
         </Suspense>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Suspense fallback={<WidgetSkeleton title="Últimos projetos" />}>
           <WidgetUltimosProjetos />
         </Suspense>
         <Suspense fallback={<WidgetSkeleton title="Últimos commits" />}>
           <WidgetUltimosCommits />
         </Suspense>
-        <Suspense fallback={<WidgetSkeleton title="Curva ABC resumida" />}>
-          <WidgetCurvaAbcResumida />
-        </Suspense>
         <Suspense fallback={<WidgetSkeleton title="Atividades recentes" />}>
           <WidgetAtividadesRecentes />
+        </Suspense>
+        <Suspense fallback={<WidgetSkeleton title="Curva ABC resumida" />}>
+          <WidgetCurvaAbcResumida />
         </Suspense>
       </div>
     </div>

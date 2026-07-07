@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { WidgetCard } from './widget-card'
+import { WidgetStat } from './widget-card'
+import { IconWallet } from './icons'
 
 function fmt(n: number) {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -20,9 +21,11 @@ export async function WidgetValorTotal() {
   }
 
   return (
-    <WidgetCard title="Valor total dos orçamentos">
-      <p className="text-2xl font-bold text-gray-900 tabular-nums">{fmt(totalComBdi)}</p>
-      <p className="text-xs text-gray-400 mt-1">{fmt(totalSemBdi)} sem BDI · soma de todas as planilhas</p>
-    </WidgetCard>
+    <WidgetStat
+      title="Valor total dos orçamentos"
+      icon={<IconWallet />}
+      value={fmt(totalComBdi)}
+      caption={`${fmt(totalSemBdi)} sem BDI · soma de todas as planilhas`}
+    />
   )
 }
