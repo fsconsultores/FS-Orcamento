@@ -4,8 +4,8 @@ import { LogsList, type LogRow } from './logs-list'
 export default async function LogsPage() {
   const sb = (await createClient()) as any
   const { data, error } = await sb
-    .from('tabela_logs')
-    .select('id, created_at, empresa, usuario, tipo, acao, mensagem, contexto')
+    .from('historico_alteracoes')
+    .select('id, created_at, usuario_email, tipo, acao, mensagem, detalhes')
     .order('created_at', { ascending: false })
     .limit(200)
 

@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 export interface EstruturaItem {
   id: string
@@ -157,13 +157,13 @@ export async function importarEstrutura(
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 
-  const { data: authData } = await supabase.auth.getUser()
-  logAction(supabase, {
-    usuario: authData?.user?.email ?? '',
+  registrarHistorico(supabase, {
+    orcamentoId,
+    entidade: 'planilha',
     tipo: erros.length > 0 ? 'info' : 'sucesso',
     acao: 'importar_planilha',
     mensagem: `Planilha importada: ${idMap.size} itens${erros.length > 0 ? `, ${erros.length} erros` : ''}`,
-    contexto: { orcamento_id: orcamentoId, total: idMap.size, erros: erros.length },
+    detalhes: { total: idMap.size, erros: erros.length },
   }).catch(console.error)
 
   return { ok: idMap.size, erros }
@@ -309,13 +309,14 @@ export async function limparPlanilha(
     throw new Error('Nenhum item foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados.')
   }
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
-  const { data: authData } = await supabase.auth.getUser()
-  logAction(supabase, {
-    usuario: authData?.user?.email ?? '',
+  registrarHistorico(supabase, {
+    orcamentoId,
+    planilhaId,
+    entidade: 'planilha',
     tipo: 'info',
     acao: 'limpar_planilha',
     mensagem: `Planilha limpa (${count ?? 0} item(ns) removido(s))`,
-    contexto: { orcamento_id: orcamentoId, planilha_id: planilhaId, itens_apagados: itensApagados ?? [] },
+    detalhes: { itens_apagados: itensApagados ?? [] },
   }).catch(console.error)
   return { removidos: count ?? 0 }
 }

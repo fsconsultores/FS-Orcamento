@@ -1,0 +1,45 @@
+// Rótulos/cores de exibição para `acao` em historico_alteracoes — compartilhado
+// entre a tela de histórico por-orçamento e os widgets do dashboard.
+
+export const ACAO_LABELS: Record<string, string> = {
+  calculo:                 'Cálculo',
+  calculo_erro:            'Erro de cálculo',
+  limpeza:                 'Limpeza',
+  limpar_planilha:         'Limpar planilha',
+  limpar_insumos_avulsos:  'Limpar insumos',
+  versao_criada:           'Versão criada',
+  versao_restaurada:       'Versão restaurada',
+  salvar_configuracoes:    'Configurações salvas',
+  atualizar_preco_insumo:  'Preço de insumo atualizado',
+  importar_planilha:       'Importar planilha',
+  importar_insumos:        'Importar insumos',
+  importar_composicoes:    'Importar composições',
+  importar_sudecap:        'Importar SUDECAP',
+  importar_dnit:           'Importar DNIT/SICRO',
+  importar_sinapi:         'Importar SINAPI',
+  importar_da_base:        'Importar de base',
+  adicionar_item:          'Item adicionado',
+  criar_orcamento:         'Orçamento criado',
+  duplicar_orcamento:      'Orçamento duplicado',
+  excluir_orcamento:       'Orçamento excluído',
+  criar_base:              'Base criada',
+  excluir_base:            'Base excluída',
+  preencher_precos:        'Preços preenchidos',
+}
+
+export const ACAO_COLORS: Record<string, string> = {
+  calculo:                'bg-blue-100 text-blue-700',
+  calculo_erro:           'bg-red-100 text-red-700',
+  limpeza:                'bg-amber-100 text-amber-700',
+  limpar_planilha:        'bg-amber-100 text-amber-700',
+  limpar_insumos_avulsos: 'bg-amber-100 text-amber-700',
+  versao_criada:          'bg-violet-100 text-violet-700',
+  versao_restaurada:      'bg-violet-100 text-violet-700',
+  salvar_configuracoes:   'bg-slate-100 text-slate-700',
+  atualizar_preco_insumo: 'bg-teal-100 text-teal-700',
+  criar_orcamento:        'bg-green-100 text-green-700',
+  duplicar_orcamento:     'bg-green-100 text-green-700',
+  excluir_orcamento:      'bg-red-100 text-red-700',
+  criar_base:             'bg-green-100 text-green-700',
+  excluir_base:           'bg-red-100 text-red-700',
+}

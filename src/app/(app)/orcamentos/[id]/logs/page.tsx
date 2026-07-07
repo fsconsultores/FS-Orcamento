@@ -13,8 +13,8 @@ export default async function LogsPage({
   const sb = (await createClient()) as any
 
   let query = sb
-    .from('orcamento_logs')
-    .select('id, planilha_id, user_id, acao, mensagem, detalhes, created_at, orcamento_planilhas(nome)')
+    .from('historico_alteracoes')
+    .select('id, planilha_id, usuario_email, acao, entidade, mensagem, valor_anterior, valor_novo, detalhes, created_at, orcamento_planilhas(nome)')
     .eq('orcamento_id', orcamentoId)
     .order('created_at', { ascending: false })
     .limit(200)

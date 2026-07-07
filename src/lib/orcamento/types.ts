@@ -23,6 +23,7 @@ export interface OrcamentoInsumo {
   base: string | null
   data_ref: string | null
   custo_atualizado_em?: string | null
+  codigo_original?: string | null
   created_at: string
 }
 
@@ -36,6 +37,7 @@ export interface OrcamentoComposicao {
   // Calculado pelo motor ou na leitura
   custo_unitario: number
   calculado_em?: string | null
+  codigo_original?: string | null
   created_at: string
 }
 

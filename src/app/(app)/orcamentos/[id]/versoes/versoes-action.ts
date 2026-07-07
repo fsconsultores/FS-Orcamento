@@ -3,7 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { capturarSnapshot, type VersaoSnapshotV1, type OrcamentoVersaoResumo } from '@/lib/orcamento/versoes'
-import { registrarLog, executarCalculo } from '@/lib/orcamento/motor-calculo'
+import { executarCalculo } from '@/lib/orcamento/motor-calculo'
+import { registrarHistorico } from '@/lib/log'
 
 function chunk<T>(arr: T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, (i + 1) * size))
@@ -41,7 +42,7 @@ export async function criarVersao(orcamentoId: string, mensagem: string): Promis
     .single()
   if (error) throw new Error(`Erro ao criar versão: ${error.message}`)
 
-  await registrarLog(supabase, orcamentoId, null, 'versao_criada', `Versão criada: "${msg}"`, { versaoId: data.id })
+  await registrarHistorico(supabase, { orcamentoId, tipo: 'sucesso', acao: 'versao_criada', entidade: 'versao', mensagem: `Versão criada: "${msg}"`, detalhes: { versaoId: data.id } })
   revalidatePath(`/orcamentos/${orcamentoId}/versoes`)
 
   return { id: data.id, criado_em: data.criado_em }
@@ -143,6 +144,10 @@ async function restaurarComposicoes(
       .insert(lote.map(c => ({
         orcamento_id: orcamentoId,
         codigo: c.codigo,
+        // Preserva o código exatamente como estava (mesmo projeto, mesmo
+        // prefixo) — envia codigo_original explicitamente para o trigger de
+        // prefixo não tentar prefixar de novo.
+        codigo_original: c.codigo_original,
         descricao: c.descricao,
         unidade: c.unidade,
         base: c.base,
@@ -173,6 +178,7 @@ async function restaurarInsumos(
         orcamento_id: orcamentoId,
         composicao_id: i.composicao_id ? (compIdMap.get(i.composicao_id) ?? null) : null,
         codigo: i.codigo,
+        codigo_original: i.codigo_original, // idem: preserva o prefixo já resolvido
         descricao: i.descricao,
         unidade: i.unidade,
         custo: i.custo,
@@ -297,7 +303,7 @@ export async function restaurarVersao(orcamentoId: string, versaoId: string): Pr
   await restaurarEstrutura(sb, orcamentoId, snapshot.estrutura, planilhaIdMap)
   await restaurarServicosEstimados(sb, orcamentoId, snapshot.servicosEstimados)
 
-  await registrarLog(supabase, orcamentoId, null, 'versao_restaurada', `Orçamento restaurado para a versão "${versaoRow.mensagem}"`, { versaoId })
+  await registrarHistorico(supabase, { orcamentoId, tipo: 'sucesso', acao: 'versao_restaurada', entidade: 'versao', mensagem: `Orçamento restaurado para a versão "${versaoRow.mensagem}"`, detalhes: { versaoId } })
 
   // custo_unitario/calculado_em foram zerados nas etapas acima — recalcula tudo
   // antes de devolver o controle à UI, para que o usuário já veja valores corretos.

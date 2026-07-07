@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
-import { logAction } from '@/lib/log';
+import { registrarHistorico } from '@/lib/log';
 
 type Composicao = {
   id: string;
@@ -190,9 +190,9 @@ export function AdicionarItemForm({
       setQuantidade(''); setBdiEspecifico('');
       router.refresh();
 
-      const { data: { user } } = await supabase.auth.getUser();
-      logAction(supabase, {
-        usuario: user?.email ?? '',
+      registrarHistorico(supabase, {
+        orcamentoId,
+        entidade: 'planilha',
         tipo: 'sucesso',
         acao: 'adicionar_item',
         mensagem: `Item "${selectedComp.descricao}" adicionado ao orçamento`,

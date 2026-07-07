@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/supabase/auth'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 export async function createBase(orgao: string): Promise<{ id: string } | { error: string }> {
   if (!orgao.trim()) return { error: 'Nome obrigatório.' }
@@ -18,8 +18,8 @@ export async function createBase(orgao: string): Promise<{ id: string } | { erro
     .single()
   if (error) return { error: error.message }
   revalidatePath('/bases')
-  logAction(supabase, {
-    usuario: user.email ?? '',
+  registrarHistorico(supabase, {
+    entidade: 'base',
     tipo: 'sucesso',
     acao: 'criar_base',
     mensagem: `Base "${orgao.trim()}" criada`,
@@ -78,11 +78,12 @@ export async function preencherPrecos(
     )
   )
 
-  logAction(supabase, {
-    usuario: user.email ?? '',
+  registrarHistorico(supabase, {
+    entidade: 'insumo',
     tipo: 'sucesso',
     acao: 'preencher_precos',
     mensagem: `${encontrados.length} preços preenchidos de base ${referenciaBaseId}`,
+    detalhes: { base_minha: minhaBaseId, base_referencia: referenciaBaseId, atualizados: encontrados.length },
   }).catch(console.error)
 
   return { atualizados: encontrados.length, naoEncontrados: insumos.length - encontrados.length }
@@ -113,11 +114,12 @@ export async function deleteBase(baseId: string): Promise<{ error?: string }> {
   if (error) return { error: error.message }
 
   revalidatePath('/bases')
-  logAction(supabase, {
-    usuario: user.email ?? '',
+  registrarHistorico(supabase, {
+    entidade: 'base',
     tipo: 'sucesso',
     acao: 'excluir_base',
     mensagem: `Base "${base?.orgao ?? baseId}" excluída`,
+    valorAnterior: base ?? undefined,
   }).catch(console.error)
   return {}
 }

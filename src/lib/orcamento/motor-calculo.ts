@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ModoCalculo, CalculoOptions, OrfaosDetectados } from './types'
+import { registrarHistorico } from '@/lib/log'
 
 export interface ConsistenciaReport {
   ok: boolean
@@ -345,33 +346,6 @@ async function persistirTotaisPlanilha(
 // ── API Pública ───────────────────────────────────────────────────────────────
 
 /**
- * Registra um evento no log de auditoria do orçamento.
- * Falha silenciosamente para não interromper o fluxo principal.
- */
-export async function registrarLog(
-  supabase: SupabaseClient,
-  orcamentoId: string,
-  planilhaId: string | null,
-  acao: string,
-  mensagem: string,
-  detalhes?: Record<string, unknown>
-): Promise<void> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('orcamento_logs').insert({
-      orcamento_id: orcamentoId,
-      planilha_id: planilhaId ?? null,
-      user_id: user?.id ?? null,
-      acao,
-      mensagem,
-      detalhes: detalhes ?? null,
-    })
-  } catch {
-    // log não-crítico
-  }
-}
-
-/**
  * Detecta composições e insumos órfãos:
  * - Composições não referenciadas em nenhuma estrutura de nenhuma planilha do projeto
  * - Insumos que pertencem a essas composições
@@ -710,7 +684,7 @@ export async function executarCalculo(
         : undefined
       log(`${itensAtualizados} item(ns) atualizado(s).`)
       log('Cálculo concluído.')
-      await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo direto (sem composições) — ${itensAtualizados} item(ns)`, { modo, itensAtualizados })
+      await registrarHistorico(supabase, { orcamentoId, planilhaId, tipo: 'sucesso', acao: 'calculo', mensagem: `Cálculo direto (sem composições) — ${itensAtualizados} item(ns)`, detalhes: { modo, itensAtualizados } })
       return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados, totaisPlanilhas }
     }
 
@@ -738,7 +712,7 @@ export async function executarCalculo(
         ? await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaAtualizar)
         : undefined
       log('Cálculo concluído com sucesso.')
-      await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo executado [${modo}] — nenhuma alteração em composições, ${itensAtualizados} item(ns) via insumo direto`, { modo, composicoesRecalculadas: 0, itensAtualizados })
+      await registrarHistorico(supabase, { orcamentoId, planilhaId, tipo: 'sucesso', acao: 'calculo', mensagem: `Cálculo executado [${modo}] — nenhuma alteração em composições, ${itensAtualizados} item(ns) via insumo direto`, detalhes: { modo, composicoesRecalculadas: 0, itensAtualizados } })
       return { ok: true, logs, composicoesRecalculadas: 0, itensAtualizados, totaisPlanilhas }
     }
 
@@ -809,11 +783,15 @@ export async function executarCalculo(
     }
 
     log('Cálculo concluído com sucesso.')
-    await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo', `Cálculo executado [${modo}] — ${dirtyIds.size} composição(ões)`, {
-      modo,
-      composicoesRecalculadas: dirtyIds.size,
-      itensAtualizados,
-      orfaosComposicoes: orfaos?.composicoes.length,
+    await registrarHistorico(supabase, {
+      orcamentoId, planilhaId, tipo: 'sucesso', acao: 'calculo',
+      mensagem: `Cálculo executado [${modo}] — ${dirtyIds.size} composição(ões)`,
+      detalhes: {
+        modo,
+        composicoesRecalculadas: dirtyIds.size,
+        itensAtualizados,
+        orfaosComposicoes: orfaos?.composicoes.length,
+      },
     })
 
     return {
@@ -827,7 +805,7 @@ export async function executarCalculo(
   } catch (err) {
     const msg = (err as Error).message
     log(`Erro: ${msg}`)
-    await registrarLog(supabase, orcamentoId, planilhaId ?? null, 'calculo_erro', `Erro no cálculo [${modo}]: ${msg}`, { modo })
+    await registrarHistorico(supabase, { orcamentoId, planilhaId, tipo: 'erro', acao: 'calculo_erro', mensagem: `Erro no cálculo [${modo}]: ${msg}`, detalhes: { modo } })
     return {
       ok: false,
       logs,

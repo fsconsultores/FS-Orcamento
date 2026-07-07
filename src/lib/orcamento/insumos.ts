@@ -171,6 +171,45 @@ export async function upsertAvulsoInsumo(
   if (syncErr) throw new Error(`Erro ao sincronizar cópias do insumo: ${syncErr.message}`)
 }
 
+/**
+ * Calcula o conjunto de códigos (insumos e composições) efetivamente usados
+ * na planilha do orçamento: todo código referenciado diretamente por um item
+ * da estrutura, mais os insumos de qualquer composição usada (recursivamente,
+ * por composições aninhadas). Puro/sem I/O — o caller já buscou os dados.
+ */
+export function calcularCodigosUtilizados(
+  estruturaCodigos: (string | null)[],
+  composicoes: { id: string; codigo: string }[],
+  insumosDeComposicao: { composicao_id: string | null; codigo: string }[]
+): Set<string> {
+  const compCodeToId = new Map(composicoes.map(c => [c.codigo, c.id]))
+  const compIdToInsumoCodigos = new Map<string, string[]>()
+  for (const ins of insumosDeComposicao) {
+    if (!ins.composicao_id) continue
+    const arr = compIdToInsumoCodigos.get(ins.composicao_id) ?? []
+    arr.push(ins.codigo)
+    compIdToInsumoCodigos.set(ins.composicao_id, arr)
+  }
+
+  const usados = new Set<string>()
+
+  function marcar(codigo: string, visitados: Set<string>) {
+    usados.add(codigo)
+    const compId = compCodeToId.get(codigo)
+    if (!compId || visitados.has(codigo)) return
+    const proximosVisitados = new Set(visitados).add(codigo)
+    for (const subCodigo of compIdToInsumoCodigos.get(compId) ?? []) {
+      marcar(subCodigo, proximosVisitados)
+    }
+  }
+
+  for (const codigo of estruturaCodigos) {
+    if (codigo) marcar(codigo, new Set())
+  }
+
+  return usados
+}
+
 export async function createInsumosBatch(
   supabase: SupabaseClient,
   orcamentoId: string,

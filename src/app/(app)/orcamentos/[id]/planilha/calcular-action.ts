@@ -5,11 +5,11 @@ import {
   executarCalculo,
   detectarOrfaos,
   executarLimpeza,
-  registrarLog,
   recalcularComposicaoUnica,
   verificarConsistencia,
 } from '@/lib/orcamento/motor-calculo'
 import { createPlanilha, deletePlanilha, updatePlanilha, duplicatePlanilha, getOrCreateDefaultPlanilha } from '@/lib/orcamento/planilhas'
+import { registrarHistorico } from '@/lib/log'
 import type { CalculoResult, ConsistenciaReport } from '@/lib/orcamento/motor-calculo'
 import type { OrcamentoPlanilha, OrfaosDetectados } from '@/lib/orcamento/types'
 
@@ -98,14 +98,13 @@ export async function confirmarLimpezaAction(
 
   const resultado = await executarLimpeza(supabase as any, orcamentoId, composicaoIds, user.id)
 
-  await registrarLog(
-    supabase as any,
+  await registrarHistorico(supabase as any, {
     orcamentoId,
-    null,
-    'limpeza',
-    `Limpeza executada: ${resultado.composicoesRemovidas} composição(ões) removida(s), ${resultado.insumosRemovidos} insumo(s), ${resultado.ignorados} ignorado(s) (base nacional).`,
-    resultado
-  )
+    tipo: 'sucesso',
+    acao: 'limpeza',
+    mensagem: `Limpeza executada: ${resultado.composicoesRemovidas} composição(ões) removida(s), ${resultado.insumosRemovidos} insumo(s), ${resultado.ignorados} ignorado(s) (base nacional).`,
+    detalhes: resultado,
+  })
 
   return resultado
 }

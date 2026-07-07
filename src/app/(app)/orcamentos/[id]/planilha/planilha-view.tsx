@@ -331,10 +331,15 @@ function AddItemForm({
 // ─── Campos editáveis por tipo ────────────────────────────────────────────────
 
 const LEAF_FIELDS  = ['codigo', 'descricao', 'unidade', 'quantidade', 'custo_unitario', 'bdi_especifico'] as const
+const LEAF_FIELDS_COMPOSICAO = ['codigo', 'descricao', 'unidade', 'quantidade', 'bdi_especifico'] as const
 const GROUP_FIELDS = ['descricao'] as const
 
-function editableFields(nodo: { filhos: unknown[] }): readonly string[] {
-  return nodo.filhos.length === 0 ? LEAF_FIELDS : GROUP_FIELDS
+// custo_unitario nunca é editável quando o código do item é uma composição —
+// o valor é sempre calculado a partir dos insumos utilizados.
+function editableFields(nodo: { filhos: unknown[]; codigo: string | null }, composicaoCodigos: Set<string>): readonly string[] {
+  if (nodo.filhos.length > 0) return GROUP_FIELDS
+  if (nodo.codigo && composicaoCodigos.has(nodo.codigo)) return LEAF_FIELDS_COMPOSICAO
+  return LEAF_FIELDS
 }
 
 function fieldToStr(it: EstruturaItem, field: string): string {
@@ -371,6 +376,22 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [exportAnaliticaLoading, setExportAnaliticaLoading] = useState(false)
   const [exportAnaliticaError, setExportAnaliticaError]     = useState<string | null>(null)
   const [viewMode, setViewMode]         = useState<'sintetica' | 'analitica'>('sintetica')
+  // Códigos de composição do orçamento — usado para bloquear a edição manual
+  // do Custo Unitário quando o item é uma composição (valor sempre calculado
+  // a partir dos insumos, nunca editável diretamente).
+  const [composicaoCodigos, setComposicaoCodigos] = useState<Set<string>>(new Set())
+  const [custoLockNodoId, setCustoLockNodoId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelado = false
+    const sb = createClient() as any
+    sb.from('orcamento_composicoes').select('codigo').eq('orcamento_id', orcamentoId)
+      .then(({ data }: any) => {
+        if (cancelado) return
+        setComposicaoCodigos(new Set((data ?? []).map((c: any) => c.codigo)))
+      })
+    return () => { cancelado = true }
+  }, [orcamentoId])
   const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>>(new Map())
   const [analiticaLoading, setAnaliticaLoading] = useState(false)
   const [editingInsumoCodigo, setEditingInsumoCodigo] = useState<string | null>(null)
@@ -678,7 +699,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   function openCell(id: string, field: string) {
     const nodoFlat = flat.find(f => f.nodo.id === id)
     if (!nodoFlat) return
-    if (!editableFields(nodoFlat.nodo).includes(field)) return
+    if (!editableFields(nodoFlat.nodo, composicaoCodigos).includes(field)) {
+      if (field === 'custo_unitario' && nodoFlat.nodo.codigo && composicaoCodigos.has(nodoFlat.nodo.codigo)) {
+        setCustoLockNodoId(id)
+        setTimeout(() => setCustoLockNodoId(prev => (prev === id ? null : prev)), 2500)
+      }
+      return
+    }
     setEditingCell({ id, field })
     setCellDraft(fieldToStr(nodoFlat.nodo, field))
   }
@@ -704,25 +731,25 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   function navigateFrom(id: string, field: string, dir: 'tab' | 'back' | 'enter') {
     const nodoFlat = flat.find(f => f.nodo.id === id)
     if (!nodoFlat) { setEditingCell(null); return }
-    const fields = editableFields(nodoFlat.nodo)
+    const fields = editableFields(nodoFlat.nodo, composicaoCodigos)
     const colIdx = (fields as readonly string[]).indexOf(field)
     const rowIdx = visible.findIndex(v => v.nodo.id === id)
 
     if (dir === 'tab') {
       if (colIdx < fields.length - 1) { openCell(id, fields[colIdx + 1]); return }
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        const f = editableFields(visible[i].nodo)
+        const f = editableFields(visible[i].nodo, composicaoCodigos)
         if (f.length) { openCell(visible[i].nodo.id, f[0]); return }
       }
     } else if (dir === 'back') {
       if (colIdx > 0) { openCell(id, fields[colIdx - 1]); return }
       for (let i = rowIdx - 1; i >= 0; i--) {
-        const f = editableFields(visible[i].nodo)
+        const f = editableFields(visible[i].nodo, composicaoCodigos)
         if (f.length) { openCell(visible[i].nodo.id, f[f.length - 1]); return }
       }
     } else if (dir === 'enter') {
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        if ((editableFields(visible[i].nodo) as readonly string[]).includes(field)) { openCell(visible[i].nodo.id, field); return }
+        if ((editableFields(visible[i].nodo, composicaoCodigos) as readonly string[]).includes(field)) { openCell(visible[i].nodo.id, field); return }
       }
     }
     setEditingCell(null)
@@ -2082,12 +2109,26 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       )}
                     </td>
 
-                    {/* Custo Unitário (só folhas) */}
-                    <td className="px-2 py-0.5 text-right border border-gray-200">
+                    {/* Custo Unitário (só folhas; bloqueado se o código for uma composição) */}
+                    <td className="px-2 py-0.5 text-right border border-gray-200 relative">
                       {!isGroup && numCell(nodo, 'custo_unitario',
                         nodo.custo_unitario != null && nodo.custo_unitario > 0
-                          ? <span className="tabular-nums">{BRL(nodo.custo_unitario)}</span>
+                          ? (
+                            <span className={`tabular-nums inline-flex items-center gap-1 justify-end ${nodo.codigo && composicaoCodigos.has(nodo.codigo) ? 'text-gray-500' : ''}`}>
+                              {nodo.codigo && composicaoCodigos.has(nodo.codigo) && (
+                                <svg className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                              )}
+                              {BRL(nodo.custo_unitario)}
+                            </span>
+                          )
                           : <span className="text-gray-300">—</span>
+                      )}
+                      {custoLockNodoId === nodo.id && (
+                        <div className="absolute right-0 top-full mt-1 z-50 w-56 whitespace-normal rounded bg-gray-800 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg">
+                          O valor da composição é calculado automaticamente pelos insumos utilizados.
+                        </div>
                       )}
                     </td>
 

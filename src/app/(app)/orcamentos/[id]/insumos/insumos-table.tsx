@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { recalcularAutoAction } from '../planilha/calcular-action'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
 
 const PAGE_SIZE = 100
@@ -109,13 +109,17 @@ function InlineSelect({
 export function OrcamentoInsumosTable({
   initialInsumos,
   orcamentoId,
+  codigosUtilizados,
 }: {
   initialInsumos: OrcamentoInsumo[]
   orcamentoId: string
+  codigosUtilizados: string[]
 }) {
   const router = useRouter()
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
+  const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
+  const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
 
   useEffect(() => { setInsumos(initialInsumos) }, [initialInsumos])
   const [currentPage, setCurrentPage] = useState(1)
@@ -126,14 +130,17 @@ export function OrcamentoInsumosTable({
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
 
   const q = query.trim().toLowerCase()
-  const visible = q
+  const porTexto = q
     ? insumos.filter(ins =>
         ins.codigo.toLowerCase().includes(q) ||
         ins.descricao.toLowerCase().includes(q)
       )
     : insumos
+  const visible = filtroUso === 'todos'
+    ? porTexto
+    : porTexto.filter(ins => usadosSet.has(ins.codigo) === (filtroUso === 'usados'))
 
-  useEffect(() => { setCurrentPage(1) }, [q])
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -190,6 +197,15 @@ export function OrcamentoInsumosTable({
 
       // Recalcula composições afetadas e propaga para a estrutura
       recalcularAutoAction(orcamentoId).catch(console.error)
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'insumo',
+        tipo: 'sucesso',
+        acao: 'atualizar_preco_insumo',
+        mensagem: `Preço do insumo "${alvo.codigo}" alterado de ${custoAnterior} para ${parsed}`,
+        valorAnterior: { custo: custoAnterior },
+        valorNovo: { custo: parsed },
+      }).catch(console.error)
     } catch {
       setInsumos(prev => prev.map(ins =>
         ins.codigo === alvo.codigo
@@ -306,13 +322,13 @@ export function OrcamentoInsumosTable({
       return
     }
     setInsumos(prev => prev.filter(i => i.composicao_id !== null))
-    const { data: { user } } = await sb.auth.getUser()
-    logAction(sb, {
-      usuario: user?.email ?? '',
+    registrarHistorico(sb, {
+      orcamentoId,
+      entidade: 'insumo',
       tipo: 'info',
       acao: 'limpar_insumos_avulsos',
       mensagem: `${count} insumo(s) avulso(s) removido(s) do orçamento`,
-      contexto: { orcamento_id: orcamentoId, insumos_apagados: avulsosAtuais },
+      detalhes: { insumos_apagados: avulsosAtuais },
     }).catch(console.error)
     alert(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
     router.refresh()
@@ -348,8 +364,8 @@ export function OrcamentoInsumosTable({
   return (
     <>
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
           <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
           </svg>
@@ -357,6 +373,25 @@ export function OrcamentoInsumosTable({
             value={query} onChange={e => setQuery(e.target.value)}
             className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
+        </div>
+        <div className="flex gap-1">
+          {([
+            { v: 'todos', label: 'Todos' },
+            { v: 'usados', label: 'Utilizados no projeto' },
+            { v: 'nao_usados', label: 'Não utilizados' },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              onClick={() => setFiltroUso(v)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                filtroUso === v
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
@@ -404,7 +439,14 @@ export function OrcamentoInsumosTable({
                 const isDeleting = deletingId === insumo.id
                 return (
                   <tr key={insumo.id} className={`group hover:bg-gray-50 ${isDeleting ? 'opacity-40' : ''}`}>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{insumo.codigo}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                      {insumo.codigo}
+                      {insumo.codigo_original && insumo.codigo_original !== insumo.codigo && (
+                        <span className="block text-[10px] text-gray-400" title="Código original, antes do prefixo do projeto">
+                          orig. {insumo.codigo_original}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">{insumo.descricao}</td>
                     <td className="px-4 py-3 text-gray-500">{insumo.unidade}</td>
 

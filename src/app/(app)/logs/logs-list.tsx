@@ -3,17 +3,16 @@
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 export type LogRow = {
   id: string
   created_at: string
-  empresa: string
-  usuario: string
+  usuario_email: string | null
   tipo: 'info' | 'sucesso' | 'erro'
   acao: string
   mensagem: string
-  contexto: Record<string, unknown> | null
+  detalhes: Record<string, unknown> | null
 }
 
 const RESTORABLE: Record<string, { table: string; field: string; label: string }> = {
@@ -80,7 +79,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
   async function handleRestaurar(log: LogRow) {
     const cfg = RESTORABLE[log.acao]
     if (!cfg) return
-    const itens = (log.contexto?.[cfg.field] as Record<string, unknown>[]) ?? []
+    const itens = (log.detalhes?.[cfg.field] as Record<string, unknown>[]) ?? []
     if (itens.length === 0) return
     if (!confirm(`Restaurar ${itens.length} ${cfg.label}?`)) return
 
@@ -95,13 +94,11 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
         alert(`Erro ao restaurar: ${error.message}`)
         return
       }
-      const { data: { user } } = await sb.auth.getUser()
-      await logAction(sb, {
-        usuario: user?.email ?? '',
+      await registrarHistorico(sb, {
         tipo: 'info',
         acao: `restaurar_${log.acao}`,
         mensagem: `${itens.length} ${cfg.label} restaurado(s) a partir do log de ${new Date(log.created_at).toLocaleString('pt-BR')}`,
-        contexto: { log_original_id: log.id },
+        detalhes: { log_original_id: log.id },
       }).catch(console.error)
       alert('Restaurado com sucesso.')
       atualizar()
@@ -118,7 +115,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
         return (
           log.mensagem.toLowerCase().includes(q) ||
           log.acao.toLowerCase().includes(q) ||
-          log.usuario.toLowerCase().includes(q)
+          (log.usuario_email ?? '').toLowerCase().includes(q)
         )
       }
       return true
@@ -190,7 +187,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
             })
             const restoreCfg = RESTORABLE[log.acao]
             const itensApagados = restoreCfg
-              ? ((log.contexto?.[restoreCfg.field] as Record<string, unknown>[]) ?? [])
+              ? ((log.detalhes?.[restoreCfg.field] as Record<string, unknown>[]) ?? [])
               : []
             const expandido = expandidos.has(log.id)
             return (
@@ -202,8 +199,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span suppressHydrationWarning className="text-xs text-gray-400 font-mono">[{data}]</span>
-                    <span className="text-xs text-gray-500">{log.empresa}</span>
-                    <span className="text-xs text-gray-400">({log.usuario})</span>
+                    <span className="text-xs text-gray-400">({log.usuario_email ?? 'sistema'})</span>
                     <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cfg.badge}`}>
                       {cfg.label}
                     </span>

@@ -135,7 +135,14 @@ export function ComposicoesTable({
                   className={`group cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all ${deletingId === c.id ? 'opacity-40' : ''}`}
                 >
                   <td className="p-0 font-mono text-xs">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.codigo}</Link>
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
+                      {c.codigo}
+                      {c.codigo_original && c.codigo_original !== c.codigo && (
+                        <span className="block text-[10px] text-gray-400" title="Código original, antes do prefixo do projeto">
+                          orig. {c.codigo_original}
+                        </span>
+                      )}
+                    </Link>
                   </td>
                   <td className="p-0">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.descricao}</Link>

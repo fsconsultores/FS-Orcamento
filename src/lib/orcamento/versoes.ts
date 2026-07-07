@@ -43,6 +43,7 @@ export interface VersaoSnapshotV1 {
   composicoes: {
     id: string
     codigo: string
+    codigo_original: string | null
     descricao: string
     unidade: string
     base: string | null
@@ -53,6 +54,7 @@ export interface VersaoSnapshotV1 {
     id: string
     composicao_id: string | null
     codigo: string
+    codigo_original: string | null
     descricao: string
     unidade: string
     custo: number
@@ -125,13 +127,13 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
     ),
     fetchPaginado<VersaoSnapshotV1['composicoes'][number]>(
       sb, 'orcamento_composicoes',
-      'id, codigo, descricao, unidade, base, custo_unitario, calculado_em',
+      'id, codigo, codigo_original, descricao, unidade, base, custo_unitario, calculado_em',
       orcamentoId,
       (q: any) => q.is('deleted_at', null)
     ),
     fetchPaginado<VersaoSnapshotV1['insumos'][number]>(
       sb, 'orcamento_insumos',
-      'id, composicao_id, codigo, descricao, unidade, custo, grupo, base, data_ref, indice',
+      'id, composicao_id, codigo, codigo_original, descricao, unidade, custo, grupo, base, data_ref, indice',
       orcamentoId,
       (q: any) => q.is('deleted_at', null)
     ),

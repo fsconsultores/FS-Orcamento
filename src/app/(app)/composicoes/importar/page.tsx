@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { logAction } from '@/lib/log';
+import { registrarHistorico } from '@/lib/log';
 import { BASES_ORIGEM, type BaseOrigem } from '@/components/base-filter';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -398,16 +398,15 @@ export default function ImportarComposicoesPage() {
 
     try {
       const sb = createClient();
-      const { data: { user } } = await sb.auth.getUser();
       const result = await importarEmLote(grupos, sb, baseOrigem, targetBase?.id);
       setResultado(result);
 
-      await logAction(sb, {
-        usuario: user?.email ?? '',
+      await registrarHistorico(sb, {
+        entidade: 'composicao',
         tipo: 'sucesso',
         acao: 'importar_composicoes',
         mensagem: `${result.composicoesCriadas} composição(ões) importada(s) com sucesso. ${result.insumosCriados} insumo(s) criado(s) automaticamente.`,
-        contexto: result as unknown as Record<string, unknown>,
+        detalhes: result as unknown as Record<string, unknown>,
       });
 
       setRows([]);
@@ -417,9 +416,8 @@ export default function ImportarComposicoesPage() {
       setGlobalError(msg);
       try {
         const sb = createClient();
-        const { data: { user } } = await sb.auth.getUser();
-        await logAction(sb, {
-          usuario: user?.email ?? '',
+        await registrarHistorico(sb, {
+          entidade: 'composicao',
           tipo: 'erro',
           acao: 'importar_composicoes',
           mensagem: `Erro na importação: ${msg}`,

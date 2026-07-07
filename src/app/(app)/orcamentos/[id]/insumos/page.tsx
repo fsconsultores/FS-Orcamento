@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getInsumosByOrcamento, getComposicoesByOrcamento } from '@/lib/orcamento'
+import { getInsumosByOrcamento, getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
 import { NovoInsumoForm } from './novo-insumo-form'
 import { OrcamentoInsumosTable } from './insumos-table'
 
@@ -10,10 +10,39 @@ export default async function OrcamentoInsumosPage({
 }) {
   const { id: orcamentoId } = await params
   const supabase = await createClient()
-  const [insumos, composicoes] = await Promise.all([
+  const sb = supabase as any
+  const [insumos, composicoes, { data: estrutura }] = await Promise.all([
     getInsumosByOrcamento(supabase as any, orcamentoId),
     getComposicoesByOrcamento(supabase as any, orcamentoId),
+    sb.from('orcamento_estrutura').select('codigo').eq('orcamento_id', orcamentoId).eq('tipo', 'item'),
   ])
+
+  // Insumos dentro de composições, SEM a deduplicação de getInsumosByOrcamento
+  // (que descarta a linha-filha quando existe avulso com o mesmo código) —
+  // aqui precisamos exatamente do vínculo composição → insumos filhos.
+  const insumosDeComposicao: { composicao_id: string | null; codigo: string }[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data } = await sb
+        .from('orcamento_insumos')
+        .select('composicao_id, codigo')
+        .eq('orcamento_id', orcamentoId)
+        .not('composicao_id', 'is', null)
+        .range(start, start + BATCH - 1)
+      if (!data || data.length === 0) break
+      insumosDeComposicao.push(...data)
+      if (data.length < BATCH) break
+      start += BATCH
+    }
+  }
+
+  const codigosUtilizados = calcularCodigosUtilizados(
+    (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),
+    composicoes.map(c => ({ id: c.id, codigo: c.codigo })),
+    insumosDeComposicao
+  )
 
   // Bases utilizadas: conta avulsos por base + composições por base
   const basesMap = new Map<string, { insumos: number; composicoes: number }>()
@@ -64,7 +93,7 @@ export default async function OrcamentoInsumosPage({
 
       <NovoInsumoForm orcamentoId={orcamentoId} composicoes={composicoes} />
 
-      <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} />
+      <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
     </div>
   )
 }

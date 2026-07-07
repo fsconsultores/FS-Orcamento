@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 // 27 states in SINAPI file order (columns 6–32)
 const SINAPI_STATES = [
@@ -234,12 +234,12 @@ async function importarRows(
     }
   }
 
-  await logAction(sb, {
-    usuario: userEmail,
+  await registrarHistorico(sb, {
+    entidade: 'insumo',
     tipo: 'info',
     acao: 'importar_sinapi',
     mensagem: 'Importação SINAPI iniciada.',
-    contexto: { estado, total: rows.length, para_atualizar: codigos.filter(c => existentesMap.has(c)).length },
+    detalhes: { estado, total: rows.length, para_atualizar: codigos.filter(c => existentesMap.has(c)).length },
   })
 
   const aAtualizar = rows.filter(r => existentesMap.has(r.codigo))
@@ -293,12 +293,12 @@ async function importarRows(
     if (!error) inseridos += (data ?? []).length; else erros += lote.length
   }
 
-  await logAction(sb, {
-    usuario: userEmail,
+  await registrarHistorico(sb, {
+    entidade: 'insumo',
     tipo: 'sucesso',
     acao: 'importar_sinapi',
     mensagem: `Importação SINAPI: ${atualizados} preços atualizados, ${inseridos} inseridos.`,
-    contexto: { estado, atualizados, inseridos, semPreco, erros },
+    detalhes: { estado, atualizados, inseridos, semPreco, erros },
   })
 
   return { atualizados, inseridos, semPreco, erros }

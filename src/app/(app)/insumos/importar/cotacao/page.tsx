@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -194,12 +194,12 @@ async function confirmar(rows: CompareRow[], userEmail: string): Promise<ImportR
     }
   }
 
-  await logAction(sb, {
-    usuario: userEmail,
+  await registrarHistorico(sb, {
+    entidade: 'insumo',
     tipo: 'sucesso',
     acao: 'importar_cotacao',
     mensagem: `Importação de Cotação: ${atualizados} preços atualizados.${nao_encontrados.length > 0 ? ` ${nao_encontrados.length} insumos não encontrados.` : ''}`,
-    contexto: { atualizados, sem_alteracao: rows.filter(r => r.status === 'no_change').length, nao_encontrados: nao_encontrados.length, erros },
+    detalhes: { atualizados, sem_alteracao: rows.filter(r => r.status === 'no_change').length, nao_encontrados: nao_encontrados.length, erros },
   })
 
   return { atualizados, sem_alteracao: rows.filter(r => r.status === 'no_change').length, nao_encontrados, erros }
@@ -260,12 +260,12 @@ export default function ImportarCotacaoPage() {
       const { data: { user } } = await sb.auth.getUser()
       const userEmail = user?.email ?? 'desconhecido'
 
-      await logAction(sb, {
-        usuario: userEmail,
+      await registrarHistorico(sb, {
+        entidade: 'insumo',
         tipo: 'info',
         acao: 'importar_cotacao',
         mensagem: 'Importação de Cotação iniciada.',
-        contexto: { total: compareRows.length, para_atualizar: compareRows.filter(r => r.status === 'changed').length },
+        detalhes: { total: compareRows.length, para_atualizar: compareRows.filter(r => r.status === 'changed').length },
       })
 
       const res = await confirmar(compareRows, userEmail)

@@ -4,7 +4,7 @@ import { useState, useRef, Fragment } from 'react'
 import { importarInsumos, importarComposicoes, importarDaBase } from './import-action'
 import type { ImportComposicaoRow, ImportInsumoRow, ImportResult, BaseInfo } from './import-action'
 import { createClient } from '@/lib/supabase/client'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
@@ -425,13 +425,13 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'insumo',
         tipo: res.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_insumos',
         mensagem: `${res.insumosCriados} insumo(s) importados${fonteVal ? ` da base "${fonteVal}"` : ''}`,
-        contexto: { orcamento_id: orcamentoId, ...res },
+        detalhes: res as unknown as Record<string, unknown>,
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
@@ -590,13 +590,13 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'composicao',
         tipo: res.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_composicoes',
         mensagem: `${res.composicoesCriadas} composição(ões) importada(s)${fonteVal ? ` da base "${fonteVal}"` : ''}`,
-        contexto: { orcamento_id: orcamentoId, ...res },
+        detalhes: res as unknown as Record<string, unknown>,
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
@@ -783,13 +783,13 @@ function ImportarSUDECAPTab({ orcamentoId }: { orcamentoId: string }) {
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'composicao',
         tipo: res.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_sudecap',
         mensagem: `SUDECAP: ${res.composicoesCriadas} composição(ões), ${res.insumosCriados} insumo(s) importados`,
-        contexto: { orcamento_id: orcamentoId, ...res },
+        detalhes: res as unknown as Record<string, unknown>,
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
@@ -1054,13 +1054,13 @@ function ImportarDNITTab({ orcamentoId }: { orcamentoId: string }) {
       if (inputRef.current) inputRef.current.value = ''
       setSheets([]); setWbRef(null)
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'composicao',
         tipo: res.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_dnit',
         mensagem: `DNIT/SICRO: ${res.composicoesCriadas} composição(ões), ${res.insumosCriados} insumo(s) importados`,
-        contexto: { orcamento_id: orcamentoId, ...res },
+        detalhes: res as unknown as Record<string, unknown>,
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
@@ -1291,13 +1291,13 @@ function ImportarSINAPITab({ orcamentoId }: { orcamentoId: string }) {
       const nomeSinapi = fileName.replace(/\.[^.]+$/, '')
       setFileName('')
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'composicao',
         tipo: combined.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_sinapi',
         mensagem: `SINAPI importado: ${combined.insumosCriados} insumo(s), ${combined.composicoesCriadas} composição(ões) — "${nomeSinapi}"`,
-        contexto: { orcamento_id: orcamentoId, ...combined },
+        detalhes: combined as unknown as Record<string, unknown>,
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })
@@ -1398,13 +1398,13 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
       const r = await importarDaBase(orcamentoId, selectedId, opcoes)
       setResult(r)
       const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      logAction(sb, {
-        usuario: user?.email ?? '',
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'base',
         tipo: r.erros.length > 0 ? 'info' : 'sucesso',
         acao: 'importar_da_base',
         mensagem: `Base "${base?.orgao ?? selectedId}" importada: ${r.insumosCriados} insumo(s), ${r.composicoesCriadas} composição(ões)`,
-        contexto: { orcamento_id: orcamentoId, base_id: selectedId, ...r },
+        detalhes: { base_id: selectedId, ...r },
       }).catch(console.error)
     } catch (err) {
       setResult({ composicoesCriadas: 0, insumosCriados: 0, erros: [String(err)] })

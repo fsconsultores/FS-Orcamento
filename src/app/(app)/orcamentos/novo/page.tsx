@@ -1,15 +1,18 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { logAction } from '@/lib/log';
+import { registrarHistorico } from '@/lib/log';
+import { listBases, importarDaBase } from '../[id]/importar/import-action';
+import type { BaseInfo } from '../[id]/importar/import-action';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progresso, setProgresso] = useState<string | null>(null);
   const [form, setForm] = useState({
     nome_obra: '',
     cliente: '',
@@ -17,6 +20,22 @@ export default function NovoOrcamentoPage() {
     bdi_global: '25',
     codigo: '0',
   });
+
+  const [bases, setBases] = useState<BaseInfo[]>([]);
+  const [basesSelecionadas, setBasesSelecionadas] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    listBases().then(setBases).catch(() => {});
+  }, []);
+
+  function toggleBase(id: string) {
+    setBasesSelecionadas((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function update(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -57,17 +76,50 @@ export default function NovoOrcamentoPage() {
 
       if (dbError) throw dbError;
 
-      // Navega imediatamente; log roda em background sem bloquear
-      router.push(`/orcamentos/${data.id}`);
-      logAction(supabase, {
-        usuario: user.email ?? '',
+      registrarHistorico(supabase, {
+        orcamentoId: data.id,
+        entidade: 'orcamento',
         tipo: 'sucesso',
         acao: 'criar_orcamento',
         mensagem: `Orçamento "${form.nome_obra.trim()}" criado com sucesso`,
       });
+
+      // Importa as bases selecionadas, uma de cada vez (evita corrida entre
+      // duas importações mexendo nas mesmas tabelas do orçamento ao mesmo tempo).
+      if (basesSelecionadas.size > 0) {
+        for (const baseId of basesSelecionadas) {
+          const base = bases.find((b) => b.id === baseId);
+          setProgresso(`Importando ${base?.orgao ?? 'base'}...`);
+          try {
+            const r = await importarDaBase(data.id, baseId, { insumos: true, composicoes: true });
+            registrarHistorico(supabase, {
+              orcamentoId: data.id,
+              entidade: 'base',
+              tipo: r.erros.length > 0 ? 'info' : 'sucesso',
+              acao: 'importar_da_base',
+              mensagem: `Base "${base?.orgao ?? baseId}" importada na criação: ${r.insumosCriados} insumo(s), ${r.composicoesCriadas} composição(ões)`,
+              detalhes: { base_id: baseId, ...r },
+            }).catch(() => {});
+          } catch (err) {
+            // Não bloqueia a criação do orçamento por uma base que falhou —
+            // o usuário sempre pode importar de novo depois pela aba Importar.
+            registrarHistorico(supabase, {
+              orcamentoId: data.id,
+              entidade: 'base',
+              tipo: 'erro',
+              acao: 'importar_da_base',
+              mensagem: `Falha ao importar base "${base?.orgao ?? baseId}" na criação: ${String(err)}`,
+              detalhes: { base_id: baseId },
+            }).catch(() => {});
+          }
+        }
+      }
+
+      router.push(`/orcamentos/${data.id}/planilha`);
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);
+      setProgresso(null);
     }
   }
 
@@ -151,10 +203,57 @@ export default function NovoOrcamentoPage() {
           </div>
         </div>
 
+        {bases.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              Bases padrão (opcional)
+            </label>
+            <p className="text-xs text-gray-400 -mt-1">
+              Selecionadas serão importadas automaticamente para este orçamento assim que ele for criado.
+              Depois continua dando para importar outras bases normalmente.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {bases.map((b) => {
+                const checked = basesSelecionadas.has(b.id);
+                return (
+                  <label
+                    key={b.id}
+                    className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
+                      checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleBase(b.id)}
+                      className="mt-0.5 accent-blue-600"
+                    />
+                    <div className="min-w-0">
+                      <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {b.orgao}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {b.total_insumos > 0 && `${b.total_insumos.toLocaleString('pt-BR')} insumos`}
+                        {b.total_insumos > 0 && b.total_composicoes > 0 && ' · '}
+                        {b.total_composicoes > 0 && `${b.total_composicoes.toLocaleString('pt-BR')} composições`}
+                        {b.total_insumos === 0 && b.total_composicoes === 0 && 'Base vazia'}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {error && (
           <p role="alert" className="text-sm text-red-600">
             {error}
           </p>
+        )}
+
+        {progresso && (
+          <p className="text-sm text-blue-600">{progresso}</p>
         )}
 
         <div className="flex gap-3 pt-2">
@@ -163,7 +262,7 @@ export default function NovoOrcamentoPage() {
             disabled={loading}
             className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? 'Salvando...' : 'Criar orçamento'}
+            {loading ? (progresso ?? 'Salvando...') : 'Criar orçamento'}
           </button>
           <Link
             href="/orcamentos"

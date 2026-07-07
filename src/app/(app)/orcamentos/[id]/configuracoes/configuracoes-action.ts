@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { salvarConfigNumeracao } from '../planilha/planilha-action'
-import { logAction } from '@/lib/log'
+import { registrarHistorico } from '@/lib/log'
 
 export interface ConfigOrcamentoInput {
   nome_obra: string
@@ -23,6 +23,12 @@ export interface ConfigOrcamentoInput {
 export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrcamentoInput): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
+
+  const { data: anterior } = await sb
+    .from('tabela_orcamentos')
+    .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente')
+    .eq('id', orcamentoId)
+    .single()
 
   const { error } = await sb
     .from('tabela_orcamentos')
@@ -64,12 +70,22 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
   revalidatePath(`/orcamentos/${orcamentoId}/editar`)
   revalidatePath('/orcamentos')
 
-  const { data: authData } = await supabase.auth.getUser()
-  logAction(supabase, {
-    usuario: authData?.user?.email ?? '',
+  const camposNovos = {
+    nome_obra: input.nome_obra, codigo: input.codigo, cliente: input.cliente, local: input.local,
+    data: input.data, bdi_global: input.bdi_global, area_total: input.area_total,
+    area_coberta: input.area_coberta, area_equivalente: input.area_equivalente,
+  }
+  const mudou = anterior && Object.keys(camposNovos).some(
+    k => (anterior as any)[k] !== (camposNovos as any)[k]
+  )
+
+  registrarHistorico(supabase, {
+    orcamentoId,
+    entidade: 'orcamento',
     tipo: 'sucesso',
     acao: 'salvar_configuracoes',
     mensagem: `Configurações do orçamento "${input.nome_obra}" salvas`,
-    contexto: { orcamento_id: orcamentoId },
+    valorAnterior: mudou ? anterior : undefined,
+    valorNovo: mudou ? camposNovos : undefined,
   }).catch(console.error)
 }
