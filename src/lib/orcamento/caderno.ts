@@ -8,6 +8,8 @@ import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CU
 
 export type CategoriaCusto = 'mat' | 'mo' | 'terceiros'
 
+export type AbcClasse = 'A' | 'B' | 'C'
+
 export interface CadernoNode {
   id: string
   numero: string
@@ -28,12 +30,14 @@ export interface CadernoNode {
   totalTerceiros: number
   total: number
   percentual: number
+  // classificação Curva ABC (apenas itens-folha; null para grupos)
+  classeAbc: AbcClasse | null
   filhos: CadernoNode[]
 }
 
 export type PlanilhaAnaliticaRow =
   | { tipo: 'grupo'; numero: string; descricao: string }
-  | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; custoUnitario: number; custoTotal: number }
+  | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; custoUnitario: number; custoTotal: number; classeAbc: AbcClasse | null }
   | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number; nivel: number }
 
 export interface ListaInsumoItem {
@@ -339,6 +343,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         custoMat, custoMo, custoTerceiros, custoUnitario,
         totalMat: custoMat * quantidade, totalMo: custoMo * quantidade, totalTerceiros: custoTerceiros * quantidade, total,
         percentual: 0,
+        classeAbc: null,
         filhos: [],
       }
     }
@@ -354,6 +359,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       custoMat: 0, custoMo: 0, custoTerceiros: 0, custoUnitario: 0,
       totalMat, totalMo, totalTerceiros, total,
       percentual: 0,
+      classeAbc: null,
       filhos,
     }
   }
@@ -368,6 +374,32 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     }
   }
   aplicarPercentual(arvore)
+
+  // ── Classificação Curva ABC por item — mesmo critério da Planilha Orçamentária:
+  // itens-folha ordenados por valor decrescente, classe pela % acumulada sobre o total.
+  function collectLeaves(nodes: CadernoNode[], out: CadernoNode[] = []): CadernoNode[] {
+    for (const n of nodes) {
+      if (n.filhos.length === 0) out.push(n)
+      else collectLeaves(n.filhos, out)
+    }
+    return out
+  }
+  if (totalGeral > 0) {
+    const leaves = collectLeaves(arvore).filter(n => n.total > 0).sort((a, b) => b.total - a.total)
+    let acumulado = 0
+    const classeMap = new Map<string, AbcClasse>()
+    for (const leaf of leaves) {
+      acumulado += (leaf.total / totalGeral) * 100
+      classeMap.set(leaf.id, acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C')
+    }
+    function aplicarClasse(nodes: CadernoNode[]) {
+      for (const n of nodes) {
+        n.classeAbc = classeMap.get(n.id) ?? null
+        aplicarClasse(n.filhos)
+      }
+    }
+    aplicarClasse(arvore)
+  }
 
   // ── Distribuição dos Custos (A) — agrupamento em categorias fixas ───────────
   // Cada grupo de nível 1 é mapeado para uma das categorias fixas do gráfico de
@@ -432,6 +464,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         unidade: node.unidade ?? '',
         custoUnitario: node.custoUnitario,
         custoTotal: node.total,
+        classeAbc: node.classeAbc,
       })
 
       const compId = node.codigo ? compCodeToId.get(node.codigo) : undefined
@@ -504,6 +537,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         unidade: node.unidade ?? '',
         custoUnitario: node.custoUnitario,
         custoTotal: node.total,
+        classeAbc: node.classeAbc,
       })
 
       const compId = node.codigo ? compCodeToId.get(node.codigo) : undefined

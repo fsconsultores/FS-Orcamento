@@ -144,9 +144,7 @@ async function restaurarComposicoes(
       .insert(lote.map(c => ({
         orcamento_id: orcamentoId,
         codigo: c.codigo,
-        // Preserva o código exatamente como estava (mesmo projeto, mesmo
-        // prefixo) — envia codigo_original explicitamente para o trigger de
-        // prefixo não tentar prefixar de novo.
+        // Preserva o código exatamente como estava no snapshot.
         codigo_original: c.codigo_original,
         descricao: c.descricao,
         unidade: c.unidade,
@@ -178,7 +176,7 @@ async function restaurarInsumos(
         orcamento_id: orcamentoId,
         composicao_id: i.composicao_id ? (compIdMap.get(i.composicao_id) ?? null) : null,
         codigo: i.codigo,
-        codigo_original: i.codigo_original, // idem: preserva o prefixo já resolvido
+        codigo_original: i.codigo_original, // idem: preserva o código do snapshot
         descricao: i.descricao,
         unidade: i.unidade,
         custo: i.custo,

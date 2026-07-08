@@ -10,9 +10,8 @@ import { BASES_ORIGEM, type BaseOrigem } from '@/components/base-filter';
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 // Posições fixas das colunas (0-indexed) — formato FS Orcamento:
-// 0:Codigo  1:DescricaoAbreviada  2:Unidade  3:ProducaoEquipe  4:OrigemComposicao
-// 5:TipoItemComposicao  6:CódigoDoInsumo/...  7:DescricaoAbreviadaInsumo/...
-// 8:UnidadeInsumo/...   9:Indice  10:GrupoDoInsumo  11:OrigemInsumosComposicoes
+// 0:Codigo  1:DescricaoAbreviada  2:Unidade  3:TipoItemComposicao
+// 4:CodigoDoInsumo  5:DescricaoAbreviadaInsumo  6:UnidadeInsumo  7:Indice  8:GrupoDoInsumo
 
 type RowParsed = {
   linha: number;
@@ -70,12 +69,12 @@ function parseCsv(text: string): RowParsed[] {
     let comp_codigo    = at(0);
     let comp_descricao = at(1);
     let comp_unidade   = at(2);
-    const tipo_item    = at(5);
-    const ins_codigo   = at(6);
-    const ins_descricao = at(7);
-    const ins_unidade  = at(8);
-    const indice       = parseFloat(at(9).replace(',', '.'));
-    const grupo        = at(10) || null;
+    const tipo_item    = at(3);
+    const ins_codigo   = at(4);
+    const ins_descricao = at(5);
+    const ins_unidade  = at(6);
+    const indice       = parseFloat(at(7).replace(',', '.'));
+    const grupo        = at(8) || null;
     const linhaNum     = i + (isHeader ? 2 : 1);
 
     // Linhas totalmente vazias → pular silenciosamente
@@ -95,8 +94,7 @@ function parseCsv(text: string): RowParsed[] {
     // É importada como um insumo normal cujo código bate com o código de outra
     // composição — o restante do sistema (motor de cálculo, Curva ABC, Planilha
     // Analítica Decomposta) já reconhece esse padrão e trata como sub-composição,
-    // decompondo recursivamente. Antes esse tipo de linha era descartado no
-    // import, o que impedia qualquer decomposição da composição auxiliar depois.
+    // decompondo recursivamente. O campo tipo_item é apenas informativo aqui.
 
     // Sem ins_codigo → ignorado (linha sem dados de insumo)
     if (!ins_codigo) {
@@ -465,14 +463,14 @@ export default function ImportarComposicoesPage() {
           <table className="text-xs text-blue-800 border-collapse">
             <thead>
               <tr className="bg-blue-100">
-                {['#', 'codigo', 'descricao', 'unidade', 'producaoEquipe', 'origemComposicao', 'tipoItemComposicao', 'CodigoInsumo', 'DescricaoAbreviada...', 'Unidade', 'indice', 'grupodoInsumo', 'Origem Insumo'].map((h) => (
+                {['#', 'codigo', 'descricao', 'unidade', 'tipoItemComposicao', 'CodigoInsumo', 'DescricaoAbreviada...', 'Unidade', 'indice', 'grupodoInsumo'].map((h) => (
                   <th key={h} className="px-2 py-1 border border-blue-200 font-mono font-semibold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr>
-                {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'].map((n) => (
+                {['0', '1', '2', '3', '4', '5', '6', '7', '8'].map((n) => (
                   <td key={n} className="px-2 py-1 border border-blue-200 text-center text-blue-500">{n}</td>
                 ))}
               </tr>

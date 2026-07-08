@@ -1030,11 +1030,35 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           .in('composicao_id', compIds)
           .abortSignal(ac.signal)
         if (insError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : insError
+
+        // Preço avulso (canônico, composicao_id IS NULL) tem prioridade sobre o
+        // custo gravado na cópia dentro da composição — mesma regra do motor de
+        // cálculo e da tela de detalhe da composição. Sem isso, um insumo cuja
+        // cópia nunca foi sincronizada aparece zerado mesmo com preço cadastrado.
+        const codigosUnicos = [...new Set((insumos ?? []).map((i: any) => i.codigo).filter(Boolean))]
+        const avulsoPrecoMap = new Map<string, number>()
+        if (codigosUnicos.length > 0) {
+          const { data: avulsos } = await sb
+            .from('orcamento_insumos')
+            .select('codigo, custo')
+            .eq('orcamento_id', orcamentoId)
+            .is('composicao_id', null)
+            .in('codigo', codigosUnicos)
+            .abortSignal(ac.signal)
+          for (const av of (avulsos ?? []) as { codigo: string; custo: number }[]) {
+            if (av.custo) avulsoPrecoMap.set(av.codigo, av.custo)
+          }
+        }
+
         for (const ins of insumos ?? []) {
           const cod = idToCodigo.get(ins.composicao_id)
           if (!cod) continue
           if (!result.has(cod)) result.set(cod, [])
-          result.get(cod)!.push({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade, custo: ins.custo ?? 0, indice: ins.indice ?? 0, origem: 'orcamento' })
+          result.get(cod)!.push({
+            codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade,
+            custo: avulsoPrecoMap.get(ins.codigo) ?? ins.custo ?? 0,
+            indice: ins.indice ?? 0, origem: 'orcamento',
+          })
         }
       }
 
@@ -2224,6 +2248,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     analiticaInsumos.get(nodo.codigo)?.map((ins, i) => (
                       <tr key={`${nodo.id}-ins-${i}`} className="bg-white text-gray-500">
                         <td className="px-1 py-px border border-gray-100 text-[10px] text-center text-gray-300 font-mono" />
+                        <td className="px-2 py-px border border-gray-100" />
                         <td className="px-2 py-px border border-gray-100" />
                         <td className="px-2 py-px border border-gray-100 font-mono text-[10px] text-blue-500">{ins.codigo}</td>
                         <td className="px-2 py-px border border-gray-100 text-[10px] pl-6 text-gray-500">{ins.descricao}</td>

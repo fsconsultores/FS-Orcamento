@@ -1,7 +1,7 @@
 import type { jsPDF } from 'jspdf'
 import type { RowInput } from 'jspdf-autotable'
 import { fmt, fmtQtd, fmtPct, type AbcItem } from '@/lib/curva-abc'
-import type { CadernoData, CadernoNode } from '@/lib/orcamento/caderno'
+import type { CadernoData, CadernoNode, AbcClasse } from '@/lib/orcamento/caderno'
 import {
   PDF_COLORS,
   drawAbcChart,
@@ -23,6 +23,11 @@ import {
 } from '@/lib/pdf/charts'
 
 const GROUP_FILL = '#ede9f3'
+
+// Classe ABC por item — mesmas cores da coluna "ABC" da Planilha Orçamentária
+// (vermelho = maior concentração de custo, verde = menor).
+const ABC_BG: Record<AbcClasse, string> = { A: '#fee2e2', B: '#fef3c7', C: '#dcfce7' }
+const ABC_FG: Record<AbcClasse, string> = { A: '#b91c1c', B: '#b45309', C: '#15803d' }
 
 // ─── Cabeçalho de documento (logo + cliente + obra + título + REV + data) ────
 
@@ -243,9 +248,9 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
   const cardW = (rightW - cardGap * 2) / 3
   const cardH = 18
 
-  drawKpiCard(doc, rightX, top, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, KPI_STYLE_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap), top, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, KPI_STYLE_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, top, cardW, cardH, 'TOTAL GERAL (C) = (A+B)', fmt(C), undefined, KPI_STYLE_PRIMARY)
+  drawKpiCard(doc, rightX, top, cardW, cardH, 'TOTAL GERAL (C) = (A+B)', fmt(C), undefined, KPI_STYLE_PRIMARY)
+  drawKpiCard(doc, rightX + (cardW + cardGap), top, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, KPI_STYLE_PRIMARY)
+  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, top, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, KPI_STYLE_PRIMARY)
 
   const row2Y = top + cardH + cardGap
   drawKpiCard(doc, rightX, row2Y, cardW, cardH, 'CUSTO/M² (ÁREA TOTAL)',
@@ -382,7 +387,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   const body: RowInput[] = flat.map(({ node, depth }) => {
     const indent = '   '.repeat(depth)
     if (node.tipo === 'grupo') {
-      return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', '', fmt(node.total), fmtPct(node.percentual)]
+      return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', '', fmt(node.total), fmtPct(node.percentual), '']
     }
     return [
       node.numero,
@@ -396,6 +401,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       fmt(node.custoUnitario),
       fmt(node.total),
       fmtPct(node.percentual),
+      node.classeAbc ?? '',
     ]
   })
 
@@ -403,9 +409,9 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     startY: tableTop,
     willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
     margin: { left: margin, right: margin, bottom: margin, top: tableTop },
-    head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. (R$)', 'Total (R$)', '%']],
+    head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. (R$)', 'Total (R$)', '%', 'ABC']],
     body,
-    foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeral), '100,00%']],
+    foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeral), '100,00%', '']],
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
@@ -414,7 +420,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
       1: { cellWidth: 18 },
-      2: { cellWidth: 79 },
+      2: { cellWidth: 69 },
       3: { cellWidth: 12, halign: 'center' },
       4: { cellWidth: 16, halign: 'right' },
       5: { cellWidth: 24, halign: 'right' },
@@ -423,12 +429,19 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       8: { cellWidth: 24, halign: 'right' },
       9: { cellWidth: 26, halign: 'right' },
       10: { cellWidth: 12, halign: 'right' },
+      11: { cellWidth: 10, halign: 'center' },
     },
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const { node } = flat[cellData.row.index]
       if (node.tipo === 'grupo') {
         cellData.cell.styles.fillColor = GROUP_FILL
+        cellData.cell.styles.fontStyle = 'bold'
+        return
+      }
+      if (cellData.column.index === 11 && node.classeAbc) {
+        cellData.cell.styles.fillColor = ABC_BG[node.classeAbc]
+        cellData.cell.styles.textColor = ABC_FG[node.classeAbc]
         cellData.cell.styles.fontStyle = 'bold'
       }
     },
@@ -503,12 +516,12 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     if (row.tipo === 'grupo') {
       return [{
         content: `${row.numero}   ${row.descricao}`,
-        colSpan: 7,
+        colSpan: 8,
         styles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'left' },
       }]
     }
     if (row.tipo === 'item') {
-      return [row.numero, row.codigo, row.descricao, row.unidade, '', fmt(row.custoUnitario), fmt(row.custoTotal)]
+      return [row.numero, row.codigo, row.descricao, row.unidade, '', fmt(row.custoUnitario), fmt(row.custoTotal), row.classeAbc ?? '']
     }
     return [
       '',
@@ -518,13 +531,14 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
       row.indice.toLocaleString('pt-BR', { maximumFractionDigits: 6 }),
       fmt(row.custoUnit),
       fmt(row.custoTotal),
+      '',
     ]
   })
 
   autoTable(doc, {
     startY: margin + 16 + 4,
     margin: { left: margin, right: margin, bottom: margin },
-    head: [['Item', 'Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Total']],
+    head: [['Item', 'Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Total', 'ABC']],
     body,
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
@@ -532,18 +546,22 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
       1: { cellWidth: 20 },
-      2: { cellWidth: 135 },
+      2: { cellWidth: 121 },
       3: { cellWidth: 12, halign: 'center' },
       4: { cellWidth: 20, halign: 'right' },
       5: { cellWidth: 35, halign: 'right' },
       6: { cellWidth: 35, halign: 'right' },
+      7: { cellWidth: 10, halign: 'center' },
     },
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const row = rows[cellData.row.index]
-      if (row.tipo === 'item') {
-        cellData.cell.styles.fillColor = '#e9d5ff'
-        cellData.cell.styles.fontStyle = 'bold'
+      if (row.tipo !== 'item') return
+      cellData.cell.styles.fillColor = '#e9d5ff'
+      cellData.cell.styles.fontStyle = 'bold'
+      if (cellData.column.index === 7 && row.classeAbc) {
+        cellData.cell.styles.fillColor = ABC_BG[row.classeAbc]
+        cellData.cell.styles.textColor = ABC_FG[row.classeAbc]
       }
     },
   })

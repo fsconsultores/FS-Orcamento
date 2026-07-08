@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { recalcularComposicaoAction } from '../../planilha/calcular-action'
+import { atualizarPrecoInsumoAction } from '../../atualizar-preco-insumo-action'
 
 type InsumoRow = {
   id: string
@@ -156,6 +157,8 @@ export function ComposicaoDetail({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [editingPrecoId, setEditingPrecoId] = useState<string | null>(null)
+  const [precoDraft, setPrecoDraft] = useState('')
   const [adding, setAdding] = useState(autoOpenAdd)
   const [saving, setSaving] = useState(false)
   const [addTipo, setAddTipo] = useState<'insumo' | 'composicao'>('insumo')
@@ -201,6 +204,25 @@ export function ComposicaoDetail({
     const sb = createClient() as any
     await sb.from('orcamento_insumos').update({ indice: val, custo_atualizado_em: new Date().toISOString() }).eq('id', id)
     sincronizar()
+  }
+
+  async function handleSavePreco(id: string) {
+    const val = parseFloat(precoDraft.replace(',', '.'))
+    setEditingPrecoId(null)
+    if (isNaN(val) || val < 0) return
+    const ins = insumos.find(i => i.id === id)
+    if (!ins || !ins.codigo || val === ins.custo) return
+    const custoAnterior = ins.custo
+    setInsumos(prev => prev.map(i => i.codigo === ins.codigo ? { ...i, custo: val } : i))
+    try {
+      await atualizarPrecoInsumoAction(orcamentoId, ins.codigo, val, {
+        descricao: ins.descricao, unidade: ins.unidade, grupo: ins.grupo,
+      })
+      sincronizar()
+    } catch (err) {
+      setInsumos(prev => prev.map(i => i.codigo === ins.codigo ? { ...i, custo: custoAnterior } : i))
+      alert(`Erro ao atualizar preço: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   async function handleAdd() {
@@ -375,7 +397,33 @@ export function ComposicaoDetail({
                     {ins.grupo && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">{ins.grupo}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-gray-500">{ins.unidade}</td>
-                  <td className="px-4 py-2.5 text-right text-gray-600 tabular-nums">{BRL(ins.custo ?? 0)}</td>
+                  <td className="px-4 py-2.5 text-right w-28">
+                    {ins.grupo === 'COMPOSIÇÃO AUXILIAR' ? (
+                      <span className="tabular-nums text-gray-600" title="Preço herdado do custo unitário da sub-composição">
+                        {BRL(ins.custo ?? 0)}
+                      </span>
+                    ) : editingPrecoId === ins.id ? (
+                      <input
+                        autoFocus type="number" step="any" min="0"
+                        value={precoDraft}
+                        onChange={e => setPrecoDraft(e.target.value)}
+                        onBlur={() => handleSavePreco(ins.id)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleSavePreco(ins.id)
+                          if (e.key === 'Escape') setEditingPrecoId(null)
+                        }}
+                        className="w-full text-right border border-blue-400 rounded px-1.5 py-0.5 text-sm focus:outline-none"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => { setEditingPrecoId(ins.id); setPrecoDraft(String(ins.custo ?? 0)) }}
+                        title="Clique para editar o preço — atualiza em todo o orçamento"
+                        className="block w-full text-right tabular-nums text-gray-600 hover:text-blue-600 hover:underline cursor-text"
+                      >
+                        {BRL(ins.custo ?? 0)}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right w-28">
                     {editingId === ins.id ? (
                       <input

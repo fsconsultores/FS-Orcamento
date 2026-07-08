@@ -110,9 +110,8 @@ async function clonarComposicoes(sb: any, fromId: string, toId: string): Promise
   const map: Record<string, string> = {}
   if (!comps?.length) return map
 
-  // Clona para um projeto NOVO: grava o código cru (sem o prefixo do projeto de
-  // origem) e não envia codigo_original — o trigger de prefixo aplica o prefixo
-  // do projeto de destino automaticamente.
+  // Clona para um projeto novo com o código original (sem prefixo por projeto
+  // — mecanismo removido, codigo_original só é mantido como metadado).
   const { data: inserted, error } = await sb
     .from('orcamento_composicoes')
     .insert(comps.map((c: any) => ({
@@ -143,8 +142,7 @@ async function clonarInsumos(
   if (error) console.error('[dup] insumos fetch:', error)
   if (!insumos?.length) return
 
-  // Mesmo raciocínio de clonarComposicoes: código cru para o trigger reprefixar
-  // com o código do projeto de destino.
+  // Mesmo raciocínio de clonarComposicoes: código original, sem prefixo.
   const rows = insumos.map((i: any) => ({
     orcamento_id: toId,
     codigo: i.codigo_original ?? i.codigo,
