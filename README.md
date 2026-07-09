@@ -9,6 +9,7 @@ Sistema de orçamentação de obras para a FS Consultores. Permite elaborar, ger
 - [Stack tecnológico](#stack-tecnológico)
 - [Arquitetura](#arquitetura)
 - [Modelo de dados](#modelo-de-dados)
+- [Motor de cálculo](#motor-de-cálculo)
 - [Módulos da aplicação](#módulos-da-aplicação)
 - [Autenticação](#autenticação)
 - [Configuração do ambiente](#configuração-do-ambiente)
@@ -29,7 +30,10 @@ Sistema de orçamentação de obras para a FS Consultores. Permite elaborar, ger
 | Estilo | Tailwind CSS | 3.4 |
 | Banco de dados | PostgreSQL via Supabase | — |
 | Auth | Supabase Auth + Azure AD (SSO) | — |
-| Planilhas | xlsx / xlsx-js-style | 0.18 / 1.2 |
+| Planilhas (import/export XLSX) | xlsx / exceljs | 0.18 / 4.4 |
+| Relatórios PDF | jsPDF / jspdf-autotable | 4.2 / 5.0 |
+| Virtualização | @tanstack/react-virtual | 3.14 |
+| Drag-and-drop | @dnd-kit/core | 6.3 |
 
 ---
 
@@ -40,7 +44,7 @@ Sistema de orçamentação de obras para a FS Consultores. Permite elaborar, ger
 A aplicação usa exclusivamente o **Next.js App Router** com o padrão Server Components + Server Actions:
 
 - **Server Components** buscam dados diretamente do Supabase no servidor, sem round-trip de API. Nenhum dado é exposto via REST/GraphQL customizado.
-- **Server Actions** (`'use server'`) executam mutações (insert, update, delete) e chamam `revalidatePath` para invalidar o cache do Next.js após cada operação.
+- **Server Actions** (`'use server'`) executam mutações (insert, update, delete). `revalidatePath` é usado com moderação — foi deliberadamente removido de pontos de edição de alta frequência (ex.: célula da planilha), já que o estado do cliente é gerenciado localmente e uma revalidação por tecla degradaria a UX em planilhas grandes.
 - **Client Components** (`'use client'`) são usados apenas onde há interatividade: edição inline, filtros, paginação, modais e uploads. Mutações de baixa latência (ex.: atualização de custo de insumo) chamam o cliente Supabase diretamente do browser para evitar round-trip via Server Action.
 
 ### Segurança de dados
@@ -92,48 +96,89 @@ tabela_itens_composicao
 
 ```
 tabela_orcamentos
-  id, user_id, codigo, nome_obra, cliente, data,
-  bdi_global, ultimo_acesso, created_at
+  id, user_id, codigo, nome_obra, cliente, local, data,
+  bdi_global, area_total, area_coberta, area_equivalente,
+  numeracao_digitos, categorias_grafico,
+  ultimo_acesso, created_at
 
-orcamento_composicoes          (cópia local de composições para o orçamento)
-  id, orcamento_id, codigo, descricao, unidade, base
+orcamento_planilhas             (planilhas do orçamento — um orçamento pode ter várias)
+  id, orcamento_id, nome, bdi_global,
+  total_custo, total_com_bdi, ultima_calculo_em, invalidado_em
 
-orcamento_insumos              (insumos dentro de composições OU avulsos)
+orcamento_composicoes           (cópia local de composições para o orçamento)
+  id, orcamento_id, codigo, descricao, unidade, base, base_origem,
+  custo_unitario, calculado_em, deleted_at, deleted_by
+
+orcamento_insumos               (insumos dentro de composições OU avulsos)
   id, orcamento_id, composicao_id (nullable), codigo,
-  descricao, unidade, custo, indice, grupo, base, data_ref
+  descricao, unidade, custo, indice, grupo, base, base_origem, data_ref,
+  custo_atualizado_em, deleted_at, deleted_by
 
-orcamento_estrutura            (planilha orçamentária hierárquica)
-  id, orcamento_id, parent_id (self-ref), numero, nivel,
+orcamento_estrutura              (planilha orçamentária hierárquica)
+  id, orcamento_id, planilha_id, parent_id (self-ref), numero, nivel,
   codigo, descricao, unidade, quantidade, custo_unitario,
   bdi_especifico, tipo (grupo|item), ordem
+
+orcamento_versoes                (snapshot imutável do orçamento — "commits")
+  id, orcamento_id, descricao, dados (JSONB por tabela), user_id, created_at
+
+historico_alteracoes             (auditoria unificada — substitui tabela_logs/orcamento_logs)
+  id, orcamento_id (nullable p/ eventos globais), user_id, usuario_email,
+  entidade, tipo, acao, mensagem, valor_anterior, valor_novo, detalhes, created_at
 ```
 
 ### Regras de negócio principais
 
-- Um **insumo avulso** tem `composicao_id IS NULL`. Um insumo dentro de uma composição tem `composicao_id` preenchido.
-- A **planilha** (`orcamento_estrutura`) é hierárquica: itens com `tipo = 'grupo'` são capítulos/seções; itens com `tipo = 'item'` são serviços ou insumos diretos.
-- O **BDI** pode ser global (campo `bdi_global` no orçamento) ou específico por item (`bdi_especifico` na estrutura). O item específico tem precedência.
-- **Custo de composição** é calculado em tempo real: `SUM(insumo.custo × insumo.indice)`.
+- Um **insumo avulso** tem `composicao_id IS NULL` — é o preço "canônico" do código no orçamento inteiro. Um insumo dentro de uma composição tem `composicao_id` preenchido; seu campo `custo` é uma cópia sincronizada a partir do avulso (o avulso tem prioridade quando os dois existem).
+- A **planilha** (`orcamento_estrutura`) é hierárquica e pertence a uma `orcamento_planilhas` (`planilha_id`). Itens com `tipo = 'grupo'` são capítulos/seções; itens com `tipo = 'item'` são serviços ou insumos diretos. Composições e insumos são compartilhados por todas as planilhas do mesmo orçamento.
+- O **BDI** pode ser global (`bdi_global`, por orçamento ou por planilha) ou específico por item (`bdi_especifico` na estrutura). O item específico tem precedência.
+- **Custo de composição** é recalculado pelo motor de cálculo (`src/lib/orcamento/motor-calculo.ts`) e persistido em `orcamento_composicoes.custo_unitario`/`calculado_em` — não é uma view em tempo real. Ver [Motor de cálculo](#motor-de-cálculo).
+- **Soft delete**: composições/insumos órfãos são marcados com `deleted_at`/`deleted_by` (função "Calcular e Limpar Projeto"), nunca removidos fisicamente; bases nacionais (SINAPI/DNIT/DER/SUDECAP) nunca são removidas.
+
+---
+
+## Motor de cálculo
+
+`src/lib/orcamento/motor-calculo.ts` recalcula `orcamento_composicoes.custo_unitario` e propaga para `orcamento_estrutura.custo_unitario`, com 4 modos (`ModoCalculo`):
+
+| Modo | Uso | Comportamento |
+|---|---|---|
+| `planilha` | Automático (após editar célula) | Delta detection: só recalcula composições cujo insumo mudou desde o último cálculo, atualiza só a planilha ativa |
+| `todas` | Automático (após alterar preço de insumo) | Delta detection, mas atualiza a estrutura de **todas** as planilhas do orçamento |
+| `forca` | Botão "Calcular Planilha"/"Calcular Projeto" | Ignora o delta — recalcula **todas** as composições do zero |
+| `limpar` | Botão "Calcular e Limpar Projeto" | Igual a `forca` + detecta composições/insumos órfãos (não usados em nenhuma planilha) para confirmação do usuário |
+
+A detecção de delta compara `orcamento_insumos.custo_atualizado_em` (atualizado automaticamente por trigger sempre que `custo` muda) com `orcamento_composicoes.calculado_em`; sub-composições sujas propagam a "sujeira" para quem as usa. Preços de insumo têm prioridade em cascata: **avulso da composição atual > avulso do projeto > custo gravado na linha**.
+
+Edição de preço de insumo a partir de qualquer tela do orçamento (Planilha Analítica, Curva ABC, detalhe da composição) passa por `atualizarPrecoInsumoAction` → `upsertAvulsoInsumo`, que atualiza o avulso canônico **e** sincroniza todas as cópias do mesmo código em outras composições, disparando recálculo do projeto em segundo plano.
 
 ---
 
 ## Módulos da aplicação
 
 ### Dashboard (`/dashboard`)
-Listagem de todos os orçamentos do usuário com acesso rápido, data de último acesso e totais.
+Widgets independentes (Server Components, cada um com `<Suspense>` próprio, em `src/app/(app)/dashboard/widgets/`): quantidade de projetos, últimos projetos acessados, valor total (soma de `orcamento_planilhas.total_com_bdi` — totais reais persistidos), últimos commits de versão, Curva ABC resumida do orçamento mais recentemente acessado, atividades recentes do usuário (`historico_alteracoes`).
 
 ### Orçamentos (`/orcamentos`)
-CRUD completo de orçamentos. Cada orçamento agrupa:
+CRUD completo de orçamentos, com suporte a **múltiplas planilhas** por orçamento (todas compartilham as mesmas composições/insumos). Cada orçamento agrupa:
 
 | Sub-rota | Descrição |
 |---|---|
-| `/planilha` | Planilha orçamentária hierárquica (grupos + itens). Edição inline. Importação CSV/XLSX. |
-| `/insumos` | Tabela de preços do orçamento. Edição de custo com navegação estilo Excel (Enter avança linha). |
-| `/composicoes` | Composições analíticas vinculadas ao orçamento com seus insumos e coeficientes. |
-| `/curva-abc` | Análise ABC por **Serviços** (composições com sub-itens) e por **Insumos** (materiais/mão-de-obra expandidos). |
-| `/importar` | Importação de insumos e composições a partir de arquivos XLSX/CSV. |
+| `/planilha` | Planilha orçamentária hierárquica (grupos + itens), com seletor de planilha ativa. Edição inline, virtualização para milhares de linhas, drag-and-drop, modo "Analítica" (expande insumos de cada composição inline). Importação CSV/XLSX. |
+| `/insumos` | Tabela de preços do orçamento. Edição de custo com navegação estilo Excel (Enter avança linha). Filtro Todos/Utilizados/Não utilizados. |
+| `/composicoes` | Composições analíticas vinculadas ao orçamento — adicionar/remover insumos, editar índice e preço unitário (propaga para todo o projeto). Exportação/importação de modelo XLSX. |
+| `/curva-abc` | Análise ABC por **Serviços** e por **Insumos**, em abas por categoria (Geral/Materiais/Mão de Obra/Equipamentos/Serviços). |
+| `/relatorios` | Exportação de relatórios: **Caderno de Orçamento** (PDF completo, 11 seções — ver abaixo), Planilha de Orçamento, Planilha Analítica, Planilha Analítica Decomposta, Curva ABC (Serviços/Insumos) — todos em XLSX ou PDF. |
+| `/versoes` | Versionamento (commits): snapshot imutável do estado completo do orçamento, com restauração. Nunca expira/apaga automaticamente. |
+| `/importar` | Importação de insumos e composições a partir de arquivos XLSX/CSV (SINAPI, SUDECAP, DNIT/SICRO, formato simples). |
+| `/configuracoes` | BDI, numeração hierárquica da planilha, áreas (para custo/m²), categorias do gráfico de distribuição de custos. |
+| `/logs` | Histórico de alterações do orçamento (cálculos, importações, edições de preço, exclusões) com restauração de itens apagados. |
 
-**Clonagem de orçamento:** função PostgreSQL `clone_orcamento` copia toda a estrutura (composições, insumos, planilha) para um novo orçamento.
+**Clonagem de orçamento:** função PostgreSQL `clone_orcamento` copia toda a estrutura (composições, insumos, planilhas) para um novo orçamento.
+
+### Caderno de Orçamento (PDF)
+
+Relatório único gerado em `src/app/(app)/orcamentos/[id]/caderno/export-caderno-pdf.ts` (jsPDF + jspdf-autotable), com capa, divisórias numeradas e 11 seções: Carta de Apresentação, Lista de Projetos, Resumo Geral do Orçamento (KPIs + gráfico de distribuição de custos), Custo/m², Planilha de Preços Unitários (com classificação **ABC** por item, mesmo critério da planilha interativa), Curva ABC Insumos, Curva ABC de Serviços, Planilha Analítica de Preços Unitários (com ABC), Lista de Insumos, Anexos e Cotações (placeholders). Dados agregados em `src/lib/orcamento/caderno.ts` (`getCadernoData`).
 
 ### Insumos (`/insumos`)
 Biblioteca global de insumos. Importação via SINAPI, SUDECAP ou planilha própria.
@@ -254,14 +299,39 @@ As migrações ficam em `supabase/migrations/` e devem ser aplicadas em ordem cr
 | `20260430000001_fix_view_bdi` | Correção da view com cálculo BDI |
 | `20260430000002_hierarchy_tables` | Tabelas de hierarquia |
 | `20260504000000_bases` | Tabela `tabela_bases` para bases de referência (SINAPI, SUDECAP etc.) |
-| `20260505000001_tabela_logs` | Tabela de auditoria de operações |
+| `20260504000001_fix_view_bases` | Correção de view após introdução de bases |
+| `20260505000000_ultimo_acesso` | Coluna `ultimo_acesso` em `tabela_orcamentos` |
+| `20260505000001_tabela_logs` | Tabela de auditoria de operações (legada, ver `historico_alteracoes`) |
+| `20260505000002_base_origem` | Coluna `base_origem` (origem declarada dos dados importados) |
 | `20260506000000_orcamento_insumos_composicoes` | Tabelas `orcamento_composicoes` e `orcamento_insumos` |
+| `20260506100000_composicao_custo` | Coluna `composicao_id` (nullable) em `orcamento_insumos` |
+| `20260506200000_itens_composicao_propria` | Permite item da planilha referenciar composição própria do orçamento |
 | `20260508000000_add_indice_to_insumos` | Coluna `indice` em `orcamento_insumos` |
 | `20260508100000_add_grupo_to_insumos` | Coluna `grupo` (H/M/E/S/T) em `orcamento_insumos` |
 | `20260508200000_orcamento_estrutura` | Tabela `orcamento_estrutura` (planilha hierárquica) |
 | `20260513000000_clone_orcamento_fn` | Função PostgreSQL para clonar orçamento completo |
-| `20260513002_custo_atualizado_em` | Timestamp de última atualização de custo por insumo |
+| `20260513000001_clone_orcamento_bulk` | Versão em lote da clonagem (performance) |
+| `20260513000002_custo_atualizado_em` | Timestamp de última atualização de custo por insumo + trigger automático |
 | `20260514000000_bdi_especifico_estrutura` | Coluna `bdi_especifico` na estrutura do orçamento |
+| `20260514000001_orcamentos_created_at` | Coluna `created_at` em `tabela_orcamentos` |
+| `20260610000000_resumo_geral_orcamento` | Colunas de área (`area_total`/`area_coberta`/`area_equivalente`) p/ custo/m² no Caderno |
+| `20260611000000_orcamento_local` | Coluna `local` (cidade/UF) exibida no Caderno de Orçamento |
+| `20260612000000_orcamento_numeracao` | Coluna `numeracao_digitos` (configuração de zero-padding da numeração) |
+| `20260612000001_categorias_grafico` | Coluna `categorias_grafico` (mapeamento de grupos p/ gráfico de distribuição de custos) |
+| `20260619000000_fix_numeric_overflow_views` | Corrige overflow numérico nas views; garante idempotência de migrações anteriores |
+| `20260625000001_historico_precos` | Tabela `tabela_historico_precos` (auditoria de preço na biblioteca global de insumos) |
+| `20260701000000_planilhas_multiplas` | Tabela `orcamento_planilhas` — suporte a múltiplas planilhas por orçamento |
+| `20260701000001_composicao_custo_calculado` | Colunas `custo_unitario`/`calculado_em` em `orcamento_composicoes` (delta detection) |
+| `20260702000000_planilha_totais_invalidacao` | Totais persistidos e invalidação por planilha (`total_custo`, `total_com_bdi`, `invalidado_em`) |
+| `20260702000001_soft_delete` | Colunas `deleted_at`/`deleted_by` em composições/insumos ("Calcular e Limpar Projeto") |
+| `20260702000002_orcamento_logs` | Tabela `orcamento_logs` (legada, ver `historico_alteracoes`) |
+| `20260706000000_orcamento_versoes` | Tabela `orcamento_versoes` — versionamento (commits) do orçamento |
+| `20260707000000_sufixo_projeto` | Trigger de código exclusivo por projeto (sufixo) — **revertido**, ver abaixo |
+| `20260707000001_prefixo_projeto` | Corrige sufixo → prefixo (`ABC-88316`) — **revertido**, ver abaixo |
+| `20260708000000_historico_alteracoes` | Tabela `historico_alteracoes` — auditoria unificada, substitui `tabela_logs`/`orcamento_logs` |
+| `20260708010000_remove_prefixo_projeto` | Reverte o prefixo automático de código por projeto (trigger só agia em `INSERT`, causando inconsistência entre código avulso e código já usado em composições/planilha) |
+
+> Código exclusivo por projeto (`20260707000000`/`20260707000001`) foi implementado e depois **revertido** (`20260708010000`): o trigger só prefixava novos `INSERT`s, então o mesmo insumo podia ter código prefixado em um lugar e sem prefixo em outro, quebrando o match de preço avulso. `codigo_original` permanece nas tabelas por compatibilidade, mas não é mais preenchido.
 
 ### Views SQL relevantes
 
@@ -286,7 +356,7 @@ ITEM | CÓDIGO | DESCRIÇÃO | UND | QTDE | R$ UNIT.
 - Numeração hierárquica: `1`, `1.1`, `1.1.1`
 - Valores em formato brasileiro: `R$ 1.800,00`
 
-### Base própria / SUDECAP (composições analíticas)
+### Base própria / SUDECAP (composições analíticas — importação flexível em `/orcamentos/[id]/importar`)
 
 Aceita `.xlsx`, `.xls`, `.ods`, `.csv`. Formato com cabeçalho:
 
@@ -300,7 +370,7 @@ UnidadeInsumo/ComposicaoAux | Indice | GrupoDoInsumo | OrigemInsumosComposicoesA
 - `TipoItemComposicao = C` → sub-composição auxiliar
 - `GrupoDoInsumo`: `H` = mão de obra, `M` = material, `E` = equipamento, `S` = serviço/subempreitada, `T` = transporte
 
-O parser detecta as colunas pelo nome do cabeçalho (com fallback para posição fixa), tolerando variações de acentuação, espaços e capitalização.
+O parser (`src/app/(app)/orcamentos/[id]/importar/import-form.tsx`) detecta as colunas pelo nome do cabeçalho (com fallback para posição fixa), tolerando variações de acentuação, espaços e capitalização. Também detecta automaticamente os formatos SUDECAP "Relatório de Composições" e DNIT/SICRO.
 
 ### SINAPI analítico
 
@@ -309,6 +379,19 @@ Formato com colunas `Código da Composição` + `Código do Item`. Linha pai tem
 ### Lista plana de insumos (IS*)
 
 Cada linha = um insumo. Colunas: `codigo, descricao, unidade, custo, grupo, data_ref`.
+
+### Modelo de Composições (posição fixa — `/composicoes/importar` e biblioteca global)
+
+Formato usado pelo botão "Exportar modelo" (`src/components/export-composicao-modelo-button.tsx`) e pelo importador de composições da biblioteca global (`src/app/(app)/composicoes/importar/page.tsx`), com posições de coluna fixas (0-indexed):
+
+```
+Codigo | DescricaoAbreviada | Unidade | TipoItemComposicao | CodigoDoInsumo |
+DescricaoAbreviadaInsumo | UnidadeInsumo | Indice | GrupoDoInsumo
+```
+
+- Os 3 primeiros campos (código/descrição/unidade da composição) só são lidos na **primeira linha** de cada serviço — nas linhas seguintes (mesma composição, outro insumo) ficam em branco ("carry-forward").
+- `TipoItemComposicao`: em branco = insumo normal; `C` = sub-composição auxiliar (importada como um insumo cujo código coincide com o de outra composição — o motor de cálculo, Curva ABC e Planilha Analítica Decomposta reconhecem esse padrão e decompõem recursivamente).
+- Insumos ausentes na base do usuário são criados automaticamente com preço `0` e `fonte = BASE_PROPRIA`; composições com código já existente são ignoradas (não sobrescreve).
 
 ---
 
@@ -320,20 +403,26 @@ FS-Orcamento/
 │   ├── app/
 │   │   ├── (app)/                      # Grupo de rotas autenticadas
 │   │   │   ├── dashboard/
+│   │   │   │   └── widgets/            # Widgets independentes (Server Components + Suspense)
 │   │   │   ├── orcamentos/
 │   │   │   │   ├── [id]/
 │   │   │   │   │   ├── layout.tsx      # Breadcrumb + subnav do orçamento
-│   │   │   │   │   ├── planilha/       # Planilha hierárquica
-│   │   │   │   │   ├── insumos/        # Tabela de preços
-│   │   │   │   │   ├── composicoes/    # Composições analíticas
-│   │   │   │   │   ├── curva-abc/      # Análise ABC
-│   │   │   │   │   └── importar/       # Importação de dados
+│   │   │   │   │   ├── planilha/       # Planilha hierárquica (multi-planilha), motor de cálculo
+│   │   │   │   │   ├── insumos/        # Tabela de preços do orçamento
+│   │   │   │   │   ├── composicoes/    # Composições do orçamento (add/edit insumo, preço, índice)
+│   │   │   │   │   ├── curva-abc/      # Análise ABC em abas por categoria
+│   │   │   │   │   ├── relatorios/     # Exportações XLSX/PDF
+│   │   │   │   │   ├── caderno/        # Caderno de Orçamento (PDF, 11 seções)
+│   │   │   │   │   ├── versoes/        # Versionamento (commits)
+│   │   │   │   │   ├── configuracoes/  # BDI, numeração, áreas, categorias do gráfico
+│   │   │   │   │   ├── logs/           # Histórico de alterações do orçamento
+│   │   │   │   │   └── importar/       # Importação flexível (SUDECAP/SINAPI/DNIT/simples)
 │   │   │   │   └── novo/
 │   │   │   ├── insumos/                # Biblioteca global de insumos
-│   │   │   ├── composicoes/            # Biblioteca global de composições
+│   │   │   ├── composicoes/            # Biblioteca global de composições (+ /importar modelo)
 │   │   │   ├── bases/                  # Gerenciamento de bases de referência
 │   │   │   ├── projetos/
-│   │   │   └── logs/
+│   │   │   └── logs/                   # Histórico de alterações global
 │   │   ├── auth/                       # Callbacks de autenticação
 │   │   ├── login/
 │   │   ├── signup/
@@ -346,6 +435,7 @@ FS-Orcamento/
 │   │   ├── orcamento-subnav.tsx
 │   │   ├── client-pagination.tsx
 │   │   ├── editable-cell.tsx
+│   │   ├── export-composicao-modelo-button.tsx
 │   │   └── ...
 │   └── lib/
 │       ├── supabase/
@@ -353,14 +443,26 @@ FS-Orcamento/
 │       │   └── server.ts               # Cliente server (RSC + Server Actions)
 │       ├── orcamento/
 │       │   ├── types.ts                # Interfaces TypeScript
-│       │   ├── insumos.ts              # Queries de insumos
-│       │   └── composicoes.ts          # Queries de composições
+│       │   ├── insumos.ts              # Queries de insumos + upsertAvulsoInsumo
+│       │   ├── composicoes.ts          # Queries de composições
+│       │   ├── motor-calculo.ts        # Motor de cálculo (delta/força), consistência, órfãos
+│       │   ├── planilhas.ts            # CRUD de orcamento_planilhas
+│       │   ├── versoes.ts              # Snapshot/restauração de versões
+│       │   ├── caderno.ts              # Agregação de dados p/ Caderno de Orçamento
+│       │   ├── categorias-grafico.ts   # Categorias do gráfico de distribuição de custos
+│       │   ├── duplicate.ts            # Duplicação de orçamento
+│       │   └── parsing.ts              # parseNumero/inferirNivel compartilhados
+│       ├── pdf/
+│       │   ├── charts.ts               # KPI cards, donut chart (jsPDF vetorial)
+│       │   └── abc-section.ts          # Seção Curva ABC reutilizável nos PDFs
 │       ├── curva-abc.ts                # Cálculo e classificação A/B/C
 │       ├── costs.ts                    # Utilitários de cálculo de custo
+│       ├── log.ts                      # registrarHistorico (auditoria unificada)
+│       ├── historico-labels.ts         # Labels/cores de ações do histórico
 │       └── auth/
 │           └── validate-domain.ts      # Restrição de domínio
 ├── supabase/
-│   └── migrations/                     # 24 migrações SQL em ordem cronológica
+│   └── migrations/                     # Migrações SQL em ordem cronológica (ver tabela acima)
 ├── public/
 ├── next.config.ts
 ├── tailwind.config.ts
