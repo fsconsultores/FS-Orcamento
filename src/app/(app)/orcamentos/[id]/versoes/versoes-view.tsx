@@ -49,17 +49,32 @@ function ArvorePreview({ nodes }: { nodes: EstruturaPreviewNode[] }) {
   )
 }
 
+type FiltroOrigem = 'todas' | 'manual' | 'backup_automatico'
+
 export function VersoesView({
   orcamentoId,
   versoesIniciais,
   fetchError,
+  usuarioAtualEmail,
 }: {
   orcamentoId: string
   versoesIniciais: OrcamentoVersaoResumo[]
   fetchError?: string
+  usuarioAtualEmail?: string | null
 }) {
   const router = useRouter()
-  const versoes = versoesIniciais
+  const [filtroOrigem, setFiltroOrigem] = useState<FiltroOrigem>('todas')
+  const [somenteMinhas, setSomenteMinhas] = useState(false)
+
+  const versoes = useMemo(() => {
+    return versoesIniciais.filter(v => {
+      if (filtroOrigem === 'manual' && v.origem !== 'manual') return false
+      if (filtroOrigem === 'backup_automatico' && v.origem !== 'pre_restore') return false
+      if (somenteMinhas && (!usuarioAtualEmail || v.autor_email !== usuarioAtualEmail)) return false
+      return true
+    })
+  }, [versoesIniciais, filtroOrigem, somenteMinhas, usuarioAtualEmail])
+
   const [showCriar, setShowCriar] = useState(false)
   const [mensagem, setMensagem] = useState('')
   const [criando, setCriando] = useState(false)
@@ -151,6 +166,39 @@ export function VersoesView({
         </div>
       )}
 
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-0.5 text-xs">
+          {([
+            ['todas', 'Todas'],
+            ['manual', 'Manuais'],
+            ['backup_automatico', 'Backup automático'],
+          ] as [FiltroOrigem, string][]).map(([valor, label]) => (
+            <button
+              key={valor}
+              onClick={() => setFiltroOrigem(valor)}
+              className={`rounded px-2.5 py-1 font-medium transition-colors ${
+                filtroOrigem === valor ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+          <input
+            type="checkbox"
+            checked={somenteMinhas}
+            onChange={e => setSomenteMinhas(e.target.checked)}
+            disabled={!usuarioAtualEmail}
+            className="rounded border-gray-300"
+          />
+          Criadas por mim
+        </label>
+        {somenteMinhas && !usuarioAtualEmail && (
+          <span className="text-xs text-gray-400">(não foi possível identificar seu usuário)</span>
+        )}
+      </div>
+
       <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="border-b bg-gray-50">
@@ -190,10 +238,17 @@ export function VersoesView({
                 </td>
               </tr>
             ))}
-            {versoes.length === 0 && (
+            {versoes.length === 0 && versoesIniciais.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-400">
                   Nenhuma versão criada ainda. Clique em &quot;Criar versão&quot; para registrar o estado atual do orçamento.
+                </td>
+              </tr>
+            )}
+            {versoes.length === 0 && versoesIniciais.length > 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-400">
+                  Nenhuma versão encontrada com os filtros selecionados.
                 </td>
               </tr>
             )}

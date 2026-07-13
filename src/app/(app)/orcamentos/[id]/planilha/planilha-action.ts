@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { registrarHistorico } from '@/lib/log'
+import { persistirTotaisPlanilha } from '@/lib/orcamento/motor-calculo'
 
 export interface EstruturaItem {
   id: string
@@ -155,6 +156,11 @@ export async function importarEstrutura(
     }
   }
 
+  const planilhaIdsParaRecalcular = planilhaId
+    ? [planilhaId]
+    : ((await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', orcamentoId)).data ?? []).map((p: { id: string }) => p.id)
+  await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaRecalcular).catch(console.error)
+
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 
   registrarHistorico(supabase, {
@@ -185,8 +191,13 @@ export async function atualizarItemEstrutura(
 ): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
-  await sb.from('orcamento_estrutura').update(fields).eq('id', id)
+  const { data } = await sb.from('orcamento_estrutura').update(fields).eq('id', id).select('planilha_id').single()
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+
+  const afetaTotal = 'quantidade' in fields || 'custo_unitario' in fields || 'bdi_especifico' in fields
+  if (afetaTotal && data?.planilha_id) {
+    await persistirTotaisPlanilha(supabase, orcamentoId, [data.planilha_id]).catch(console.error)
+  }
 }
 
 export async function deletarItemEstrutura(
@@ -195,8 +206,13 @@ export async function deletarItemEstrutura(
 ): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
+  const { data } = await sb.from('orcamento_estrutura').select('planilha_id').eq('id', id).single()
   await sb.from('orcamento_estrutura').delete().eq('id', id)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+
+  if (data?.planilha_id) {
+    await persistirTotaisPlanilha(supabase, orcamentoId, [data.planilha_id]).catch(console.error)
+  }
 }
 
 export async function salvarNumeros(
@@ -308,6 +324,12 @@ export async function limparPlanilha(
   if ((itensApagados?.length ?? 0) > 0 && !count) {
     throw new Error('Nenhum item foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados.')
   }
+
+  const planilhaIdsParaRecalcular = planilhaId
+    ? [planilhaId]
+    : ((await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', orcamentoId)).data ?? []).map((p: { id: string }) => p.id)
+  await persistirTotaisPlanilha(supabase, orcamentoId, planilhaIdsParaRecalcular).catch(console.error)
+
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   registrarHistorico(supabase, {
     orcamentoId,
@@ -455,6 +477,9 @@ export async function adicionarItemNaPosicao(
     .single()
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  if (data?.planilha_id) {
+    await persistirTotaisPlanilha(supabase, orcamentoId, [data.planilha_id]).catch(console.error)
+  }
   return data as EstruturaItem
 }
 
@@ -497,5 +522,8 @@ export async function adicionarItemEstrutura(
     .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  if (data?.[0]?.planilha_id) {
+    await persistirTotaisPlanilha(supabase, orcamentoId, [data[0].planilha_id]).catch(console.error)
+  }
   return data[0] as EstruturaItem
 }

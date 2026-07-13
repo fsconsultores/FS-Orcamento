@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
@@ -11,26 +11,33 @@ const PAGE_SIZE = 100
 export function ComposicoesTable({
   composicoes: initialComposicoes,
   orcamentoId,
+  codigosUtilizados,
 }: {
   composicoes: OrcamentoComposicao[]
   orcamentoId: string
+  codigosUtilizados: string[]
 }) {
   const [composicoes, setComposicoes] = useState(initialComposicoes)
   const [query, setQuery] = useState('')
+  const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
+  const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
 
   const q = query.trim().toLowerCase()
-  const visible = q
+  const porTexto = q
     ? composicoes.filter(
         (c) =>
           c.codigo.toLowerCase().includes(q) ||
           c.descricao.toLowerCase().includes(q)
       )
     : composicoes
+  const visible = filtroUso === 'todos'
+    ? porTexto
+    : porTexto.filter((c) => usadosSet.has(c.codigo) === (filtroUso === 'usados'))
 
-  useEffect(() => { setCurrentPage(1) }, [q])
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -79,8 +86,8 @@ export function ComposicoesTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
           <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
             fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -93,6 +100,25 @@ export function ComposicoesTable({
             onChange={(e) => setQuery(e.target.value)}
             className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
+        </div>
+        <div className="flex gap-1">
+          {([
+            { v: 'todos', label: 'Todos' },
+            { v: 'usados', label: 'Utilizados no projeto' },
+            { v: 'nao_usados', label: 'Não utilizados' },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              onClick={() => setFiltroUso(v)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                filtroUso === v
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <button
           onClick={handleClear}

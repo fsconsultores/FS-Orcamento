@@ -443,6 +443,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     return () => window.removeEventListener('beforeunload', h)
   }, [isDirty])
 
+  // Auto-dismiss do toast de resultado do cálculo — evita que fique preso na tela
+  useEffect(() => {
+    if (!calcResultado) return
+    const t = setTimeout(() => setCalcResultado(null), 6000)
+    return () => clearTimeout(t)
+  }, [calcResultado])
+
   // Intercepta cliques em links internos quando há alterações pendentes
   useEffect(() => {
     if (!isDirty) return
@@ -1488,28 +1495,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             </button>
           </div>
 
-          {calcResultado && !calcErro && (
-            <div className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${calcResultado.itens === 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-              {calcResultado.itens === 0 ? (
-                <>
-                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Nenhum item atualizado — verifique se os códigos dos insumos correspondem à planilha
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  {calcResultado.itens} item(ns) atualizado(s)
-                  {calcResultado.comps > 0 && ` a partir de ${calcResultado.comps} composição(ões)`}
-                </>
-              )}
-              <button onClick={() => setCalcResultado(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
-            </div>
-          )}
-
           <div className="text-right">
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Total Geral</p>
             <p className="text-lg font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
@@ -1756,6 +1741,29 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           </div>
         </div>
       </div>
+
+      {/* Toast: Resultado do Cálculo — flutuante, não interfere no layout do cabeçalho */}
+      {calcResultado && !calcErro && (
+        <div className={`fixed top-4 right-4 z-[110] flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shadow-lg ${calcResultado.itens === 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+          {calcResultado.itens === 0 ? (
+            <>
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Nenhum item atualizado — verifique se os códigos dos insumos correspondem à planilha
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {calcResultado.itens} item(ns) atualizado(s)
+              {calcResultado.comps > 0 && ` a partir de ${calcResultado.comps} composição(ões)`}
+            </>
+          )}
+          <button onClick={() => setCalcResultado(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+        </div>
+      )}
 
       {/* Modal: Resultado Calcular Projeto */}
       {totaisProjetoResult && (

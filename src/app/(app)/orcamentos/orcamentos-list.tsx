@@ -22,6 +22,7 @@ type OrcRow = {
 interface Props {
   initialOrcamentos: OrcRow[];
   totaisMap: Record<string, number>;
+  children?: React.ReactNode;
 }
 
 interface ConfirmState {
@@ -35,15 +36,6 @@ interface DuplicateModal {
   error?: string;
 }
 
-interface NovoModal {
-  nome_obra: string;
-  codigo: string;
-  cliente: string;
-  data: string;
-  bdi_global: string;
-  error?: string;
-}
-
 interface EditModal {
   id: string;
   nome_obra: string;
@@ -53,14 +45,6 @@ interface EditModal {
   bdi_global: string;
   error?: string;
 }
-
-const NOVO_DEFAULT: NovoModal = {
-  nome_obra: '',
-  codigo: '',
-  cliente: '',
-  data: new Date().toISOString().split('T')[0],
-  bdi_global: '25',
-};
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
@@ -83,7 +67,7 @@ function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
   };
 }
 
-export function OrcamentosGrid({ initialOrcamentos }: Props) {
+export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [orcamentos, setOrcamentos] = useState<OrcRow[]>(initialOrcamentos);
@@ -123,77 +107,8 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [duplicateModal, setDuplicateModal] = useState<DuplicateModal | null>(null);
-  const [novoModal, setNovoModal] = useState<NovoModal | null>(null);
-  const [creating, setCreating] = useState(false);
   const [editModal, setEditModal] = useState<EditModal | null>(null);
   const [saving, setSaving] = useState(false);
-
-  function updateNovo(field: keyof NovoModal, value: string) {
-    setNovoModal(prev => prev ? { ...prev, [field]: value, error: undefined } : prev);
-  }
-
-  async function handleCreate() {
-    if (!novoModal || creating) return;
-    if (!novoModal.nome_obra.trim()) {
-      setNovoModal(prev => prev ? { ...prev, error: 'Informe o nome da obra.' } : prev);
-      return;
-    }
-    const bdi = parseFloat(novoModal.bdi_global);
-    if (isNaN(bdi) || bdi < 0) {
-      setNovoModal(prev => prev ? { ...prev, error: 'BDI inválido.' } : prev);
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
-
-      const { data, error: dbError } = await supabase
-        .from('tabela_orcamentos')
-        .insert({
-          user_id: user.id,
-          nome_obra: novoModal.nome_obra.trim(),
-          cliente: novoModal.cliente.trim() || null,
-          data: novoModal.data,
-          bdi_global: bdi,
-          codigo: novoModal.codigo,
-        })
-        .select('id')
-        .single();
-
-      if (dbError) {
-        const isUnique = dbError.message.toLowerCase().includes('unique') || dbError.message.toLowerCase().includes('duplicate key');
-        setNovoModal(prev => prev ? {
-          ...prev,
-          error: isUnique ? 'Este código já está em uso. Escolha outro.' : `Erro ao salvar: ${dbError.message}`,
-        } : prev);
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const newRow: OrcRow = {
-        id: data.id,
-        nome_obra: novoModal.nome_obra.trim(),
-        cliente: novoModal.cliente.trim() || null,
-        data: novoModal.data,
-        bdi_global: bdi,
-        codigo: novoModal.codigo,
-        tabela_itens_orcamento: [],
-        ultimo_acesso: null,
-        created_at: now,
-      };
-      addToCache(data.id, now);
-      setOrcamentos(prev => [newRow, ...prev]);
-      setNovoModal(null);
-      startTransition(() => router.refresh());
-    } catch {
-      setNovoModal(prev => prev ? { ...prev, error: 'Erro ao salvar. Tente novamente.' } : prev);
-    } finally {
-      setCreating(false);
-    }
-  }
 
   function handleEditClick(e: React.MouseEvent, orc: OrcRow) {
     e.preventDefault();
@@ -339,98 +254,14 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
           <p className="mt-1 text-sm text-gray-500">{orcamentos.length} orçamento(s)</p>
         </div>
         <button
-          onClick={() => setNovoModal({ ...NOVO_DEFAULT, data: new Date().toISOString().split('T')[0] })}
+          onClick={() => router.push('/orcamentos/novo')}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           Novo orçamento
         </button>
       </div>
 
-      {/* Modal novo orçamento */}
-      {novoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-900">Novo orçamento</h2>
-
-            <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2 space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Nome da obra *</label>
-                  <input
-                    autoFocus
-                    value={novoModal.nome_obra}
-                    onChange={e => updateNovo('nome_obra', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setNovoModal(null)}
-                    placeholder="Ex: Residência Unifamiliar"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Código *</label>
-                  <input
-                    value={novoModal.codigo}
-                    onChange={e => updateNovo('codigo', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setNovoModal(null)}
-                    placeholder="Ex: ORC-2025-001"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Cliente</label>
-                  <input
-                    value={novoModal.cliente}
-                    onChange={e => updateNovo('cliente', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setNovoModal(null)}
-                    placeholder="Ex: João Silva"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Data</label>
-                  <input
-                    type="date"
-                    value={novoModal.data}
-                    onChange={e => updateNovo('data', e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">BDI global (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={novoModal.bdi_global}
-                    onChange={e => updateNovo('bdi_global', e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              {novoModal.error && (
-                <p className="text-xs text-red-600">{novoModal.error}</p>
-              )}
-            </div>
-
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => setNovoModal(null)}
-                disabled={creating}
-                className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={creating || !novoModal.nome_obra.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                {creating ? 'Criando…' : 'Criar orçamento'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {children}
 
       {/* Modal de edição */}
       {editModal && (
@@ -592,7 +423,7 @@ export function OrcamentosGrid({ initialOrcamentos }: Props) {
         <div className="rounded-xl border bg-white p-12 text-center shadow-sm">
           <p className="text-gray-400">Nenhum orçamento criado.</p>
           <button
-            onClick={() => setNovoModal({ ...NOVO_DEFAULT, data: new Date().toISOString().split('T')[0] })}
+            onClick={() => router.push('/orcamentos/novo')}
             className="mt-4 inline-block text-sm text-blue-600 hover:underline"
           >
             Criar primeiro orçamento →

@@ -7,13 +7,23 @@ export default async function VersoesPage({ params }: { params: Promise<{ id: st
   const supabase = await createClient()
   const sb = supabase as any
 
-  const { data, error } = await sb
-    .from('orcamento_versoes')
-    .select('id, mensagem, autor_email, criado_em, origem')
-    .eq('orcamento_id', orcamentoId)
-    .order('criado_em', { ascending: false })
+  const [{ data, error }, { data: { user } }] = await Promise.all([
+    sb
+      .from('orcamento_versoes')
+      .select('id, mensagem, autor_email, criado_em, origem')
+      .eq('orcamento_id', orcamentoId)
+      .order('criado_em', { ascending: false }),
+    supabase.auth.getUser(),
+  ])
 
   const versoes = (data ?? []) as OrcamentoVersaoResumo[]
 
-  return <VersoesView orcamentoId={orcamentoId} versoesIniciais={versoes} fetchError={error?.message} />
+  return (
+    <VersoesView
+      orcamentoId={orcamentoId}
+      versoesIniciais={versoes}
+      fetchError={error?.message}
+      usuarioAtualEmail={user?.email ?? null}
+    />
+  )
 }

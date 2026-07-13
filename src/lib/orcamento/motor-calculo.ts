@@ -299,7 +299,7 @@ async function atualizarEstrutura(
   return updates.length
 }
 
-async function persistirTotaisPlanilha(
+export async function persistirTotaisPlanilha(
   supabase: SupabaseClient,
   orcamentoId: string,
   planilhaIds: string[]
@@ -326,7 +326,7 @@ async function persistirTotaisPlanilha(
     let totalCusto = 0
     let totalComBdi = 0
     for (const item of (itens ?? []) as { custo_unitario: number | null; quantidade: number | null; bdi_especifico: number | null }[]) {
-      const custo = (item.custo_unitario ?? 0) * (item.quantidade ?? 1)
+      const custo = (item.custo_unitario ?? 0) * (item.quantidade ?? 0)
       const bdiItem = item.bdi_especifico ?? bdi
       totalCusto += custo
       totalComBdi += custo * (1 + bdiItem / 100)

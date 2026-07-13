@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getComposicoesByOrcamento } from '@/lib/orcamento'
+import { getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
 import { NovaComposicaoForm } from './nova-composicao-form'
 import { ComposicoesTable } from './composicoes-table'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
@@ -17,6 +17,38 @@ export default async function OrcamentoComposicoesPage({
   const sb = supabase as any
 
   const composicoes = await getComposicoesByOrcamento(sb, orcamentoId)
+
+  const { data: estrutura } = await sb
+    .from('orcamento_estrutura')
+    .select('codigo')
+    .eq('orcamento_id', orcamentoId)
+    .eq('tipo', 'item')
+
+  // Insumos dentro de composições, para decompor recursivamente quais códigos
+  // (de composições e insumos) estão efetivamente em uso na planilha.
+  const insumosDeComposicao: { composicao_id: string | null; codigo: string }[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data } = await sb
+        .from('orcamento_insumos')
+        .select('composicao_id, codigo')
+        .eq('orcamento_id', orcamentoId)
+        .not('composicao_id', 'is', null)
+        .range(start, start + BATCH - 1)
+      if (!data || data.length === 0) break
+      insumosDeComposicao.push(...data)
+      if (data.length < BATCH) break
+      start += BATCH
+    }
+  }
+
+  const codigosUtilizados = calcularCodigosUtilizados(
+    (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),
+    composicoes.map((c: OrcamentoComposicao) => ({ id: c.id, codigo: c.codigo })),
+    insumosDeComposicao
+  )
 
   // Busca insumos de todas as composições para o export (servidor, sem query no cliente)
   const compIds = composicoes.map((c: OrcamentoComposicao) => c.id)
@@ -68,7 +100,7 @@ export default async function OrcamentoComposicoesPage({
 
       <NovaComposicaoForm orcamentoId={orcamentoId} />
 
-      <ComposicoesTable composicoes={composicoes} orcamentoId={orcamentoId} />
+      <ComposicoesTable composicoes={composicoes} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
     </div>
   )
 }

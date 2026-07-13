@@ -12,9 +12,9 @@ export default async function ImportarPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Importar SINAPI</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Importar</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Importe composições e insumos a partir de um arquivo <strong>.xlsx</strong>.
+          Importe composições e insumos a partir de uma base global ou de um arquivo <strong>.xlsx</strong>.
         </p>
       </div>
 

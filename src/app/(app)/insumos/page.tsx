@@ -64,6 +64,25 @@ export default async function InsumosPage({
   if (error) throw error;
   const total: number = countResult.count ?? 0
 
+  // paginado em lotes de 1000 — evita o limite padrão de linhas do PostgREST
+  const insumosExport: InsumoComBase[] = []
+  {
+    const BATCH = 1000
+    let start = 0
+    while (true) {
+      const { data, error: exportError } = await addFilters(
+        sb.from('tabela_insumos')
+          .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
+          .order('codigo')
+          .range(start, start + BATCH - 1)
+      )
+      if (exportError) throw exportError
+      insumosExport.push(...((data ?? []) as InsumoComBase[]))
+      if ((data?.length ?? 0) < BATCH) break
+      start += BATCH
+    }
+  }
+
   const baseOptions = bases.map((b) => ({
     orgao: b.orgao,
     label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
@@ -81,7 +100,7 @@ export default async function InsumosPage({
         </div>
         <div className="flex gap-2">
           <ExportXlsxButton
-            rows={(insumos ?? []).map((ins: InsumoComBase) => ({
+            rows={(insumosExport ?? []).map((ins: InsumoComBase) => ({
               'Código': ins.codigo,
               'Descrição': ins.descricao,
               'Grupo': ins.grupo ?? '',
@@ -95,12 +114,6 @@ export default async function InsumosPage({
             sheetName="Insumos"
             fileName="insumos.xlsx"
           />
-          <Link
-            href={'/insumos/importar/cotacao' as any}
-            className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
-          >
-            Atualizar Preços
-          </Link>
           <Link
             href="/insumos/importar"
             className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"

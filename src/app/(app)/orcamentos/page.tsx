@@ -47,11 +47,11 @@ export default async function OrcamentosPage({
 
   return (
     <div className="space-y-6">
-      <Suspense>
-        <SearchInput placeholder="Buscar por obra, cliente ou código..." debounce={300} />
-      </Suspense>
-
-      <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} />
+      <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap}>
+        <Suspense>
+          <SearchInput placeholder="Buscar por obra, cliente ou código..." debounce={300} />
+        </Suspense>
+      </OrcamentosGrid>
     </div>
   );
 }
