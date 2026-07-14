@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { computeAbcCurves, type AbcItem, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '../curva-abc'
+import { computeAbcCurves, computeAbcCurvaUnica, type AbcItem, type AbcItemComCategoria, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '../curva-abc'
 import { getInsumosByOrcamento } from './insumos'
 import { getComposicoesByOrcamento } from './composicoes'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
+import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -37,8 +38,19 @@ export interface CadernoNode {
 
 export type PlanilhaAnaliticaRow =
   | { tipo: 'grupo'; numero: string; descricao: string }
-  | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; custoUnitario: number; custoTotal: number; classeAbc: AbcClasse | null }
-  | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number; nivel: number }
+  | { tipo: 'item'; numero: string; codigo: string; descricao: string; unidade: string; quantidade: number; custoUnitario: number; custoTotal: number; classeAbc: AbcClasse | null }
+  | { tipo: 'insumo'; codigo: string; descricao: string; unidade: string; indice: number; custoUnit: number; custoTotal: number; nivel: number; categoria: CategoriaAnalitica; quantidadeTotalItem: number }
+
+export interface InsumoConsumoRow {
+  codigo: string
+  descricao: string
+  unidade: string
+  /** consumo total no orçamento inteiro (não por unidade de serviço) */
+  quantidade: number
+  custoUnit: number
+  custoTotal: number
+  categoria: CategoriaAnalitica
+}
 
 export interface ListaInsumoItem {
   codigo: string
@@ -86,8 +98,10 @@ export interface CadernoData {
   totalServicosEstimados: number
   abcInsumos: AbcItem[]
   abcServicos: AbcItem[]
+  abcGeral: AbcItemComCategoria[]
   planilhaAnalitica: PlanilhaAnaliticaRow[]
   planilhaAnaliticaDecomposta: PlanilhaAnaliticaRow[]
+  insumosConsumo: InsumoConsumoRow[]
   listaInsumos: ListaInsumoGrupo[]
   distribuicaoCustos: DistribuicaoCustoItem[]
 }
@@ -130,19 +144,27 @@ interface Breakdown { mat: number; mo: number; terceiros: number }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export async function getCadernoData(supabase: SupabaseClient, orcamentoId: string): Promise<CadernoData> {
+export async function getCadernoData(
+  supabase: SupabaseClient,
+  orcamentoId: string,
+  planilhaIds?: string[] | null,
+): Promise<CadernoData> {
   const sb = supabase as any
+
+  let estruturaQuery = sb.from('orcamento_estrutura')
+    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .eq('orcamento_id', orcamentoId)
+  if (planilhaIds && planilhaIds.length > 0) estruturaQuery = estruturaQuery.in('planilha_id', planilhaIds)
+  estruturaQuery = estruturaQuery
+    .order('nivel', { ascending: true })
+    .order('ordem', { ascending: true })
 
   const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, todosInsumos] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
       .eq('id', orcamentoId)
       .single(),
-    sb.from('orcamento_estrutura')
-      .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
-      .eq('orcamento_id', orcamentoId)
-      .order('nivel', { ascending: true })
-      .order('ordem', { ascending: true }),
+    estruturaQuery,
     sb.from('orcamento_servicos_estimados')
       .select('descricao, valor')
       .eq('orcamento_id', orcamentoId)
@@ -442,7 +464,9 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   const insumosAvulsos: InsumoAvulsoBasico[] = todosInsumos
     .filter(ins => ins.composicao_id === null)
     .map(ins => ({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', custo: ins.custo ?? 0 }))
-  const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoes.map(c => ({ id: c.id, codigo: c.codigo, descricao: c.descricao })), allInsumos, insumosAvulsos)
+  const composicoesBasicas = composicoes.map(c => ({ id: c.id, codigo: c.codigo, descricao: c.descricao }))
+  const { abcServicos, abcInsumos } = computeAbcCurves(estItemsAbc, composicoesBasicas, allInsumos, insumosAvulsos)
+  const abcGeral = computeAbcCurvaUnica(estItemsAbc, composicoesBasicas, allInsumos, insumosAvulsos)
 
   // ── Planilha Analítica ────────────────────────────────────────────────────────
   // Segue a ordem da Planilha de Orçamento (grupos e itens), intercalando, para
@@ -462,6 +486,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         codigo: node.codigo ?? '',
         descricao: node.descricao,
         unidade: node.unidade ?? '',
+        quantidade: node.quantidade ?? 0,
         custoUnitario: node.custoUnitario,
         custoTotal: node.total,
         classeAbc: node.classeAbc,
@@ -470,6 +495,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       const compId = node.codigo ? compCodeToId.get(node.codigo) : undefined
       const insumosArr = compId ? compInsumosByCompId.get(compId) : undefined
       if (insumosArr && insumosArr.length > 0) {
+        const quantidadeItem = node.quantidade ?? 0
         for (const ins of insumosArr.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
           const custoUnit = precoEfetivoMap.get(ins.codigo) ?? ins.custo
           rows.push({
@@ -481,6 +507,8 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
             custoUnit,
             custoTotal: custoUnit * ins.indice,
             nivel: 1,
+            categoria: classificarCategoriaAnalitica(insumoInfoMap.get(ins.codigo)?.grupo),
+            quantidadeTotalItem: ins.indice * quantidadeItem,
           })
         }
       }
@@ -498,7 +526,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
   function buildPlanilhaAnaliticaDecomposta(nodes: CadernoNode[]): PlanilhaAnaliticaRow[] {
     const rows: PlanilhaAnaliticaRow[] = []
 
-    function expandirInsumo(ins: InsumoComposicaoBasico, indiceAcumulado: number, nivel: number, visitados: Set<string>) {
+    function expandirInsumo(ins: InsumoComposicaoBasico, indiceAcumulado: number, nivel: number, visitados: Set<string>, quantidadeItem: number) {
       const custoUnit = precoEfetivoMap.get(ins.codigo) ?? ins.custo
       rows.push({
         tipo: 'insumo',
@@ -509,6 +537,8 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         custoUnit,
         custoTotal: custoUnit * indiceAcumulado,
         nivel,
+        categoria: classificarCategoriaAnalitica(insumoInfoMap.get(ins.codigo)?.grupo),
+        quantidadeTotalItem: indiceAcumulado * quantidadeItem,
       })
 
       const subCompId = compCodeToId.get(ins.codigo)
@@ -518,7 +548,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
 
       const proximosVisitados = new Set(visitados).add(ins.codigo)
       for (const sub of subInsumos.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
-        expandirInsumo(sub, indiceAcumulado * sub.indice, nivel + 1, proximosVisitados)
+        expandirInsumo(sub, indiceAcumulado * sub.indice, nivel + 1, proximosVisitados, quantidadeItem)
       }
     }
 
@@ -535,6 +565,7 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
         codigo: node.codigo ?? '',
         descricao: node.descricao,
         unidade: node.unidade ?? '',
+        quantidade: node.quantidade ?? 0,
         custoUnitario: node.custoUnitario,
         custoTotal: node.total,
         classeAbc: node.classeAbc,
@@ -544,8 +575,9 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
       const insumosArr = compId ? compInsumosByCompId.get(compId) : undefined
       if (insumosArr && insumosArr.length > 0) {
         const visitadosRaiz = new Set(node.codigo ? [node.codigo] : [])
+        const quantidadeItem = node.quantidade ?? 0
         for (const ins of insumosArr.slice().sort((a, b) => a.codigo.localeCompare(b.codigo))) {
-          expandirInsumo(ins, ins.indice, 1, visitadosRaiz)
+          expandirInsumo(ins, ins.indice, 1, visitadosRaiz, quantidadeItem)
         }
       }
     }
@@ -575,6 +607,27 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     }
   }
   percorrerItens(arvore)
+
+  // ── Consumo total por insumo, com categoria da Planilha Analítica (Materiais/
+  // Mão de Obra/Equipamentos/Serviços/Transportes) — usado no modo "Agrupada por
+  // tipo de insumo": quantidade aqui já é o total consumido no orçamento inteiro
+  // (índice × quantidade do item, propagado recursivamente pelas composições),
+  // não o índice por unidade de serviço usado em planilhaAnalitica/Decomposta.
+  const insumosConsumo: InsumoConsumoRow[] = []
+  for (const ins of todosInsumos) {
+    if (compCodesSet.has(ins.codigo)) continue
+    const quantidade = consumoMap.get(ins.codigo) ?? 0
+    if (quantidade <= 0) continue
+    insumosConsumo.push({
+      codigo: ins.codigo,
+      descricao: ins.descricao,
+      unidade: ins.unidade ?? '',
+      quantidade,
+      custoUnit: ins.custo,
+      custoTotal: quantidade * ins.custo,
+      categoria: classificarCategoriaAnalitica(ins.grupo),
+    })
+  }
 
   // ── Lista de Insumos (agrupada por categoria) ────────────────────────────────
   const gruposMap = new Map<string, ListaInsumoItem[]>()
@@ -626,8 +679,10 @@ export async function getCadernoData(supabase: SupabaseClient, orcamentoId: stri
     totalServicosEstimados,
     abcInsumos,
     abcServicos,
+    abcGeral,
     planilhaAnalitica,
     planilhaAnaliticaDecomposta,
+    insumosConsumo,
     listaInsumos,
     distribuicaoCustos,
   }
