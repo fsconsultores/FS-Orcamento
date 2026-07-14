@@ -3,9 +3,16 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useTransition, useState, useEffect } from 'react';
+import { Plus, Pencil, Copy, Trash2, FolderPlus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { duplicateOrcamento, deleteOrcamento } from './actions';
 import type { DuplicateResult } from '@/lib/orcamento/duplicate';
+import { Button, IconButton } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Modal, ConfirmDialog } from '@/components/ui/modal';
+import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useToast } from '@/components/ui/toast';
 
 type OrcRow = {
   id: string;
@@ -69,6 +76,7 @@ function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
 
 export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const [, startTransition] = useTransition();
   const [orcamentos, setOrcamentos] = useState<OrcRow[]>(initialOrcamentos);
 
@@ -109,6 +117,7 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
   const [duplicateModal, setDuplicateModal] = useState<DuplicateModal | null>(null);
   const [editModal, setEditModal] = useState<EditModal | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingConfirmed, setDeletingConfirmed] = useState(false);
 
   function handleEditClick(e: React.MouseEvent, orc: OrcRow) {
     e.preventDefault();
@@ -168,6 +177,7 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
           : o
       ));
       setEditModal(null);
+      toast.show('Orçamento salvo.');
       startTransition(() => router.refresh());
     } catch {
       setEditModal(prev => prev ? { ...prev, error: 'Erro ao salvar. Tente novamente.' } : prev);
@@ -209,6 +219,7 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
       addToCache(realRow.id, realRow.created_at as string);
       setOrcamentos(prev => prev.map(o => o.id === tempId ? realRow : o));
       setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
+      toast.show('Orçamento duplicado.');
       startTransition(() => router.refresh());
     } catch (err: unknown) {
       setOrcamentos(prev => prev.filter(o => o.id !== tempId));
@@ -218,7 +229,7 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
       if (isUnique) {
         setDuplicateModal({ orc, codigo, error: 'Este código já está em uso. Escolha outro.' });
       } else {
-        alert(`Erro ao duplicar: ${msg}`);
+        toast.show(`Erro ao duplicar: ${msg}`, 'error');
       }
     }
   }
@@ -232,16 +243,19 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
   async function confirmDelete() {
     if (!confirm) return;
     const idToDelete = confirm.id;
+    setDeletingConfirmed(true);
     setDeleting(idToDelete);
-    setConfirm(null);
-    setOrcamentos(prev => prev.filter(o => o.id !== idToDelete));
     try {
       await deleteOrcamento(idToDelete);
+      setOrcamentos(prev => prev.filter(o => o.id !== idToDelete));
+      toast.show('Orçamento excluído.');
+      setConfirm(null);
     } catch (err: unknown) {
       startTransition(() => router.refresh());
-      alert(`Erro ao excluir: ${err instanceof Error ? err.message : String(err)}`);
+      toast.show(`Erro ao excluir: ${err instanceof Error ? err.message : String(err)}`, 'error');
     } finally {
       setDeleting(null);
+      setDeletingConfirmed(false);
     }
   }
 
@@ -250,242 +264,152 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
       {/* Cabeçalho com contagem e botão novo */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Orçamentos</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Orçamentos</h1>
           <p className="mt-1 text-sm text-gray-500">{orcamentos.length} orçamento(s)</p>
         </div>
-        <button
-          onClick={() => router.push('/orcamentos/novo')}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
+        <Button onClick={() => router.push('/orcamentos/novo')} icon={<Plus size={15} />}>
           Novo orçamento
-        </button>
+        </Button>
       </div>
 
       {children}
 
       {/* Modal de edição */}
-      {editModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-900">Editar orçamento</h2>
-
-            <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2 space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Nome da obra *</label>
-                  <input
-                    autoFocus
-                    value={editModal.nome_obra}
-                    onChange={e => updateEdit('nome_obra', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setEditModal(null)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Código</label>
-                  <input
-                    value={editModal.codigo}
-                    onChange={e => updateEdit('codigo', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setEditModal(null)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Cliente</label>
-                  <input
-                    value={editModal.cliente}
-                    onChange={e => updateEdit('cliente', e.target.value)}
-                    onKeyDown={e => e.key === 'Escape' && setEditModal(null)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">Data</label>
-                  <input
-                    type="date"
-                    value={editModal.data}
-                    onChange={e => updateEdit('data', e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-600">BDI global (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={editModal.bdi_global}
-                    onChange={e => updateEdit('bdi_global', e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              {editModal.error && (
-                <p className="text-xs text-red-600">{editModal.error}</p>
-              )}
+      <Modal
+        open={!!editModal}
+        onClose={() => !saving && setEditModal(null)}
+        title="Editar orçamento"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setEditModal(null)} disabled={saving}>Cancelar</Button>
+            <Button size="sm" onClick={handleSaveEdit} loading={saving} disabled={!editModal?.nome_obra.trim()}>Salvar</Button>
+          </>
+        }
+      >
+        {editModal && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Input
+                autoFocus
+                label="Nome da obra"
+                required
+                value={editModal.nome_obra}
+                onChange={e => updateEdit('nome_obra', e.target.value)}
+                onKeyDown={e => e.key === 'Escape' && setEditModal(null)}
+              />
             </div>
-
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => setEditModal(null)}
-                disabled={saving}
-                className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving || !editModal.nome_obra.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                {saving ? 'Salvando…' : 'Salvar'}
-              </button>
-            </div>
+            <Input label="Código" value={editModal.codigo} onChange={e => updateEdit('codigo', e.target.value)} />
+            <Input label="Cliente" value={editModal.cliente} onChange={e => updateEdit('cliente', e.target.value)} />
+            <Input type="date" label="Data" value={editModal.data} onChange={e => updateEdit('data', e.target.value)} />
+            <Input type="number" min="0" step="0.01" label="BDI global (%)" value={editModal.bdi_global} onChange={e => updateEdit('bdi_global', e.target.value)} />
+            {editModal.error && <p className="col-span-2 text-xs text-red-600">{editModal.error}</p>}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Modal de duplicar */}
-      {duplicateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-900">Duplicar orçamento</h2>
-            <p className="mt-2 text-sm text-gray-600">
+      <Modal
+        open={!!duplicateModal}
+        onClose={() => setDuplicateModal(null)}
+        title="Duplicar orçamento"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setDuplicateModal(null)}>Cancelar</Button>
+            <Button size="sm" onClick={confirmDuplicate} disabled={!duplicateModal?.codigo.trim()}>Duplicar</Button>
+          </>
+        }
+      >
+        {duplicateModal && (
+          <>
+            <p className="mb-3 text-sm text-gray-600">
               Informe o código do novo orçamento (cópia de{' '}
-              <span className="font-medium text-gray-900">"{duplicateModal.orc.nome_obra}"</span>).
+              <span className="font-medium text-gray-900">&quot;{duplicateModal.orc.nome_obra}&quot;</span>).
             </p>
-            <input
-              type="text"
+            <Input
               autoFocus
               placeholder="Ex: ORC-2025-002"
               value={duplicateModal.codigo}
+              error={duplicateModal.error}
               onChange={e => setDuplicateModal(prev => prev ? { ...prev, codigo: e.target.value, error: undefined } : prev)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && duplicateModal.codigo.trim()) confirmDuplicate();
                 if (e.key === 'Escape') setDuplicateModal(null);
               }}
-              className={`mt-4 w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${duplicateModal.error ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}`}
             />
-            {duplicateModal.error && (
-              <p className="mt-1.5 text-xs text-red-600">{duplicateModal.error}</p>
-            )}
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => setDuplicateModal(null)}
-                className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmDuplicate}
-                disabled={!duplicateModal.codigo.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                Duplicar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
       {/* Modal de confirmação de exclusão */}
-      {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-900">Excluir orçamento</h2>
-            <p className="mt-2 text-sm text-gray-600">
-              Tem certeza que deseja excluir{' '}
-              <span className="font-medium text-gray-900">"{confirm.nome}"</span>?
-            </p>
-            <p className="mt-1 text-xs text-gray-400">
-              Esta ação é irreversível. Todos os itens, insumos e composições serão removidos.
-            </p>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => setConfirm(null)}
-                className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-              >
-                Excluir
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={confirmDelete}
+        title="Excluir orçamento"
+        description={`Tem certeza que deseja excluir "${confirm?.nome ?? ''}"? Esta ação é irreversível — todos os itens, insumos e composições serão removidos.`}
+        confirmLabel="Excluir"
+        danger
+        loading={deletingConfirmed}
+      />
 
       {orcamentos.length === 0 ? (
-        <div className="rounded-xl border bg-white p-12 text-center shadow-sm">
-          <p className="text-gray-400">Nenhum orçamento criado.</p>
-          <button
-            onClick={() => router.push('/orcamentos/novo')}
-            className="mt-4 inline-block text-sm text-blue-600 hover:underline"
-          >
-            Criar primeiro orçamento →
-          </button>
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <EmptyState
+            icon={<FolderPlus size={20} />}
+            title="Nenhum orçamento criado"
+            description="Comece cadastrando o primeiro orçamento do sistema."
+            action={
+              <Button size="sm" icon={<Plus size={14} />} onClick={() => router.push('/orcamentos/novo')}>
+                Criar primeiro orçamento
+              </Button>
+            }
+          />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-3 w-28">Código</th>
-                <th className="px-4 py-3">Nome da Obra</th>
-                <th className="px-4 py-3">Cliente</th>
-                <th className="px-4 py-3">Inclusão</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {orcamentos.map((orc) => {
-                const isDeleting = deleting === orc.id;
-                const isPending = pendingIds.has(orc.id);
-                return (
-                  <tr
-                    key={orc.id}
-                    onClick={() => {
-                      if (isPending || isDeleting) return;
-                      router.push(`/orcamentos/${orc.id}`);
-                    }}
-                    className={`transition-all ${isPending ? 'opacity-60 animate-pulse pointer-events-none bg-blue-50' : 'cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6]'} ${isDeleting ? 'opacity-40' : ''}`}
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{orc.codigo}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{orc.nome_obra}</td>
-                    <td className="px-4 py-3 text-gray-600">{orc.cliente ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-500">{formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}</td>
-                    <td className="px-4 py-3">
-                      {isPending ? (
-                        <div className="flex items-center justify-end">
-                          <span className="text-xs text-blue-400 italic">Duplicando…</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button onClick={(e) => handleEditClick(e, orc)} disabled={isDeleting}
-                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors">
-                            Editar
-                          </button>
-                          <button onClick={(e) => handleDuplicateClick(e, orc)} disabled={isDeleting}
-                            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 transition-colors">
-                            Duplicar
-                          </button>
-                          <button onClick={(e) => handleDeleteClick(e, orc)} disabled={isDeleting}
-                            className="rounded border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors">
-                            {isDeleting ? '…' : 'Excluir'}
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <Thead>
+            <Th className="w-28">Código</Th>
+            <Th>Nome da Obra</Th>
+            <Th>Cliente</Th>
+            <Th>Inclusão</Th>
+            <Th />
+          </Thead>
+          <Tbody>
+            {orcamentos.map((orc) => {
+              const isDeleting = deleting === orc.id;
+              const isPending = pendingIds.has(orc.id);
+              return (
+                <Tr
+                  key={orc.id}
+                  onClick={() => {
+                    if (isPending || isDeleting) return;
+                    router.push(`/orcamentos/${orc.id}`);
+                  }}
+                  className={`transition-all ${isPending ? 'pointer-events-none animate-pulse bg-primary-50 opacity-60' : 'cursor-pointer'} ${isDeleting ? 'opacity-40' : ''}`}
+                >
+                  <Td className="font-mono text-xs text-gray-500">{orc.codigo}</Td>
+                  <Td className="font-medium text-gray-900">{orc.nome_obra}</Td>
+                  <Td className="text-gray-600">{orc.cliente ?? '—'}</Td>
+                  <Td className="text-gray-500">{formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}</Td>
+                  <Td>
+                    {isPending ? (
+                      <div className="flex items-center justify-end">
+                        <span className="text-xs italic text-primary-500">Duplicando…</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1">
+                        <IconButton label="Editar" icon={<Pencil size={14} />} disabled={isDeleting} onClick={(e) => handleEditClick(e, orc)} />
+                        <IconButton label="Duplicar" icon={<Copy size={14} />} disabled={isDeleting} onClick={(e) => handleDuplicateClick(e, orc)} />
+                        <IconButton label="Excluir" icon={<Trash2 size={14} />} variant="danger" disabled={isDeleting} onClick={(e) => handleDeleteClick(e, orc)} className="!bg-transparent !text-red-500 hover:!bg-red-50" />
+                      </div>
+                    )}
+                  </Td>
+                </Tr>
+              );
+            })}
+          </Tbody>
+        </Table>
       )}
     </>
   );

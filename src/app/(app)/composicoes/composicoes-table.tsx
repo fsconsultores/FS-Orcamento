@@ -1,9 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
+import { Layers3 } from 'lucide-react';
 import { formatCurrency } from '@/lib/costs';
 import { baseBadgeClass } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { SelectionBar } from '@/components/ui/toolbar';
+import { ExportXlsxButton } from '@/components/export-xlsx-button';
 
 type ComposicaoRow = {
   id: string;
@@ -18,77 +26,98 @@ type ComposicaoRow = {
 };
 
 export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: ComposicaoRow[] }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleAll() {
+    setSelected(prev => prev.size === initialComposicoes.length ? new Set() : new Set(initialComposicoes.map(c => c.id)));
+  }
+
+  function toggleOne(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  if (initialComposicoes.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <EmptyState
+          icon={<Layers3 size={20} />}
+          title="Nenhuma composição encontrada"
+          description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
+        />
+      </div>
+    );
+  }
+
+  const selectedRows = initialComposicoes.filter(c => selected.has(c.id));
+
   return (
-    <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="border-b bg-gray-50">
-          <tr>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Código</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Descrição</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Unidade</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Base</th>
-            <th className="px-4 py-3 text-right font-medium text-gray-600">Custo unitário</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
+    <div className="space-y-3">
+      <SelectionBar
+        count={selected.size}
+        onClear={() => setSelected(new Set())}
+        actions={
+          <ExportXlsxButton
+            rows={selectedRows.map(c => ({
+              'Código': c.codigo,
+              'Descrição': c.descricao,
+              'Unidade': c.unidade,
+              'Custo unitário': c.custo_unitario,
+              'Base': c.base_origem ?? (c.orgao ? baseLabelFromOrgao(c.orgao) : ''),
+            }))}
+            sheetName="Composicoes"
+            fileName="composicoes_selecionadas.xlsx"
+          />
+        }
+      />
+
+      <Table>
+        <Thead>
+          <Th className="w-9"><Checkbox checked={selected.size === initialComposicoes.length} onChange={toggleAll} aria-label="Selecionar todas" /></Th>
+          <Th className="w-28">Código</Th>
+          <Th>Descrição</Th>
+          <Th className="w-20">Unidade</Th>
+          <Th className="w-32">Base</Th>
+          <Th className="w-32 text-right">Custo unitário</Th>
+        </Thead>
+        <Tbody>
           {initialComposicoes.map((c) => (
-            <tr
-              key={c.id}
-              className="cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all"
-            >
-              <td className="p-0 w-28">
-                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 font-mono text-xs text-gray-600">
-                  {c.codigo}
-                </Link>
-              </td>
-              <td className="p-0">
-                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 text-gray-900">
-                  {c.descricao}
-                </Link>
-              </td>
-              <td className="p-0 w-20">
-                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5 text-gray-600">
-                  {c.unidade}
-                </Link>
-              </td>
-              <td className="p-0 w-32">
-                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5">
+            <Tr key={c.id} className={selected.has(c.id) ? 'bg-primary-50/60' : ''}>
+              <Td className="!py-2">
+                <Checkbox checked={selected.has(c.id)} onChange={() => toggleOne(c.id)} aria-label={`Selecionar ${c.descricao}`} />
+              </Td>
+              <Td className="!p-0 font-mono text-xs text-gray-500">
+                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.codigo}</Link>
+              </Td>
+              <Td className="!p-0 text-gray-900">
+                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.descricao}</Link>
+              </Td>
+              <Td className="!p-0 text-gray-600">
+                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.unidade}</Link>
+              </Td>
+              <Td className="!p-0">
+                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">
                   {c.base_origem && c.tipo_base === 'propria' ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
-                      {c.base_origem}
-                    </span>
+                    <Badge variant="brand">{c.base_origem}</Badge>
                   ) : c.orgao ? (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(c.tipo_base)}`}
-                    >
-                      {c.tipo_base === 'externa' && (
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      )}
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${baseBadgeClass(c.tipo_base)}`}>
                       {baseLabelFromOrgao(c.orgao)}
                     </span>
                   ) : (
                     <span className="text-gray-400">—</span>
                   )}
                 </Link>
-              </td>
-              <td className="p-0 text-right font-medium text-gray-900 w-32">
-                <Link href={`/composicoes/${c.id}`} className="block w-full px-3 py-1.5">
-                  {formatCurrency(c.custo_unitario)}
-                </Link>
-              </td>
-            </tr>
+              </Td>
+              <Td className="!p-0 text-right font-medium text-gray-900">
+                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{formatCurrency(c.custo_unitario)}</Link>
+              </Td>
+            </Tr>
           ))}
-          {initialComposicoes.length === 0 && (
-            <tr>
-              <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                Nenhuma composição encontrada.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+        </Tbody>
+      </Table>
     </div>
   );
 }

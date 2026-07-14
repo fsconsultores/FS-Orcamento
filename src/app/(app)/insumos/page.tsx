@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { Plus, UploadCloud, Package, Database, Coins, HelpCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
@@ -7,6 +8,10 @@ import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
 import { Pagination } from '@/components/pagination';
+import { PageHeader, Toolbar } from '@/components/ui/toolbar';
+import { StatRow, StatCard } from '@/components/ui/stat-row';
+import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/lib/costs';
 import type { InsumoComBase } from '@/lib/supabase/types';
 
 const PAGE_SIZE = 100;
@@ -88,57 +93,67 @@ export default async function InsumosPage({
     label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
   }));
 
+  // Estatísticas do resultado filtrado — calculadas em cima de `insumosExport`
+  // (já buscado para a exportação), sem round-trip extra ao banco.
+  const semBase = insumosExport.filter((ins) => !ins.base_id).length;
+  const custoMedio = insumosExport.length > 0
+    ? insumosExport.reduce((acc, ins) => acc + (ins.preco_base ?? 0), 0) / insumosExport.length
+    : 0;
+  const basesPropias = bases.filter((b) => b.tipo_base === 'propria').length;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Insumos</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Biblioteca de materiais e mão de obra
-            {total > 0 && <> · <span className="font-medium">{total.toLocaleString('pt-BR')}</span> itens</>}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ExportXlsxButton
-            rows={(insumosExport ?? []).map((ins: InsumoComBase) => ({
-              'Código': ins.codigo,
-              'Descrição': ins.descricao,
-              'Grupo': ins.grupo ?? '',
-              'Unidade': ins.unidade,
-              'Custo': ins.preco_base,
-              'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
-              'Data Ref.': ins.data_referencia
-                ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
-                : '',
-            }))}
-            sheetName="Insumos"
-            fileName="insumos.xlsx"
-          />
-          <Link
-            href="/insumos/importar"
-            className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Importar
-          </Link>
-          <Link
-            href="/insumos/novo"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            Novo insumo
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Insumos"
+        description="Biblioteca de materiais e mão de obra usada nos orçamentos."
+        actions={
+          <>
+            <ExportXlsxButton
+              rows={(insumosExport ?? []).map((ins: InsumoComBase) => ({
+                'Código': ins.codigo,
+                'Descrição': ins.descricao,
+                'Grupo': ins.grupo ?? '',
+                'Unidade': ins.unidade,
+                'Custo': ins.preco_base,
+                'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
+                'Data Ref.': ins.data_referencia
+                  ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
+                  : '',
+              }))}
+              sheetName="Insumos"
+              fileName="insumos.xlsx"
+            />
+            <Link href="/insumos/importar">
+              <Button variant="outline" icon={<UploadCloud size={15} />}>Importar</Button>
+            </Link>
+            <Link href="/insumos/novo">
+              <Button icon={<Plus size={15} />}>Novo insumo</Button>
+            </Link>
+          </>
+        }
+      />
 
-      <div className="space-y-2">
-        <Suspense>
-          <SearchInput placeholder="Buscar por código ou descrição..." />
-        </Suspense>
-        {baseOptions.length > 0 && (
+      <Toolbar
+        search={
           <Suspense>
-            <BaseFilter bases={baseOptions} />
+            <SearchInput placeholder="Buscar por código ou descrição..." />
           </Suspense>
-        )}
-      </div>
+        }
+        filters={
+          baseOptions.length > 0 ? (
+            <Suspense>
+              <BaseFilter bases={baseOptions} />
+            </Suspense>
+          ) : undefined
+        }
+      />
+
+      <StatRow>
+        <StatCard label="Itens encontrados" value={total.toLocaleString('pt-BR')} icon={<Package size={16} />} />
+        <StatCard label="Bases carregadas" value={bases.length} icon={<Database size={16} />} hint={basesPropias > 0 ? `${basesPropias} própria(s)` : undefined} />
+        <StatCard label="Custo médio" value={formatCurrency(custoMedio)} icon={<Coins size={16} />} />
+        <StatCard label="Sem base vinculada" value={semBase.toLocaleString('pt-BR')} icon={<HelpCircle size={16} />} />
+      </StatRow>
 
       <InsumosTable key={`${page}-${q}-${orgao}-${origem}`} initialInsumos={(insumos ?? []) as InsumoComBase[]} />
 

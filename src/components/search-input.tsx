@@ -9,7 +9,7 @@ interface Props {
   debounce?: number;
 }
 
-export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce = 0 }: Props) {
+export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce = 300 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -53,7 +53,7 @@ export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce =
         defaultValue={searchParams.get(param) ?? ''}
         onChange={handleChange}
         placeholder={placeholder}
-        className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+        className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
       />
     </div>
   );

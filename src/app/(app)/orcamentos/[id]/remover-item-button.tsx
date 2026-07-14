@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -12,6 +12,7 @@ export function RemoverItemButton({
   orcamentoId: string;
 }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(false);
 
   async function handleRemove() {
@@ -19,7 +20,7 @@ export function RemoverItemButton({
     setLoading(true);
     const supabase = createClient();
     await supabase.from('tabela_itens_orcamento').delete().eq('id', itemId);
-    router.refresh();
+    startTransition(() => router.refresh());
     setLoading(false);
   }
 

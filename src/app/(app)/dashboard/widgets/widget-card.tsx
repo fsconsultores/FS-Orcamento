@@ -22,16 +22,16 @@ export function WidgetCard({
   return (
     <div className={`rounded-xl border border-gray-200 bg-white p-5 shadow-sm flex flex-col ${wide ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {icon && (
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
               {icon}
             </span>
           )}
           <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         </div>
         {href && (
-          <Link href={href as any} className="text-xs font-medium text-blue-600 hover:underline shrink-0">
+          <Link href={href as any} className="text-xs font-medium text-primary-700 hover:underline shrink-0">
             Ver mais →
           </Link>
         )}
@@ -56,18 +56,18 @@ export function WidgetStat({
   caption?: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5">
           {icon && (
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
               {icon}
             </span>
           )}
-          <h3 className="text-sm font-semibold text-gray-600">{title}</h3>
+          <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         </div>
         {href && (
-          <Link href={href as any} className="text-xs font-medium text-blue-600 hover:underline shrink-0">
+          <Link href={href as any} className="text-xs font-medium text-primary-700 hover:underline shrink-0">
             Ver mais →
           </Link>
         )}
@@ -85,9 +85,9 @@ export function WidgetEmpty({ mensagem }: { mensagem: string }) {
 export function WidgetSkeleton({ title, stat }: { title: string; stat?: boolean }) {
   if (stat) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm animate-pulse">
-        <div className="mb-4 flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-lg bg-gray-100" />
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm animate-pulse">
+        <div className="mb-3 flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-gray-100" />
           <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
         </div>
         <div className="h-8 w-2/3 bg-gray-100 rounded" />

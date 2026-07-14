@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -116,6 +116,7 @@ export function OrcamentoInsumosTable({
   codigosUtilizados: string[]
 }) {
   const router = useRouter()
+  const [, startTransition] = useTransition()
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
@@ -301,7 +302,7 @@ export function OrcamentoInsumosTable({
     const totalAvulsos = avulsosAtuais?.length ?? 0
     if (totalAvulsos === 0) {
       alert('Não há insumos avulsos para remover. A lista será atualizada.')
-      router.refresh()
+      startTransition(() => router.refresh())
       return
     }
     if (!confirm(`Excluir todos os ${totalAvulsos} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
@@ -313,12 +314,12 @@ export function OrcamentoInsumosTable({
       .is('composicao_id', null)
     if (error) {
       alert(`Erro ao limpar insumos: ${error.message}`)
-      router.refresh()
+      startTransition(() => router.refresh())
       return
     }
     if (!count) {
       alert('Nenhum insumo foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados — entre em contato com o suporte para investigar.')
-      router.refresh()
+      startTransition(() => router.refresh())
       return
     }
     setInsumos(prev => prev.filter(i => i.composicao_id !== null))
@@ -331,7 +332,7 @@ export function OrcamentoInsumosTable({
       detalhes: { insumos_apagados: avulsosAtuais },
     }).catch(console.error)
     alert(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
-    router.refresh()
+    startTransition(() => router.refresh())
   }
 
   async function handleExport() {

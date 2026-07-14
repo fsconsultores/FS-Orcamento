@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { BasesView } from './bases-view'
 import { unstable_cache } from 'next/cache'
+import { PageHeader } from '@/components/ui/toolbar'
+import { StatRow, StatCard } from '@/components/ui/stat-row'
+import { Database, Package, Layers3 } from 'lucide-react'
 
 export default async function BasesPage() {
   const supabase = await createClient()
@@ -40,15 +43,22 @@ export default async function BasesPage() {
   const contagens = await getContagens(bases.map(b => b.id))
   const basesComConts = bases.map(b => ({ ...b, ...(contagens[b.id] ?? { total_insumos: 0, total_composicoes: 0 }) }))
 
+  const totalInsumos = basesComConts.reduce((s, b) => s + b.total_insumos, 0)
+  const totalComposicoes = basesComConts.reduce((s, b) => s + b.total_composicoes, 0)
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Bases de Dados</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Gerencie tabelas de referência (SINAPI, SUDECAP, etc.). Após importar insumos e composições,
-          use "Da Base Global" em qualquer orçamento para ativar os preços.
-        </p>
-      </div>
+      <PageHeader
+        title="Bases de Dados"
+        description={'Gerencie tabelas de referência (SINAPI, SUDECAP, etc.). Após importar insumos e composições, use "Da Base Global" em qualquer orçamento para ativar os preços.'}
+      />
+
+      <StatRow>
+        <StatCard label="Bases cadastradas" value={basesComConts.length} icon={<Database size={16} />} />
+        <StatCard label="Insumos" value={totalInsumos.toLocaleString('pt-BR')} icon={<Package size={16} />} />
+        <StatCard label="Composições" value={totalComposicoes.toLocaleString('pt-BR')} icon={<Layers3 size={16} />} />
+      </StatRow>
+
       <BasesView bases={basesComConts} />
     </div>
   )

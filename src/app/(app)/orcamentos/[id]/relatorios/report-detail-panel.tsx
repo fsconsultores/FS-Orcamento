@@ -4,13 +4,16 @@ import { useMemo, useState } from 'react'
 import type { CadernoData } from '@/lib/orcamento/caderno'
 import type { AbcItem } from '@/lib/curva-abc'
 import { fmt as fmtCurrency, fmtPct, fmtQtd } from '@/lib/curva-abc'
-import type { ReportDef, ReportFormat, CurvaAbcTab } from './report-catalog'
+import { REPORT_CATALOG, type ReportDef, type ReportFormat, type CurvaAbcTab } from './report-catalog'
+import { Badge } from '@/components/ui/badge'
 import { PlanilhaSelector, type EscopoPlanilha, type PlanilhaResumo } from './filters/planilha-selector'
 import { AnaliticaFilters } from './filters/analitica-filters'
 import { defaultAnaliticaFilterState, buildAnaliticaRows, exportPlanilhaAnaliticaXlsx } from './exporters/export-planilha-analitica'
 import { exportPlanilhaSinteticaXlsx, countPlanilhaSinteticaItens, previewPlanilhaSintetica } from './exporters/export-planilha-sintetica'
 import { exportCurvaAbcXlsx } from './exporters/export-curva-abc-xlsx'
 import { CadernoInfoForm } from './caderno-info-form'
+import { Button } from '@/components/ui/button'
+import { Download } from 'lucide-react'
 
 const CADERNO_SECOES = [
   'Capa', 'Resumo executivo', 'Custo por m²', 'Planilha de preços',
@@ -81,7 +84,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao gerar arquivo')
+      setError(e instanceof Error ? e.message : 'Não foi possível gerar o arquivo. Tente novamente em alguns segundos.')
     } finally {
       setLoading(false)
     }
@@ -96,13 +99,16 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
     <div className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col">
       {/* Cabeçalho */}
       <div className="flex items-start gap-3 border-b border-gray-100 p-5">
-        <div className="mt-0.5 flex-shrink-0 w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+        <div className="mt-0.5 flex-shrink-0 w-12 h-12 rounded-lg bg-primary-50 flex items-center justify-center text-primary-700">
           {report.icon}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-semibold text-gray-900">{report.title}</h3>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary-600">
+            {REPORT_CATALOG.find(c => c.id === report.categoryId)?.label ?? 'Relatório'}
+          </p>
+          <h3 className="text-lg font-semibold text-gray-900 mt-0.5">{report.title}</h3>
           <p className="text-sm text-gray-500 mt-0.5">{report.longDescription}</p>
-          <p className="text-xs text-gray-400 mt-1.5">{registros}</p>
+          <Badge variant="neutral" className="mt-2">{registros}</Badge>
         </div>
       </div>
 
@@ -158,7 +164,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
             const disponivel = report.formats.includes(f) && !(f === 'pdf' && report.pdfComingSoon)
             return (
               <label key={f} className={`flex items-center gap-1.5 text-sm ${disponivel ? 'text-gray-700 cursor-pointer' : 'text-gray-300 cursor-not-allowed'}`}>
-                <input type="radio" name="formato" className="accent-blue-600" disabled={!disponivel}
+                <input type="radio" name="formato" className="accent-primary-600" disabled={!disponivel}
                   checked={formato === f} onChange={() => setFormato(f)} />
                 {f === 'xlsx' ? 'Excel' : 'PDF'}
                 {f === 'pdf' && report.pdfComingSoon && <span className="text-[10px] text-amber-500">(em breve)</span>}
@@ -168,23 +174,14 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
         </div>
 
         <div className="flex items-center gap-3">
-          <button
+          <Button
             onClick={handleExport}
-            disabled={loading || (escopo === 'selecionar' && planilhaIds.length === 0)}
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            disabled={escopo === 'selecionar' && planilhaIds.length === 0}
+            loading={loading}
+            icon={<Download size={15} />}
           >
-            {loading ? (
-              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            )}
             Exportar
-          </button>
+          </Button>
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       </div>

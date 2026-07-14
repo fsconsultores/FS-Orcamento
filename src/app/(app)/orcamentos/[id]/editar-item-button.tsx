@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -16,6 +16,7 @@ export function EditarItemButton({
   bdiGlobal: number;
 }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [qtd, setQtd] = useState(String(quantidade));
@@ -39,7 +40,7 @@ export function EditarItemButton({
       .from('tabela_itens_orcamento')
       .update({ quantidade: newQtd, bdi_especifico: newBdi })
       .eq('id', itemId);
-    router.refresh();
+    startTransition(() => router.refresh());
     setEditing(false);
     setLoading(false);
   }

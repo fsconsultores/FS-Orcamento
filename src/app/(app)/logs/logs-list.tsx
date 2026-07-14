@@ -2,8 +2,15 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { RefreshCw, ScrollText, Info, CheckCircle2, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
+import { Badge, type BadgeVariant } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { EmptyState } from '@/components/ui/empty-state'
+import { useToast } from '@/components/ui/toast'
+import { Timeline, TimelineItem, type TimelineTone } from '@/components/ui/timeline'
 
 export type LogRow = {
   id: string
@@ -27,25 +34,10 @@ function itemLabel(item: Record<string, unknown>): string {
   return `${item.codigo ?? ''} — ${item.descricao ?? ''}`
 }
 
-const TIPO_CONFIG: Record<LogRow['tipo'], { label: string; row: string; badge: string; dot: string }> = {
-  info: {
-    label: 'Info',
-    row: 'border-l-gray-300 bg-white',
-    badge: 'bg-gray-100 text-gray-600',
-    dot: 'bg-gray-400',
-  },
-  sucesso: {
-    label: 'Sucesso',
-    row: 'border-l-green-400 bg-green-50',
-    badge: 'bg-green-100 text-green-700',
-    dot: 'bg-green-500',
-  },
-  erro: {
-    label: 'Erro',
-    row: 'border-l-red-400 bg-red-50',
-    badge: 'bg-red-100 text-red-700',
-    dot: 'bg-red-500',
-  },
+const TIPO_CONFIG: Record<LogRow['tipo'], { label: string; variant: BadgeVariant; tone: TimelineTone; icon: typeof Info }> = {
+  info: { label: 'Info', variant: 'neutral', tone: 'neutral', icon: Info },
+  sucesso: { label: 'Sucesso', variant: 'success', tone: 'success', icon: CheckCircle2 },
+  erro: { label: 'Erro', variant: 'error', tone: 'error', icon: AlertCircle },
 }
 
 const FILTROS = [
@@ -57,11 +49,13 @@ const FILTROS = [
 
 export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; fetchError?: string }) {
   const router = useRouter()
+  const toast = useToast()
   const [isPending, startTransition] = useTransition()
   const [filtroTipo, setFiltroTipo] = useState<'' | LogRow['tipo']>('')
   const [busca, setBusca] = useState('')
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   const [restaurandoId, setRestaurandoId] = useState<string | null>(null)
+  const [confirmarRestaurar, setConfirmarRestaurar] = useState<LogRow | null>(null)
 
   function atualizar() {
     startTransition(() => router.refresh())
@@ -81,8 +75,8 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
     if (!cfg) return
     const itens = (log.detalhes?.[cfg.field] as Record<string, unknown>[]) ?? []
     if (itens.length === 0) return
-    if (!confirm(`Restaurar ${itens.length} ${cfg.label}?`)) return
 
+    setConfirmarRestaurar(null)
     setRestaurandoId(log.id)
     try {
       const sb = createClient() as any
@@ -91,7 +85,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
       )
       const { error } = await sb.from(cfg.table).insert(ordenados)
       if (error) {
-        alert(`Erro ao restaurar: ${error.message}`)
+        toast.show(`Não foi possível restaurar: ${error.message}`, 'error')
         return
       }
       await registrarHistorico(sb, {
@@ -100,7 +94,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
         mensagem: `${itens.length} ${cfg.label} restaurado(s) a partir do log de ${new Date(log.created_at).toLocaleString('pt-BR')}`,
         detalhes: { log_original_id: log.id },
       }).catch(console.error)
-      alert('Restaurado com sucesso.')
+      toast.show('Restaurado com sucesso.')
       atualizar()
     } finally {
       setRestaurandoId(null)
@@ -125,15 +119,11 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
   if (fetchError) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6">
-        <p className="text-sm font-medium text-red-700">Erro ao carregar logs</p>
+        <p className="text-sm font-medium text-red-700">Não foi possível carregar os logs</p>
         <p className="mt-1 font-mono text-xs text-red-500">{fetchError}</p>
-        <button
-          onClick={atualizar}
-          disabled={isPending}
-          className="mt-3 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-        >
-          {isPending ? 'Atualizando...' : 'Tentar novamente'}
-        </button>
+        <Button variant="danger" size="sm" className="mt-3" onClick={atualizar} loading={isPending}>
+          Tentar novamente
+        </Button>
       </div>
     )
   }
@@ -148,8 +138,8 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
               onClick={() => setFiltroTipo(value)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 filtroTipo === value
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+                  ? 'bg-primary-700 border-primary-700 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-primary-400'
               }`}
             >
               {label}
@@ -161,48 +151,43 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
           placeholder="Buscar por mensagem, ação ou usuário..."
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          className="flex-1 min-w-[220px] rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          className="flex-1 min-w-[220px] rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
         />
         <span className="text-xs text-gray-400">{logs.length} registro{logs.length !== 1 ? 's' : ''}</span>
-        <button
-          onClick={atualizar}
-          disabled={isPending}
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50 transition-colors"
-        >
-          {isPending ? 'Atualizando...' : 'Atualizar'}
-        </button>
+        <Button variant="outline" size="sm" onClick={atualizar} loading={isPending} icon={<RefreshCw size={13} />}>
+          Atualizar
+        </Button>
       </div>
 
       {logs.length === 0 ? (
-        <div className="rounded-xl border bg-white p-12 text-center shadow-sm">
-          <p className="text-gray-400">Nenhum log encontrado.</p>
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <EmptyState
+            icon={<ScrollText size={20} />}
+            title="Nenhum log encontrado"
+            description="Ajuste os filtros ou a busca para ver outros eventos."
+          />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-white shadow-sm divide-y divide-gray-100">
-          {logs.map((log) => {
-            const cfg = TIPO_CONFIG[log.tipo]
-            const data = new Date(log.created_at).toLocaleString('pt-BR', {
-              dateStyle: 'short',
-              timeStyle: 'short',
-            })
-            const restoreCfg = RESTORABLE[log.acao]
-            const itensApagados = restoreCfg
-              ? ((log.detalhes?.[restoreCfg.field] as Record<string, unknown>[]) ?? [])
-              : []
-            const expandido = expandidos.has(log.id)
-            return (
-              <div
-                key={log.id}
-                className={`flex items-start gap-3 border-l-4 px-4 py-3 ${cfg.row}`}
-              >
-                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />
-                <div className="flex-1 min-w-0">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <Timeline>
+            {logs.map((log, i) => {
+              const cfg = TIPO_CONFIG[log.tipo]
+              const Icon = cfg.icon
+              const data = new Date(log.created_at).toLocaleString('pt-BR', {
+                dateStyle: 'short',
+                timeStyle: 'short',
+              })
+              const restoreCfg = RESTORABLE[log.acao]
+              const itensApagados = restoreCfg
+                ? ((log.detalhes?.[restoreCfg.field] as Record<string, unknown>[]) ?? [])
+                : []
+              const expandido = expandidos.has(log.id)
+              return (
+                <TimelineItem key={log.id} icon={<Icon size={14} />} tone={cfg.tone} isLast={i === logs.length - 1}>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span suppressHydrationWarning className="text-xs text-gray-400 font-mono">[{data}]</span>
                     <span className="text-xs text-gray-400">({log.usuario_email ?? 'sistema'})</span>
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${cfg.badge}`}>
-                      {cfg.label}
-                    </span>
+                    <Badge variant={cfg.variant}>{cfg.label}</Badge>
                     <span className="text-xs text-gray-400 font-mono">{log.acao}</span>
                   </div>
                   <p className="mt-0.5 text-sm text-gray-900">{log.mensagem}</p>
@@ -211,35 +196,50 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => toggleExpandido(log.id)}
-                        className="text-xs font-medium text-blue-600 hover:underline"
+                        className="text-xs font-medium text-primary-700 hover:underline"
                       >
                         {expandido ? 'Ocultar itens apagados' : `Ver ${itensApagados.length} item(ns) apagado(s)`}
                       </button>
-                      <button
-                        onClick={() => handleRestaurar(log)}
-                        disabled={restaurandoId === log.id}
-                        className="rounded-md border border-green-300 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="!h-6 !px-2 !text-xs !border-emerald-300 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100"
+                        onClick={() => setConfirmarRestaurar(log)}
+                        loading={restaurandoId === log.id}
                       >
-                        {restaurandoId === log.id ? 'Restaurando...' : 'Restaurar'}
-                      </button>
+                        Restaurar
+                      </Button>
                     </div>
                   )}
 
                   {expandido && itensApagados.length > 0 && (
                     <ul className="mt-2 max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 p-2 text-xs text-gray-600">
-                      {itensApagados.map((item, i) => (
-                        <li key={(item.id as string) ?? i} className="truncate py-0.5">
+                      {itensApagados.map((item, ii) => (
+                        <li key={(item.id as string) ?? ii} className="truncate py-0.5">
                           {itemLabel(item)}
                         </li>
                       ))}
                     </ul>
                   )}
-                </div>
-              </div>
-            )
-          })}
+                </TimelineItem>
+              )
+            })}
+          </Timeline>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmarRestaurar}
+        onClose={() => setConfirmarRestaurar(null)}
+        onConfirm={() => confirmarRestaurar && handleRestaurar(confirmarRestaurar)}
+        title="Restaurar itens apagados"
+        description={
+          confirmarRestaurar
+            ? `Restaurar ${((confirmarRestaurar.detalhes?.[RESTORABLE[confirmarRestaurar.acao]?.field ?? ''] as unknown[]) ?? []).length} ${RESTORABLE[confirmarRestaurar.acao]?.label ?? 'item(ns)'}?`
+            : ''
+        }
+        confirmLabel="Restaurar"
+      />
     </div>
   )
 }

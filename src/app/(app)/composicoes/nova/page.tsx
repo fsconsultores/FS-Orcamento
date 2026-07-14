@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useTransition, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -10,6 +10,7 @@ type ItemForm = { insumo_id: string; indice: string };
 
 export default function NovaComposicaoPage() {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '' });
@@ -69,8 +70,10 @@ export default function NovaComposicaoPage() {
       );
       if (itensErr) throw itensErr;
 
-      router.refresh();
-      router.push(`/composicoes/${comp.id}`);
+      startTransition(() => {
+        router.refresh();
+        router.push(`/composicoes/${comp.id}`);
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       if (msg.includes('uq_composicao_codigo')) {

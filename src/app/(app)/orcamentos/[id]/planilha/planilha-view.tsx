@@ -16,6 +16,9 @@ import {
 } from '@dnd-kit/core'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { Plus, Trash2, Save, Check } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Spinner } from '@/components/ui/spinner'
 
 export type { EstruturaItem }
 
@@ -114,7 +117,7 @@ function flattenTree(nodos: Nodo[], depth = 0): { nodo: Nodo; depth: number }[] 
 const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
-  const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-[#eef2f6]'
+  const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
   const weight = hasChildren ? 'font-bold' : 'font-normal'
   return `${base} text-gray-900 ${weight} hover:bg-blue-100`
 }
@@ -1380,15 +1383,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   return (
     <div className="space-y-3">
-      {/* Resumo do orçamento */}
+      {/* Resumo do orçamento — nome da planilha já aparece na badge do cabeçalho da página, não repetir aqui */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm px-5 py-4">
         <div className="flex flex-wrap gap-x-8 gap-y-3 items-start">
-          {nomePlanilha && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Planilha ativa</p>
-              <p className="text-sm font-bold text-blue-700 mt-0.5">{nomePlanilha}</p>
-            </div>
-          )}
           {cliente && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cliente</p>
@@ -1405,7 +1402,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           )}
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">BDI Global</p>
-            <p className="text-sm font-bold text-blue-700 mt-0.5">{bdiGlobal}%</p>
+            <p className="text-sm font-bold text-primary-700 mt-0.5">{bdiGlobal}%</p>
           </div>
         </div>
       </div>
@@ -1414,10 +1411,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2">
           <button onClick={() => setAddingParentId('root')}
-            className="flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
+            className="flex items-center gap-1.5 rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-200 transition-colors">
+            <Plus size={14} />
             Novo Capítulo
           </button>
           <button
@@ -1431,11 +1426,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                 alert((err as Error).message)
               }
             }}
-            className="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Trash2 size={14} />
             Excluir planilha
           </button>
         </div>
@@ -1443,14 +1436,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs shadow-sm">
             <button
               onClick={() => setViewMode('sintetica')}
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === 'sintetica' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === 'sintetica' ? 'bg-primary-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
             >
               Sintética
             </button>
             <button
               onClick={async () => { await loadAnaliticaData(); setViewMode('analitica') }}
               disabled={analiticaLoading}
-              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 disabled:opacity-60 ${viewMode === 'analitica' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              className={`px-3 py-1.5 font-medium transition-colors border-l border-gray-200 disabled:opacity-60 ${viewMode === 'analitica' ? 'bg-primary-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
             >
               {analiticaLoading ? '...' : 'Analítica'}
             </button>
@@ -1459,38 +1452,21 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           <div className="flex items-center gap-2">
             <div className="text-right text-[11px]">
               {isSaving ? (
-                <span className="flex items-center gap-1 text-blue-600">
-                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Salvando...
-                </span>
+                <Badge variant="info"><Spinner size={11} /> Salvando...</Badge>
               ) : saveStatus === 'saved' ? (
-                <span className="flex items-center gap-1 text-green-600">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Todas as alterações foram salvas
-                </span>
+                <Badge variant="success"><Check size={11} /> Todas as alterações foram salvas</Badge>
               ) : saveStatus === 'error' ? (
-                <span className="text-red-600">Falha ao salvar. Tente novamente.</span>
+                <Badge variant="error">Falha ao salvar. Tente novamente.</Badge>
               ) : isDirty ? (
-                <span className="flex items-center gap-1 text-orange-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
-                  Alterações não salvas
-                </span>
+                <Badge variant="warning">Alterações não salvas</Badge>
               ) : null}
             </div>
             <button
               onClick={handleSave}
               disabled={isSaving || invalidCodigos.size > 0}
-              className="flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-60 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 rounded-md bg-primary-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-800 disabled:opacity-60 transition-colors shadow-sm"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-              </svg>
+              <Save size={14} />
               {isSaving ? 'Salvando...' : 'Salvar Planilha'}
             </button>
           </div>
@@ -1506,7 +1482,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                 <button
                   onClick={() => setCalcPanelOpen(v => !v)}
                   disabled={calcMode !== null || verificando}
-                  className="flex items-center gap-1.5 rounded-md bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60 transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60 transition-colors shadow-sm"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -1767,7 +1743,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
       {/* Modal: Resultado Calcular Projeto */}
       {totaisProjetoResult && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-2xl overflow-hidden">
             <div className="bg-gray-800 px-6 py-4 flex items-center justify-between">
               <div>
@@ -1837,7 +1813,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
       {/* Modal: Alterações não salvas */}
       {showLeaveModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
             <div className="bg-orange-500 px-6 py-4">
               <h2 className="text-base font-bold text-white">Alterações não salvas</h2>
@@ -1867,7 +1843,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
       {/* Modal: Composições inválidas */}
       {showInvalidModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
             <div className="bg-red-600 px-6 py-4">
               <h2 className="text-base font-bold text-white">Composições inválidas encontradas</h2>
@@ -2001,20 +1977,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
         <table className="w-full text-xs min-w-[700px] border-collapse">
           <thead className="sticky top-0 z-10 text-left">
-            <tr className="bg-[#1a2e4a] text-white">
-              <th className="px-2 py-2 w-6 border border-[#2d4a6e]" title="Arrastar" />
-              <th className="px-2 py-2 w-8 text-center border border-[#2d4a6e] font-semibold">#</th>
-              <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Item</th>
-              <th className="px-2 py-2 w-24 border border-[#2d4a6e] font-semibold">Composição</th>
-              <th className="px-2 py-2 border border-[#2d4a6e] font-semibold">Descrição completa</th>
-              <th className="px-2 py-2 w-16 text-center border border-[#2d4a6e] font-semibold">Unidade</th>
-              <th className="px-2 py-2 w-20 text-right border border-[#2d4a6e] font-semibold">Qtde.</th>
-              <th className="px-2 py-2 w-28 text-right border border-[#2d4a6e] font-semibold">Custo Unitário</th>
-              <th className="px-2 py-2 w-32 text-right border border-[#2d4a6e] font-semibold">Total Custo Unitário</th>
-              <th className="px-2 py-2 w-16 text-right border border-[#2d4a6e] font-semibold">% BDI</th>
-              <th className="px-2 py-2 w-16 text-right border border-[#2d4a6e] font-semibold">% Custo</th>
-              <th className="px-2 py-2 w-10 text-center border border-[#2d4a6e] font-semibold">ABC</th>
-              <th className="px-2 py-2 w-8 border border-[#2d4a6e]" />
+            <tr className="bg-primary-950 text-white">
+              <th className="px-2 py-2 w-6 border border-primary-800" title="Arrastar" />
+              <th className="px-2 py-2 w-8 text-center border border-primary-800 font-semibold">#</th>
+              <th className="px-2 py-2 w-24 border border-primary-800 font-semibold">Item</th>
+              <th className="px-2 py-2 w-24 border border-primary-800 font-semibold">Composição</th>
+              <th className="px-2 py-2 border border-primary-800 font-semibold">Descrição completa</th>
+              <th className="px-2 py-2 w-16 text-center border border-primary-800 font-semibold">Unidade</th>
+              <th className="px-2 py-2 w-20 text-right border border-primary-800 font-semibold">Qtde.</th>
+              <th className="px-2 py-2 w-28 text-right border border-primary-800 font-semibold">Custo Unitário</th>
+              <th className="px-2 py-2 w-32 text-right border border-primary-800 font-semibold">Total Custo Unitário</th>
+              <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% BDI</th>
+              <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% Custo</th>
+              <th className="px-2 py-2 w-10 text-center border border-primary-800 font-semibold">ABC</th>
+              <th className="px-2 py-2 w-8 border border-primary-800" />
             </tr>
           </thead>
           <tbody>
@@ -2316,14 +2292,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               </tr>
             )}
 
-            <tr className="bg-[#1a2e4a] text-white">
-              <td colSpan={8} className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-widest text-slate-300 border border-[#2d4a6e]">
+            <tr className="bg-primary-950 text-white">
+              <td colSpan={8} className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-widest text-slate-300 border border-primary-800">
                 Total Geral
               </td>
-              <td className="px-3 py-2 text-right text-sm font-bold tabular-nums border border-[#2d4a6e]">
+              <td className="px-3 py-2 text-right text-sm font-bold tabular-nums border border-primary-800">
                 {BRL(grandTotal)}
               </td>
-              <td colSpan={4} className="border border-[#2d4a6e]" />
+              <td colSpan={4} className="border border-primary-800" />
             </tr>
           </tbody>
         </table>

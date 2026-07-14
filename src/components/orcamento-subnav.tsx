@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+import { Tabs, type TabItem } from '@/components/ui/tabs'
 
 interface Props {
   orcamentoId: string
@@ -26,32 +26,14 @@ function SubNavLinks({ orcamentoId }: Props) {
   const planilhaId = searchParams.get('planilha')
   const base = `/orcamentos/${orcamentoId}`
 
-  return (
-    <>
-      {TABS.map(({ suffix, label }) => {
-        const baseHref = suffix ? `${base}/${suffix}` : base
-        // Preserva ?planilha= ao navegar entre abas para manter a planilha ativa
-        const href = planilhaId ? `${baseHref}?planilha=${planilhaId}` : baseHref
-        const active = suffix
-          ? pathname.startsWith(`${base}/${suffix}`)
-          : pathname === base
+  const items: TabItem[] = TABS.map(({ suffix, label }) => {
+    const baseHref = `${base}/${suffix}`
+    // Preserva ?planilha= ao navegar entre abas para manter a planilha ativa
+    const href = planilhaId ? `${baseHref}?planilha=${planilhaId}` : baseHref
+    return { key: suffix, label, href, active: pathname.startsWith(baseHref) }
+  })
 
-        return (
-          <Link
-            key={suffix}
-            href={href as any}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              active
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {label}
-          </Link>
-        )
-      })}
-    </>
-  )
+  return <Tabs items={items} className="mb-6 -mt-2" />
 }
 
 export function OrcamentoSubNav({ orcamentoId }: Props) {
@@ -62,21 +44,13 @@ export function OrcamentoSubNav({ orcamentoId }: Props) {
   // fazem sentido: elas só se aplicam depois que uma planilha é escolhida.
   if (pathname === base) return null
 
+  const fallbackItems: TabItem[] = TABS.map(({ suffix, label }) => ({
+    key: suffix, label, href: `${base}/${suffix}`, active: false,
+  }))
+
   return (
-    <div className="flex gap-0 border-b border-gray-200 mb-6 -mt-2">
-      <Suspense
-        fallback={TABS.map(({ suffix, label }) => (
-          <Link
-            key={suffix}
-            href={`${base}/${suffix}` as any}
-            className="px-4 py-2.5 text-sm font-medium border-b-2 -mb-px border-transparent text-gray-500"
-          >
-            {label}
-          </Link>
-        ))}
-      >
-        <SubNavLinks orcamentoId={orcamentoId} />
-      </Suspense>
-    </div>
+    <Suspense fallback={<Tabs items={fallbackItems} className="mb-6 -mt-2" />}>
+      <SubNavLinks orcamentoId={orcamentoId} />
+    </Suspense>
   )
 }

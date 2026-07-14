@@ -63,7 +63,7 @@ export function Pagination({ total, page, pageSize, baseHref }: PaginationProps)
               href={pageUrl(p as number)}
               className={`min-w-[36px] text-center px-2.5 py-1.5 rounded text-sm border transition-colors ${
                 p === page
-                  ? 'bg-blue-600 text-white border-blue-600 font-medium'
+                  ? 'bg-primary-700 text-white border-primary-700 font-medium'
                   : 'text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
             >

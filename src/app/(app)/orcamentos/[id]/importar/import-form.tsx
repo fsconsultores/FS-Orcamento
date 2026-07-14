@@ -5,6 +5,22 @@ import { importarInsumos, importarComposicoes, importarDaBase } from './import-a
 import type { ImportComposicaoRow, ImportInsumoRow, ImportResult, BaseInfo } from './import-action'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ImportResultBox } from '@/components/import-result-box'
+import { WizardSteps } from '@/components/ui/import-wizard'
+import { Database } from 'lucide-react'
+
+const STEPS_3 = [
+  { key: 'arquivo', label: 'Arquivo' },
+  { key: 'preview', label: 'Prévia' },
+  { key: 'resultado', label: 'Resultado' },
+]
+const STEPS_2 = [
+  { key: 'selecionar', label: 'Selecionar' },
+  { key: 'resultado', label: 'Resultado' },
+]
 
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
@@ -241,20 +257,17 @@ function parseCsvText(text: string): unknown[][] {
 function ResultBox({ result }: { result: ImportResult }) {
   const ok = result.erros.length === 0
   return (
-    <div className={`rounded-lg border p-4 ${ok ? 'border-green-300 bg-green-50' : 'border-orange-300 bg-orange-50'}`}>
-      <p className={`font-semibold text-sm mb-1 ${ok ? 'text-green-800' : 'text-orange-800'}`}>
-        {ok ? 'Importação concluída com sucesso!' : 'Importação concluída com avisos'}
-      </p>
-      <p className="text-sm text-gray-700">
+    <ImportResultBox variant={ok ? 'success' : 'warning'} title={ok ? 'Importação concluída com sucesso!' : 'Importação concluída com avisos'}>
+      <p>
         {result.composicoesCriadas > 0 && <>{result.composicoesCriadas} composição(ões), </>}
         {result.insumosCriados} insumo(s) importados.
       </p>
       {result.erros.length > 0 && (
-        <ul className="mt-2 text-xs text-orange-700 space-y-1">
+        <ul className="mt-2 space-y-1 text-xs text-amber-700">
           {result.erros.map((e, i) => <li key={i}>• {e}</li>)}
         </ul>
       )}
-    </div>
+    </ImportResultBox>
   )
 }
 
@@ -334,8 +347,11 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
     } finally { setLoading(false) }
   }
 
+  const step = result ? 'resultado' : preview && preview.length > 0 ? 'preview' : 'arquivo'
+
   return (
     <div className="space-y-5">
+      <WizardSteps steps={STEPS_3} currentKey={step} />
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
         <input
@@ -343,21 +359,21 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
           value={fonte}
           onChange={e => setFonte(e.target.value)}
           placeholder="ex: SINAPI, SUDECAP, Cotação Maio/2026"
-          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
         />
       </div>
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
         <p className="text-sm text-gray-500 mb-2">Planilha <strong>.xlsx</strong> ou <strong>.csv</strong> — cada linha = um insumo</p>
         <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, data_ref</em></p>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
-          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-primary-700 file:text-white file:text-sm file:font-medium hover:file:bg-primary-800 cursor-pointer" />
       </div>
 
       {sheets.length > 1 && (
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Aba da planilha:</label>
           <select value={selectedSheet} onChange={e => onSheetChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20">
             {sheets.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
@@ -375,10 +391,9 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-700">{preview.length} insumo(s)</p>
-            <button onClick={handleImport} disabled={loading}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {loading ? 'Importando...' : 'Confirmar Importação'}
-            </button>
+            <Button onClick={handleImport} loading={loading}>
+              Confirmar Importação
+            </Button>
           </div>
           <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-72 overflow-y-auto">
             <table className="w-full text-xs">
@@ -500,9 +515,11 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
   }
 
   const totalInsumos = preview?.reduce((s, c) => s + c.insumos.length, 0) ?? 0
+  const step = result ? 'resultado' : preview && preview.length > 0 ? 'preview' : 'arquivo'
 
   return (
     <div className="space-y-5">
+      <WizardSteps steps={STEPS_3} currentKey={step} />
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Fonte / Base:</label>
         <input
@@ -510,7 +527,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
           value={fileBase}
           onChange={e => setFileBase(e.target.value)}
           placeholder="ex: SINAPI, SUDECAP, Cotação Maio/2026"
-          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
         />
       </div>
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
@@ -522,14 +539,14 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
           (linha com código = composição, linha sem código = insumo filho).
         </p>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
-          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-primary-700 file:text-white file:text-sm file:font-medium hover:file:bg-primary-800 cursor-pointer" />
       </div>
 
       {sheets.length > 1 && (
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Aba da planilha:</label>
           <select value={selectedSheet} onChange={e => onSheetChange(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20">
             {sheets.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
@@ -557,10 +574,9 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
             <p className="text-sm font-medium text-gray-700">
               {preview.length} composição(ões) · {totalInsumos} insumo(s)
             </p>
-            <button onClick={handleImport} disabled={loading}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {loading ? 'Importando...' : 'Confirmar Importação'}
-            </button>
+            <Button onClick={handleImport} loading={loading}>
+              Confirmar Importação
+            </Button>
           </div>
           <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
             <table className="w-full text-xs">
@@ -574,12 +590,12 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
               <tbody className="divide-y divide-gray-100">
                 {preview.slice(0, 50).map((comp, ci) => (
                   <Fragment key={ci}>
-                    <tr className="bg-blue-50">
-                      <td className="px-3 py-2 font-semibold text-blue-700">Composição</td>
-                      <td className="px-3 py-2 font-mono text-blue-700">{comp.codigo}</td>
-                      <td className="px-3 py-2 font-medium text-blue-800">{comp.descricao}</td>
-                      <td className="px-3 py-2 text-blue-600">{comp.unidade}</td>
-                      <td className="px-3 py-2 text-blue-400">
+                    <tr className="bg-primary-50">
+                      <td className="px-3 py-2 font-semibold text-primary-700">Composição</td>
+                      <td className="px-3 py-2 font-mono text-primary-700">{comp.codigo}</td>
+                      <td className="px-3 py-2 font-medium text-primary-800">{comp.descricao}</td>
+                      <td className="px-3 py-2 text-primary-600">{comp.unidade}</td>
+                      <td className="px-3 py-2 text-primary-400">
                         {comp.insumos.length} insumo(s)
                       </td>
                     </tr>
@@ -654,18 +670,19 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
 
   if (bases.length === 0) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
-        <p className="text-sm font-medium text-gray-700 mb-1">Nenhuma base cadastrada</p>
-        <p className="text-xs text-gray-500">
-          Importe insumos e composições na biblioteca global primeiro
-          (menu <strong>Insumos → Importar</strong> ou <strong>Composições → Importar</strong>).
-        </p>
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <EmptyState
+          icon={<Database size={20} />}
+          title="Nenhuma base cadastrada"
+          description="Importe insumos e composições na biblioteca global primeiro (menu Insumos → Importar ou Composições → Importar)."
+        />
       </div>
     )
   }
 
   return (
     <div className="space-y-5">
+      <WizardSteps steps={STEPS_2} currentKey={result ? 'resultado' : 'selecionar'} />
       <p className="text-sm text-gray-600">
         Copia insumos e/ou composições de uma base global cadastrada diretamente para este orçamento.
         Preços sempre atualizados a partir da base de referência.
@@ -678,14 +695,14 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
           {bases.map(b => (
             <label key={b.id} className={`flex items-start gap-3 cursor-pointer rounded-lg border px-4 py-3 transition-colors ${
               selectedId === b.id
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-primary-500 bg-primary-50'
                 : 'border-gray-200 bg-white hover:border-gray-300'
             }`}>
               <input type="radio" name="base" value={b.id} checked={selectedId === b.id}
                 onChange={() => { setSelectedId(b.id); setResult(null) }}
-                className="mt-0.5 accent-blue-600" />
+                className="mt-0.5 accent-primary-600" />
               <div className="min-w-0">
-                <p className={`text-sm font-medium ${selectedId === b.id ? 'text-blue-700' : 'text-gray-800'}`}>
+                <p className={`text-sm font-medium ${selectedId === b.id ? 'text-primary-700' : 'text-gray-800'}`}>
                   {b.orgao}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -706,17 +723,17 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
           <p className="text-sm font-medium text-gray-700">Importar:</p>
           <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-              <input type="checkbox" checked={opcoes.insumos}
+              <Checkbox checked={opcoes.insumos}
                 onChange={e => setOpcoes(o => ({ ...o, insumos: e.target.checked }))}
-                className="accent-blue-600" disabled={base.total_insumos === 0} />
+                disabled={base.total_insumos === 0} />
               <span className={base.total_insumos === 0 ? 'text-gray-400' : ''}>
                 Insumos {base.total_insumos > 0 && <span className="text-gray-400">({base.total_insumos.toLocaleString('pt-BR')})</span>}
               </span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-              <input type="checkbox" checked={opcoes.composicoes}
+              <Checkbox checked={opcoes.composicoes}
                 onChange={e => setOpcoes(o => ({ ...o, composicoes: e.target.checked }))}
-                className="accent-blue-600" disabled={base.total_composicoes === 0} />
+                disabled={base.total_composicoes === 0} />
               <span className={base.total_composicoes === 0 ? 'text-gray-400' : ''}>
                 Composições {base.total_composicoes > 0 && <span className="text-gray-400">({base.total_composicoes.toLocaleString('pt-BR')})</span>}
               </span>
@@ -729,11 +746,11 @@ function ImportarDaBaseTab({ orcamentoId, bases }: { orcamentoId: string; bases:
       )}
 
       {!result && (
-        <button onClick={handleImport}
-          disabled={loading || !selectedId || (!opcoes.insumos && !opcoes.composicoes)}
-          className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-          {loading ? 'Importando...' : 'Importar para este orçamento'}
-        </button>
+        <Button onClick={handleImport}
+          disabled={!selectedId || (!opcoes.insumos && !opcoes.composicoes)}
+          loading={loading}>
+          Importar para este orçamento
+        </Button>
       )}
 
       {result && <ResultBox result={result} />}
@@ -759,7 +776,7 @@ export function ImportForm({ orcamentoId, bases }: { orcamentoId: string; bases:
           <button key={key} onClick={() => setTab(key)}
             className={`whitespace-nowrap px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-primary-700 text-primary-700'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}>
             {label}

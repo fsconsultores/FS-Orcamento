@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useTransition, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -11,6 +11,7 @@ import { createPlanilha } from '@/lib/orcamento/planilhas';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<string | null>(null);
@@ -120,8 +121,10 @@ export default function NovoOrcamentoPage() {
         }
       }
 
-      router.refresh();
-      router.push(`/orcamentos/${data.id}/planilha`);
+      startTransition(() => {
+        router.refresh();
+        router.push(`/orcamentos/${data.id}/planilha`);
+      });
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);

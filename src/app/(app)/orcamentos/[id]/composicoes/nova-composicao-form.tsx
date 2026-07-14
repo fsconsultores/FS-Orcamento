@@ -50,7 +50,7 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -67,7 +67,7 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
     >
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-gray-800">Nova Composição</h2>
-        <button type="button" onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+        <button type="button" onClick={handleClose} className="text-gray-400 transition-colors hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -124,14 +124,14 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
         <button
           type="button"
           onClick={handleClose}
-          className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={loading}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? 'Criando...' : 'Criar e adicionar insumos →'}
         </button>

@@ -1,5 +1,6 @@
 import { ImportForm } from './import-form'
 import { listBases } from './import-action'
+import { PageHeader } from '@/components/ui/toolbar'
 
 export default async function ImportarPage({
   params,
@@ -11,12 +12,10 @@ export default async function ImportarPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Importar</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Importe composições e insumos a partir de uma base global ou de um arquivo <strong>.xlsx</strong>.
-        </p>
-      </div>
+      <PageHeader
+        title="Importar"
+        description={<>Importe composições e insumos a partir de uma base global ou de um arquivo <strong>.xlsx</strong>.</>}
+      />
 
       <ImportForm orcamentoId={orcamentoId} bases={bases} />
     </div>

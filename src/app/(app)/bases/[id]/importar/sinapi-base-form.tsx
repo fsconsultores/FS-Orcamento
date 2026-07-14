@@ -3,6 +3,14 @@
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { ImportInsumoRow, ImportComposicaoRow, ImportResult } from '@/app/(app)/orcamentos/[id]/importar/import-action'
+import { Button } from '@/components/ui/button'
+import { ImportResultBox } from '@/components/import-result-box'
+import { WizardSteps } from '@/components/ui/import-wizard'
+
+const STEPS = [
+  { key: 'selecionar', label: 'Selecionar' },
+  { key: 'resultado', label: 'Resultado' },
+]
 
 // ─── Parsing utilities ────────────────────────────────────────────────────────
 
@@ -560,22 +568,19 @@ async function importarComposicoes(sb: any, baseId: string, rows: ImportComposic
 function ResultBox({ result }: { result: ImportResult }) {
   const ok = result.erros.length === 0
   return (
-    <div className={`rounded-lg border p-4 ${ok ? 'border-green-300 bg-green-50' : 'border-orange-300 bg-orange-50'}`}>
-      <p className={`font-semibold text-sm mb-1 ${ok ? 'text-green-800' : 'text-orange-800'}`}>
-        {ok ? 'Importação concluída!' : 'Importação com avisos'}
-      </p>
-      <p className="text-sm text-gray-700">
+    <ImportResultBox variant={ok ? 'success' : 'warning'} title={ok ? 'Importação concluída!' : 'Importação com avisos'}>
+      <p>
         {result.composicoesCriadas > 0 && <>{result.composicoesCriadas} composição(ões), </>}
         {result.insumosCriados} insumo(s) importados.
         {!!result.gruposAtualizados && <> {result.gruposAtualizados} grupo(s) preenchido(s) em insumos existentes.</>}
       </p>
       {result.erros.length > 0 && (
-        <ul className="mt-2 text-xs text-orange-700 space-y-1">
+        <ul className="mt-2 space-y-1 text-xs text-amber-700">
           {result.erros.slice(0, 10).map((e, i) => <li key={i}>• {e}</li>)}
           {result.erros.length > 10 && <li>...e mais {result.erros.length - 10} avisos.</li>}
         </ul>
       )}
-    </div>
+    </ImportResultBox>
   )
 }
 
@@ -691,12 +696,13 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
 
   return (
     <div className="space-y-5">
+      <WizardSteps steps={STEPS} currentKey={result ? 'resultado' : 'selecionar'} />
       {/* Arquivo */}
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
         <p className="text-sm text-gray-500 mb-1">Arquivo <strong>.xlsx</strong> — qualquer formato (SINAPI, SUDECAP, CPU, próprio)</p>
         <p className="text-xs text-gray-400 mb-4">Escolha abaixo quais abas contêm insumos e composições</p>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods" onChange={handleFile}
-          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-sm file:font-medium hover:file:bg-blue-700 cursor-pointer" />
+          className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-primary-700 file:text-white file:text-sm file:font-medium hover:file:bg-primary-800 cursor-pointer" />
         {fileName && <p className="mt-2 text-xs text-gray-400">{fileName}</p>}
       </div>
 
@@ -705,21 +711,21 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Aba de <span className="text-blue-600">insumos</span>
+              Aba de <span className="text-primary-700">insumos</span>
               <span className="ml-1 text-xs text-gray-400">(lista de materiais/mão de obra com preço)</span>
             </label>
             <select value={isSheet} onChange={e => onIsSheetChange(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20">
               {sheetOptions.map(s => <option key={s} value={s}>{s || '— nenhuma —'}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Aba de <span className="text-purple-600">composições</span>
+              Aba de <span className="text-amber-600">composições</span>
               <span className="ml-1 text-xs text-gray-400">(serviços com sub-itens/coeficientes)</span>
             </label>
             <select value={csSheet} onChange={e => onCsSheetChange(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20">
               {sheetOptions.map(s => <option key={s} value={s}>{s || '— nenhuma —'}</option>)}
             </select>
           </div>
@@ -754,10 +760,9 @@ export function SINAPIBaseForm({ baseId, baseNome }: { baseId: string; baseNome:
             </p>
           </div>
           {(previewCounts.insumos > 0 || previewCounts.composicoes > 0) && (
-            <button onClick={handleImport} disabled={loading}
-              className="shrink-0 rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {loading ? 'Importando...' : 'Confirmar Importação'}
-            </button>
+            <Button className="shrink-0" onClick={handleImport} loading={loading}>
+              Confirmar Importação
+            </Button>
           )}
         </div>
       )}

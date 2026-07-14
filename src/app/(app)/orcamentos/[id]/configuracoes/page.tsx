@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { ConfiguracoesView } from './configuracoes-view'
+import { PageHeader } from '@/components/ui/toolbar'
 
 export default async function ConfiguracoesPage({
   params,
@@ -35,11 +36,8 @@ export default async function ConfiguracoesPage({
   const gruposNivel1 = (grupos ?? []).filter((g: any) => !ESTIMADO_RE.test(g.descricao))
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Configurações</h1>
-        <p className="text-sm text-gray-500 mt-1">Personalize os dados e o comportamento deste orçamento.</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Configurações" description="Personalize os dados e o comportamento deste orçamento." />
 
       <ConfiguracoesView
         orcamentoId={orcamentoId}

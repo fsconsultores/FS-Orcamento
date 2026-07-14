@@ -37,8 +37,8 @@ export function BaseFilter({ bases }: { bases: BaseOption[] }) {
         onClick={() => select('')}
         className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
           current === ''
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+            ? 'bg-primary-700 text-white border-primary-700'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
         }`}
       >
         Todas
@@ -49,8 +49,8 @@ export function BaseFilter({ bases }: { bases: BaseOption[] }) {
           onClick={() => select(b.orgao)}
           className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
             current === b.orgao
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+              ? 'bg-primary-700 text-white border-primary-700'
+              : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
           }`}
         >
           {b.label}

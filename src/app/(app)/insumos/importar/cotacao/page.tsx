@@ -2,12 +2,25 @@
 
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import { AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
+import { PageHeader } from '@/components/ui/toolbar'
+import { Button } from '@/components/ui/button'
+import { StatRow, StatCard } from '@/components/ui/stat-row'
+import { ImportResultBox } from '@/components/import-result-box'
+import { WizardSteps } from '@/components/ui/import-wizard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Step = 'upload' | 'mapping' | 'preview' | 'result'
+
+const WIZARD_STEPS = [
+  { key: 'upload', label: 'Arquivo' },
+  { key: 'mapping', label: 'Colunas' },
+  { key: 'preview', label: 'Revisão' },
+  { key: 'result', label: 'Resultado' },
+]
 
 type RawData = {
   headers: string[]
@@ -298,33 +311,18 @@ export default function ImportarCotacaoPage() {
 
       {/* Header */}
       <div>
-        <Link href="/insumos/importar" className="text-sm text-blue-600 hover:underline">
+        <Link href="/insumos/importar" className="text-sm text-primary-700 hover:underline">
           ← Importar insumos
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar Cotação de Preços</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Importe uma planilha de cotação para atualizar os preços dos insumos em massa.
-        </p>
+        <div className="mt-2">
+          <PageHeader
+            title="Importar Cotação de Preços"
+            description="Importe uma planilha de cotação para atualizar os preços dos insumos em massa."
+          />
+        </div>
       </div>
 
-      {/* Progress steps */}
-      <div className="flex items-center gap-2 text-sm">
-        {(['upload', 'mapping', 'preview', 'result'] as Step[]).map((s, i) => {
-          const labels: Record<Step, string> = { upload: '1. Arquivo', mapping: '2. Colunas', preview: '3. Revisão', result: '4. Resultado' }
-          const done = ['upload', 'mapping', 'preview', 'result'].indexOf(step) > i
-          const active = step === s
-          return (
-            <div key={s} className="flex items-center gap-2">
-              {i > 0 && <div className={`w-8 h-px ${done ? 'bg-blue-400' : 'bg-gray-200'}`} />}
-              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                active ? 'bg-blue-600 text-white' : done ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
-              }`}>
-                {labels[s]}
-              </span>
-            </div>
-          )
-        })}
-      </div>
+      <WizardSteps steps={WIZARD_STEPS} currentKey={step} />
 
       {globalError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -334,7 +332,7 @@ export default function ImportarCotacaoPage() {
 
       {/* ── Step 1: Upload ── */}
       {step === 'upload' && (
-        <div className="rounded-xl border bg-white p-6 shadow-sm space-y-5">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
           <div className="space-y-2">
             <h2 className="font-semibold text-gray-900">Selecionar arquivo</h2>
             <p className="text-sm text-gray-500">Aceita XLSX, XLS, CSV e TXT.</p>
@@ -346,13 +344,13 @@ export default function ImportarCotacaoPage() {
             onChange={handleFile}
             className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded-md file:border file:border-gray-300 file:text-sm file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
           />
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-1.5">
-            <p className="text-sm font-medium text-blue-900">Formato da planilha</p>
-            <p className="text-sm text-blue-800">
+          <div className="rounded-lg border border-secondary-100 bg-secondary-50 p-4 space-y-1.5">
+            <p className="text-sm font-medium text-secondary-900">Formato da planilha</p>
+            <p className="text-sm text-secondary-800">
               A planilha deve ter pelo menos duas colunas: <strong>Código do insumo</strong> e <strong>Preço</strong>.
               A data de cotação é opcional. Os nomes das colunas são detectados automaticamente.
             </p>
-            <p className="text-xs text-blue-700 font-mono bg-blue-100 rounded px-2 py-1 mt-1">
+            <p className="text-xs text-secondary-700 font-mono bg-secondary-100 rounded px-2 py-1 mt-1">
               CÓDIGO | PREÇO UNIT | DATA
             </p>
           </div>
@@ -362,7 +360,7 @@ export default function ImportarCotacaoPage() {
       {/* ── Step 2: Column Mapping ── */}
       {step === 'mapping' && rawData && (
         <div className="space-y-5">
-          <div className="rounded-xl border bg-white p-6 shadow-sm space-y-5">
+          <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
             <div>
               <h2 className="font-semibold text-gray-900">Mapeamento de colunas</h2>
               <p className="text-sm text-gray-500 mt-0.5">Arquivo: <span className="font-mono">{nomeArquivo}</span> · {rawData.rows.length} linhas detectadas</p>
@@ -375,7 +373,7 @@ export default function ImportarCotacaoPage() {
                 <select
                   value={mapping.codigoCol}
                   onChange={e => setMapping(m => ({ ...m, codigoCol: Number(e.target.value) }))}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
                 >
                   {rawData.headers.map((h, i) => (
                     <option key={i} value={i}>{h || `Coluna ${i + 1}`}</option>
@@ -389,7 +387,7 @@ export default function ImportarCotacaoPage() {
                 <select
                   value={mapping.precoCol}
                   onChange={e => setMapping(m => ({ ...m, precoCol: Number(e.target.value) }))}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
                 >
                   {rawData.headers.map((h, i) => (
                     <option key={i} value={i}>{h || `Coluna ${i + 1}`}</option>
@@ -403,7 +401,7 @@ export default function ImportarCotacaoPage() {
                 <select
                   value={mapping.dataCol ?? ''}
                   onChange={e => setMapping(m => ({ ...m, dataCol: e.target.value === '' ? null : Number(e.target.value) }))}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
                 >
                   <option value="">— nenhuma —</option>
                   {rawData.headers.map((h, i) => (
@@ -415,25 +413,25 @@ export default function ImportarCotacaoPage() {
           </div>
 
           {/* Preview table */}
-          <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b bg-gray-50">
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
               <p className="text-sm font-medium text-gray-700">Prévia — primeiras 5 linhas</p>
             </div>
             <div className="overflow-auto">
               <table className="w-full text-xs">
-                <thead className="border-b bg-gray-50">
+                <thead className="border-b border-gray-200 bg-gray-50">
                   <tr>
                     {rawData.headers.map((h, i) => (
                       <th key={i} className={`px-3 py-2 text-left font-medium ${
-                        i === mapping.codigoCol ? 'text-blue-700 bg-blue-50' :
-                        i === mapping.precoCol  ? 'text-green-700 bg-green-50' :
-                        mapping.dataCol != null && i === mapping.dataCol ? 'text-purple-700 bg-purple-50' :
+                        i === mapping.codigoCol ? 'text-primary-700 bg-primary-50' :
+                        i === mapping.precoCol  ? 'text-emerald-700 bg-emerald-50' :
+                        mapping.dataCol != null && i === mapping.dataCol ? 'text-amber-700 bg-amber-50' :
                         'text-gray-500'
                       }`}>
                         {h || `Col ${i + 1}`}
-                        {i === mapping.codigoCol && <span className="ml-1 text-blue-500">(código)</span>}
-                        {i === mapping.precoCol  && <span className="ml-1 text-green-500">(preço)</span>}
-                        {mapping.dataCol != null && i === mapping.dataCol && <span className="ml-1 text-purple-500">(data)</span>}
+                        {i === mapping.codigoCol && <span className="ml-1 text-primary-500">(código)</span>}
+                        {i === mapping.precoCol  && <span className="ml-1 text-emerald-500">(preço)</span>}
+                        {mapping.dataCol != null && i === mapping.dataCol && <span className="ml-1 text-amber-500">(data)</span>}
                       </th>
                     ))}
                   </tr>
@@ -457,16 +455,12 @@ export default function ImportarCotacaoPage() {
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={handleAnalisar}
-              disabled={loading}
-              className="rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Analisando…' : 'Analisar e comparar'}
-            </button>
-            <button onClick={handleReset} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <Button onClick={handleAnalisar} loading={loading}>
+              Analisar e comparar
+            </Button>
+            <Button variant="outline" onClick={handleReset}>
               Cancelar
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -475,24 +469,17 @@ export default function ImportarCotacaoPage() {
       {step === 'preview' && (
         <div className="space-y-5">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: 'Encontrados', value: compareRows.length - notFound.length, color: 'bg-blue-50 border-blue-200 text-blue-800' },
-              { label: 'Atualizados', value: changed.length,  color: 'bg-green-50 border-green-200 text-green-800' },
-              { label: 'Sem alteração', value: noChange.length, color: 'bg-gray-50 border-gray-200 text-gray-700' },
-              { label: 'Não encontrados', value: notFound.length, color: notFound.length > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gray-50 border-gray-200 text-gray-500' },
-            ].map(stat => (
-              <div key={stat.label} className={`rounded-xl border p-4 ${stat.color}`}>
-                <p className="text-2xl font-bold tabular-nums">{stat.value.toLocaleString('pt-BR')}</p>
-                <p className="text-xs mt-0.5 opacity-80">{stat.label}</p>
-              </div>
-            ))}
-          </div>
+          <StatRow>
+            <StatCard label="Encontrados" value={(compareRows.length - notFound.length).toLocaleString('pt-BR')} />
+            <StatCard label="Atualizados" value={changed.length.toLocaleString('pt-BR')} />
+            <StatCard label="Sem alteração" value={noChange.length.toLocaleString('pt-BR')} />
+            <StatCard label="Não encontrados" value={notFound.length.toLocaleString('pt-BR')} />
+          </StatRow>
 
           {/* Changed rows preview */}
           {changed.length > 0 && (
-            <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                 <p className="text-sm font-medium text-gray-700">
                   Insumos que serão atualizados
                   {changed.length > 50 && <span className="text-gray-400 ml-1">(exibindo 50 de {changed.length.toLocaleString('pt-BR')})</span>}
@@ -500,7 +487,7 @@ export default function ImportarCotacaoPage() {
               </div>
               <div className="overflow-auto max-h-96">
                 <table className="w-full text-xs">
-                  <thead className="border-b bg-gray-50 sticky top-0">
+                  <thead className="border-b border-gray-200 bg-gray-50 sticky top-0">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium text-gray-600 w-28">Código</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-600">Descrição</th>
@@ -523,7 +510,7 @@ export default function ImportarCotacaoPage() {
                           <td className="px-3 py-1.5 text-right tabular-nums font-medium text-gray-900">
                             {r.preco_novo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </td>
-                          <td className={`px-3 py-1.5 text-right tabular-nums text-xs font-medium ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                          <td className={`px-3 py-1.5 text-right tabular-nums text-xs font-medium ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
                             {diff > 0 ? '+' : ''}{pct.toFixed(1)}%
                           </td>
                         </tr>
@@ -542,8 +529,8 @@ export default function ImportarCotacaoPage() {
                 onClick={() => setShowNotFound(v => !v)}
                 className="w-full px-4 py-3 flex items-center justify-between text-left"
               >
-                <span className="text-sm font-medium text-amber-800">
-                  ⚠ {notFound.length} insumo{notFound.length !== 1 ? 's' : ''} não encontrado{notFound.length !== 1 ? 's' : ''}
+                <span className="flex items-center gap-1.5 text-sm font-medium text-amber-800">
+                  <AlertTriangle size={14} /> {notFound.length} insumo{notFound.length !== 1 ? 's' : ''} não encontrado{notFound.length !== 1 ? 's' : ''}
                 </span>
                 <span className="text-xs text-amber-600">{showNotFound ? 'ocultar' : 'ver códigos'}</span>
               </button>
@@ -565,17 +552,13 @@ export default function ImportarCotacaoPage() {
 
           <div className="flex gap-3">
             {changed.length > 0 && (
-              <button
-                onClick={handleConfirmar}
-                disabled={loading}
-                className="rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? 'Atualizando…' : `Confirmar atualização de ${changed.length.toLocaleString('pt-BR')} insumo${changed.length !== 1 ? 's' : ''}`}
-              </button>
+              <Button onClick={handleConfirmar} loading={loading}>
+                Confirmar atualização de {changed.length.toLocaleString('pt-BR')} insumo{changed.length !== 1 ? 's' : ''}
+              </Button>
             )}
-            <button onClick={handleReset} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <Button variant="outline" onClick={handleReset}>
               {changed.length === 0 ? 'Fechar' : 'Cancelar'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -583,9 +566,8 @@ export default function ImportarCotacaoPage() {
       {/* ── Step 4: Result ── */}
       {step === 'result' && result && (
         <div className="space-y-5">
-          <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-3">
-            <p className="text-sm font-semibold text-green-800">Importação concluída com sucesso!</p>
-            <ul className="text-sm text-green-700 space-y-0.5">
+          <ImportResultBox variant="success" title="Importação concluída com sucesso!">
+            <ul className="space-y-0.5">
               <li>✔ {result.atualizados.toLocaleString('pt-BR')} preço{result.atualizados !== 1 ? 's' : ''} atualizado{result.atualizados !== 1 ? 's' : ''}</li>
               {result.sem_alteracao > 0 && <li className="text-gray-500">— {result.sem_alteracao.toLocaleString('pt-BR')} sem alteração</li>}
               {result.nao_encontrados.length > 0 && (
@@ -593,37 +575,31 @@ export default function ImportarCotacaoPage() {
               )}
               {result.erros > 0 && <li className="text-red-700">✗ {result.erros} erro{result.erros !== 1 ? 's' : ''} ao salvar</li>}
             </ul>
-          </div>
+          </ImportResultBox>
 
           {/* Recalcular section */}
-          <div className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
             <h2 className="font-semibold text-gray-900">Recalcular</h2>
             <p className="text-sm text-gray-500">
               Os preços dos insumos foram atualizados. As composições e orçamentos que usam estes insumos podem precisar ser recalculados.
             </p>
             <div className="flex gap-3">
-              <Link
-                href="/composicoes"
-                className="rounded-md border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
-              >
-                Ver Composições
+              <Link href="/composicoes">
+                <Button variant="outline" size="sm">Ver Composições</Button>
               </Link>
-              <Link
-                href="/orcamentos"
-                className="rounded-md border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
-              >
-                Ver Orçamentos
+              <Link href="/orcamentos">
+                <Button variant="outline" size="sm">Ver Orçamentos</Button>
               </Link>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <Link href="/insumos" className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700">
-              Ver insumos
+            <Link href="/insumos">
+              <Button>Ver insumos</Button>
             </Link>
-            <button onClick={handleReset} className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <Button variant="outline" onClick={handleReset}>
               Nova importação
-            </button>
+            </Button>
           </div>
         </div>
       )}

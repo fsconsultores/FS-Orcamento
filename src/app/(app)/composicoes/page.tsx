@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { Plus, Layers3, Database, Coins, HelpCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
@@ -8,6 +9,10 @@ import { ComposicoesTable } from './composicoes-table';
 import { ExportComposicoesButton } from '@/components/export-composicoes-button';
 import type { ComposicaoParaExport } from '@/components/export-composicoes-button';
 import { Pagination } from '@/components/pagination';
+import { PageHeader, Toolbar } from '@/components/ui/toolbar';
+import { StatRow, StatCard } from '@/components/ui/stat-row';
+import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/lib/costs';
 
 type ComposicaoView = {
   id: string;
@@ -63,9 +68,10 @@ export default async function ComposicoesPage({
     return query
   }
 
-  // count + data em paralelo
-  const [countResult, { data: composicoes, error }] = await Promise.all([
+  // count total + count sem base + data da página, em paralelo
+  const [countResult, semBaseResult, { data: composicoes, error }] = await Promise.all([
     addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)),
+    addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
     addFilters(
       sb.from('vw_custo_composicao')
         .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem')
@@ -75,6 +81,7 @@ export default async function ComposicoesPage({
   ])
   if (error) throw error;
   const total: number = countResult.count ?? 0
+  const semBase: number = semBaseResult.count ?? 0
 
   // Busca insumos para as composições da página atual (servidor)
   const compIds = (composicoes ?? []).map((c: any) => c.id as string)
@@ -113,37 +120,47 @@ export default async function ComposicoesPage({
     label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
   }));
 
+  const basesPropias = bases.filter((b) => b.tipo_base === 'propria').length;
+  const custoMedioPagina = composicoesParaExport.length > 0
+    ? composicoesParaExport.reduce((acc, c) => acc + (c.custo_unitario ?? 0), 0) / composicoesParaExport.length
+    : 0;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Composições</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Biblioteca de serviços
-            {total > 0 && <> · <span className="font-medium">{total.toLocaleString('pt-BR')}</span> itens</>}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ExportComposicoesButton composicoes={composicoesParaExport} />
-          <Link
-            href="/composicoes/nova"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            Nova composição
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Composições"
+        description="Biblioteca de serviços (mão de obra + insumos decompostos)."
+        actions={
+          <>
+            <ExportComposicoesButton composicoes={composicoesParaExport} />
+            <Link href="/composicoes/nova">
+              <Button icon={<Plus size={15} />}>Nova composição</Button>
+            </Link>
+          </>
+        }
+      />
 
-      <div className="space-y-2">
-        <Suspense>
-          <SearchInput placeholder="Buscar por código ou descrição..." />
-        </Suspense>
-        {baseOptions.length > 0 && (
+      <Toolbar
+        search={
           <Suspense>
-            <BaseFilter bases={baseOptions} />
+            <SearchInput placeholder="Buscar por código ou descrição..." />
           </Suspense>
-        )}
-      </div>
+        }
+        filters={
+          baseOptions.length > 0 ? (
+            <Suspense>
+              <BaseFilter bases={baseOptions} />
+            </Suspense>
+          ) : undefined
+        }
+      />
+
+      <StatRow>
+        <StatCard label="Itens encontrados" value={total.toLocaleString('pt-BR')} icon={<Layers3 size={16} />} />
+        <StatCard label="Bases carregadas" value={bases.length} icon={<Database size={16} />} hint={basesPropias > 0 ? `${basesPropias} própria(s)` : undefined} />
+        <StatCard label="Custo médio" value={formatCurrency(custoMedioPagina)} icon={<Coins size={16} />} hint="nesta página" />
+        <StatCard label="Sem base vinculada" value={semBase.toLocaleString('pt-BR')} icon={<HelpCircle size={16} />} />
+      </StatRow>
 
       <ComposicoesTable initialComposicoes={(composicoes ?? []) as ComposicaoView[]} />
 

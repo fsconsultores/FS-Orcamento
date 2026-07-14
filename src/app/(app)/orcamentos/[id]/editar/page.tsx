@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 export default function EditarOrcamentoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,8 +109,10 @@ export default function EditarOrcamentoPage() {
         if (insError) throw insError;
       }
 
-      router.refresh();
-      router.push(`/orcamentos/${id}/planilha`);
+      startTransition(() => {
+        router.refresh();
+        router.push(`/orcamentos/${id}/planilha`);
+      });
     } catch {
       setError('Erro ao salvar. Tente novamente.');
       setLoading(false);
@@ -123,8 +126,10 @@ export default function EditarOrcamentoPage() {
       const sb = createClient() as any;
       const { error: dbError } = await sb.from('tabela_orcamentos').delete().eq('id', id);
       if (dbError) throw dbError;
-      router.refresh();
-      router.push('/orcamentos');
+      startTransition(() => {
+        router.refresh();
+        router.push('/orcamentos');
+      });
     } catch {
       setError('Erro ao excluir. Tente novamente.');
       setLoading(false);

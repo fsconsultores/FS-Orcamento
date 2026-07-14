@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
@@ -37,6 +37,7 @@ export function AdicionarItemForm({
   bdiGlobal: number;
 }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -188,7 +189,7 @@ export function AdicionarItemForm({
       // Reseta o form e atualiza a página antes do log (log não bloqueia sucesso)
       setBusca(''); setSelectedComp(null); setResultados([]);
       setQuantidade(''); setBdiEspecifico('');
-      router.refresh();
+      startTransition(() => router.refresh());
 
       registrarHistorico(supabase, {
         orcamentoId,

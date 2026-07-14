@@ -35,7 +35,7 @@ export async function WidgetUltimosCommits() {
         <ul className="space-y-2.5">
           {rows.map(r => (
             <li key={r.id} className="text-sm">
-              <Link href={`/orcamentos/${r.orcamento_id}/versoes` as any} className="text-gray-700 hover:text-blue-600">
+              <Link href={`/orcamentos/${r.orcamento_id}/versoes` as any} className="text-gray-700 hover:text-primary-700">
                 <span className="block truncate">{r.mensagem}</span>
                 <span className="flex items-center justify-between gap-2 text-xs text-gray-400">
                   <span className="truncate">{r.tabela_orcamentos?.nome_obra ?? '—'} · {r.autor_email ?? 'sistema'}</span>

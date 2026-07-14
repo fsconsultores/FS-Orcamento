@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -23,6 +23,7 @@ const GRUPOS = [
 export default function EditarInsumoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +128,10 @@ export default function EditarInsumoPage() {
         });
       }
 
-      router.push('/insumos');
+      startTransition(() => {
+        router.refresh();
+        router.push('/insumos');
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       setError(msg.includes('tabela_insumos_codigo')
@@ -144,8 +148,10 @@ export default function EditarInsumoPage() {
       const sb = createClient() as any;
       const { error: dbError } = await sb.from('tabela_insumos').delete().eq('id', id);
       if (dbError) throw dbError;
-      router.refresh();
-      router.push('/insumos');
+      startTransition(() => {
+        router.refresh();
+        router.push('/insumos');
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       setError(msg.includes('itens_composicao')

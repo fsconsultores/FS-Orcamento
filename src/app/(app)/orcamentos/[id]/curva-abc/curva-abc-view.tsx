@@ -1,10 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { Download, FileText, Printer, BarChart3 } from 'lucide-react'
 import type { AbcItem, AbcItemComCategoria, CategoriaAbc } from '@/lib/curva-abc'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
 import { exportCurvaAbcPdf } from './export-pdf'
+import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
+import { AbcBadge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { useToast } from '@/components/ui/toast'
 
 // ─── Chart ───────────────────────────────────────────────────────────────────
 
@@ -100,7 +106,7 @@ function AbcChart({ items }: { items: AbcItem[] }) {
       )}
 
       {/* Cumulative curve */}
-      <polyline points={linePoints.join(' ')} fill="none" stroke="#2563eb" strokeWidth={2} strokeLinejoin="round" />
+      <polyline points={linePoints.join(' ')} fill="none" stroke="#344DA1" strokeWidth={2} strokeLinejoin="round" />
 
       {/* X axis label */}
       <text x={pL + cW / 2} y={H - 8} textAnchor="middle" fontSize={9} fill="#9ca3af">
@@ -110,13 +116,7 @@ function AbcChart({ items }: { items: AbcItem[] }) {
   )
 }
 
-// ─── Badge ────────────────────────────────────────────────────────────────────
-
-const BADGE: Record<'A' | 'B' | 'C', string> = {
-  A: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  B: 'bg-amber-100 text-amber-700 border-amber-200',
-  C: 'bg-rose-100 text-rose-700 border-rose-200',
-}
+// ─── Cor de fundo por classe (tint sutil de linha, não é ação/marca — mantém semântica A/B/C) ──
 
 const ROW_BG: Record<'A' | 'B' | 'C', string> = {
   A: 'bg-emerald-50/40',
@@ -146,6 +146,8 @@ export function CurvaAbcView({
   orcamentoNome?: string
 }) {
   const router = useRouter()
+  const [, startTransition] = useTransition()
+  const toast = useToast()
   const [categoria, setCategoria] = useState<CategoriaFiltro>('todas')
   const [filtro, setFiltro] = useState<'todos' | 'A' | 'B' | 'C'>('todos')
   const [exportandoPdf, setExportandoPdf] = useState(false)
@@ -175,9 +177,9 @@ export function CurvaAbcView({
         descricao: item.descricao,
         unidade: item.unidade ?? undefined,
       })
-      router.refresh()
+      startTransition(() => router.refresh())
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Erro ao salvar custo.')
+      toast.show(e instanceof Error ? e.message : 'Não foi possível salvar o novo custo. Tente novamente.', 'error')
     } finally {
       setSalvandoCodigo(null)
     }
@@ -271,31 +273,9 @@ export function CurvaAbcView({
 
   return (
     <div className="space-y-5">
-      {/* Filtro por categoria — a curva é única; isto só restringe as linhas exibidas */}
-      <div className="flex flex-wrap gap-1.5">
-        {(['todas', 'materiais', 'mao_de_obra', 'equipamentos', 'servicos'] as const).map((key) => {
-          const count = key === 'todas' ? todosItens.length : todosItens.filter(i => i.categoria === key).length
-          const active = categoria === key
-          return (
-            <button
-              key={key}
-              onClick={() => { setCategoria(key); setFiltro('todos') }}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                active
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
-              }`}
-            >
-              {CATEGORIA_LABELS[key]}
-              <span className={active ? 'ml-1.5 text-blue-100' : 'ml-1.5 text-gray-400'}>({count})</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Summary cards */}
+      {/* KPIs — primeira coisa que o orçamentista vê, antes de qualquer filtro */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Geral</p>
           <p className="text-xl font-bold text-gray-900 mt-1 tabular-nums">{fmt(total)}</p>
           <p className="text-xs text-gray-400 mt-0.5">{items.length} itens</p>
@@ -311,7 +291,7 @@ export function CurvaAbcView({
             C: { border: 'border-rose-200', bg: 'bg-rose-50', title: 'text-rose-700', val: 'text-rose-900', sub: 'text-rose-500' },
           }[c]
           return (
-            <div key={c} className={`rounded-lg border ${colors.border} ${colors.bg} p-4 shadow-sm`}>
+            <div key={c} className={`rounded-xl border ${colors.border} ${colors.bg} p-4 shadow-sm`}>
               <p className={`text-xs font-medium uppercase tracking-wide ${colors.title}`}>
                 Classe {c} <span className="font-normal">({threshold})</span>
               </p>
@@ -322,14 +302,36 @@ export function CurvaAbcView({
         })}
       </div>
 
+      {/* Filtro por categoria — a curva é única; isto só restringe as linhas exibidas */}
+      <div className="flex flex-wrap gap-1.5">
+        {(['todas', 'materiais', 'mao_de_obra', 'equipamentos', 'servicos'] as const).map((key) => {
+          const count = key === 'todas' ? todosItens.length : todosItens.filter(i => i.categoria === key).length
+          const active = categoria === key
+          return (
+            <button
+              key={key}
+              onClick={() => { setCategoria(key); setFiltro('todos') }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? 'bg-primary-700 border-primary-700 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-primary-400'
+              }`}
+            >
+              {CATEGORIA_LABELS[key]}
+              <span className={active ? 'ml-1.5 text-primary-100' : 'ml-1.5 text-gray-400'}>({count})</span>
+            </button>
+          )
+        })}
+      </div>
+
       {/* Chart */}
       {items.length > 0 ? (
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Curva ABC Acumulada</p>
           <AbcChart items={items} />
           <div className="flex gap-4 mt-2 justify-center">
             <span className="flex items-center gap-1.5 text-xs text-gray-500">
-              <span className="inline-block w-6 h-0.5 bg-blue-600 rounded" />
+              <span className="inline-block w-6 h-0.5 rounded" style={{ backgroundColor: '#344DA1' }} />
               % acumulado
             </span>
             <span className="flex items-center gap-1.5 text-xs text-emerald-600">
@@ -347,14 +349,17 @@ export function CurvaAbcView({
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
-          <p className="text-sm font-medium text-gray-500">Nenhum dado disponível</p>
-          <p className="text-xs text-gray-400 mt-1">Importe itens na aba <strong>Planilha</strong> para gerar a Curva ABC.</p>
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <EmptyState
+            icon={<BarChart3 size={20} />}
+            title="Nenhum dado disponível"
+            description="Importe itens na aba Planilha para gerar a Curva ABC."
+          />
         </div>
       )}
 
-      {/* Controles da tabela */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      {/* Toolbar única: filtro de classe + ações rápidas */}
+      <div className="flex items-center justify-between flex-wrap gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex gap-1">
           {([
             { v: 'todos', label: 'Todos' },
@@ -364,7 +369,7 @@ export function CurvaAbcView({
           ] as const).map(({ v, label }) => {
             const active = filtro === v
             const activeClass =
-              v === 'todos' ? 'bg-gray-800 text-white border-gray-800' :
+              v === 'todos' ? 'bg-primary-700 text-white border-primary-700' :
               v === 'A' ? 'bg-emerald-600 text-white border-emerald-600' :
               v === 'B' ? 'bg-amber-500 text-white border-amber-500' :
               'bg-rose-600 text-white border-rose-600'
@@ -380,127 +385,100 @@ export function CurvaAbcView({
           })}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handleExportXlsx}
-            disabled={items.length === 0}
-            className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
+          <Button variant="outline" size="sm" onClick={handleExportXlsx} disabled={items.length === 0} icon={<Download size={14} />}>
             Exportar XLSX
-          </button>
-          <button
-            onClick={handleExportPdf}
-            disabled={items.length === 0 || exportandoPdf}
-            className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={items.length === 0} loading={exportandoPdf} icon={<FileText size={14} />}>
             {exportandoPdf ? 'Gerando PDF…' : 'Exportar PDF'}
-          </button>
-          <button
-            onClick={() => window.print()}
-            disabled={items.length === 0}
-            className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={items.length === 0} icon={<Printer size={14} />}>
             Imprimir / PDF
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Tabela */}
-      <div className="rounded-xl border bg-white shadow-sm overflow-x-auto print:shadow-none print:border-0">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-gray-50">
-            <tr>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-10">#</th>
-              <th className="px-3 py-2.5 text-left font-medium text-gray-500 w-28">Código</th>
-              <th className="px-3 py-2.5 text-left font-medium text-gray-500">Descrição</th>
-              <th className="px-3 py-2.5 text-center font-medium text-gray-500 w-14">Und</th>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-28">Quantidade</th>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-32">Custo Unit.</th>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-32">Valor Total</th>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-16">%</th>
-              <th className="px-3 py-2.5 text-right font-medium text-gray-500 w-20">% Acum.</th>
-              <th className="px-3 py-2.5 text-center font-medium text-gray-500 w-16">Classe</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {filtered.map(item => {
-              const rank = items.indexOf(item) + 1
-              return (
-                <tr key={rank} className={ROW_BG[item.classe]}>
-                  <td className="px-3 py-1.5 text-right font-mono text-xs text-gray-400 tabular-nums">{rank}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs text-gray-600">{item.codigo ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-gray-900">{item.descricao}</td>
-                  <td className="px-3 py-1.5 text-center text-xs text-gray-500">{item.unidade ?? '—'}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{fmtQtd(item.quantidade)}</td>
-                  <td className="px-3 py-1.5 text-right w-32">
-                    {item.codigo && editandoCodigo === item.codigo ? (
-                      <input
-                        autoFocus
-                        type="number"
-                        min="0"
-                        step="any"
-                        defaultValue={item.custo_unitario}
-                        onBlur={e => handleSalvarCusto(item, e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { e.preventDefault(); handleSalvarCusto(item, (e.target as HTMLInputElement).value) }
-                          if (e.key === 'Escape') { e.preventDefault(); setEditandoCodigo(null) }
-                        }}
-                        className="block w-full text-right rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 tabular-nums"
-                      />
-                    ) : (
-                      <span
-                        onClick={() => item.codigo && setEditandoCodigo(item.codigo)}
-                        className={`block tabular-nums ${item.codigo ? 'cursor-pointer hover:underline decoration-dotted' : ''} ${salvandoCodigo === item.codigo ? 'text-gray-400' : 'text-gray-700'}`}
-                        title={item.codigo ? 'Clique para editar' : undefined}
-                      >
-                        {salvandoCodigo === item.codigo ? '…' : fmt(item.custo_unitario)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmt(item.valor_total)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{fmtPct(item.percentual)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{fmtPct(item.percentual_acumulado)}</td>
-                  <td className="px-3 py-1.5 text-center">
-                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold border ${BADGE[item.classe]}`}>
-                      {item.classe}
+      <Table className="print:shadow-none print:border-0">
+        <Thead>
+          <Th className="w-10 text-right">#</Th>
+          <Th className="w-28">Código</Th>
+          <Th>Descrição</Th>
+          <Th className="w-14 text-center">Und</Th>
+          <Th className="w-28 text-right">Quantidade</Th>
+          <Th className="w-32 text-right">Custo Unit.</Th>
+          <Th className="w-32 text-right">Valor Total</Th>
+          <Th className="w-16 text-right">%</Th>
+          <Th className="w-20 text-right">% Acum.</Th>
+          <Th className="w-16 text-center">Classe</Th>
+        </Thead>
+        <Tbody>
+          {filtered.map(item => {
+            const rank = items.indexOf(item) + 1
+            return (
+              <Tr key={rank} className={ROW_BG[item.classe]}>
+                <Td className="text-right font-mono text-xs text-gray-400 tabular-nums">{rank}</Td>
+                <Td className="font-mono text-xs text-gray-600">{item.codigo ?? '—'}</Td>
+                <Td className="text-gray-900">{item.descricao}</Td>
+                <Td className="text-center text-xs text-gray-500">{item.unidade ?? '—'}</Td>
+                <Td className="text-right tabular-nums text-gray-700">{fmtQtd(item.quantidade)}</Td>
+                <Td className="text-right">
+                  {item.codigo && editandoCodigo === item.codigo ? (
+                    <input
+                      autoFocus
+                      type="number"
+                      min="0"
+                      step="any"
+                      defaultValue={item.custo_unitario}
+                      onBlur={e => handleSalvarCusto(item, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); handleSalvarCusto(item, (e.target as HTMLInputElement).value) }
+                        if (e.key === 'Escape') { e.preventDefault(); setEditandoCodigo(null) }
+                      }}
+                      className="block w-full text-right rounded border border-primary-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-primary-400/20 tabular-nums"
+                    />
+                  ) : (
+                    <span
+                      onClick={() => item.codigo && setEditandoCodigo(item.codigo)}
+                      className={`block tabular-nums ${item.codigo ? 'cursor-pointer hover:underline decoration-dotted' : ''} ${salvandoCodigo === item.codigo ? 'text-gray-400' : 'text-gray-700'}`}
+                      title={item.codigo ? 'Clique para editar' : undefined}
+                    >
+                      {salvandoCodigo === item.codigo ? '…' : fmt(item.custo_unitario)}
                     </span>
-                  </td>
-                </tr>
-              )
-            })}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-400">
-                  {items.length === 0
-                    ? 'Nenhum dado. Importe itens na planilha primeiro.'
-                    : 'Nenhum item nessa classe.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {filtered.length > 0 && (
-            <tfoot className="border-t bg-gray-50">
-              <tr>
-                <td colSpan={6} className="px-3 py-2 text-right text-xs text-gray-500">
-                  {filtered.length} item(ns)
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-bold text-gray-900 text-sm">
-                  {fmt(filtered.reduce((s, i) => s + i.valor_total, 0))}
-                </td>
-                <td colSpan={3} />
-              </tr>
-            </tfoot>
+                  )}
+                </Td>
+                <Td className="text-right tabular-nums font-semibold text-gray-900">{fmt(item.valor_total)}</Td>
+                <Td className="text-right tabular-nums text-gray-600">{fmtPct(item.percentual)}</Td>
+                <Td className="text-right tabular-nums text-gray-600">{fmtPct(item.percentual_acumulado)}</Td>
+                <Td className="text-center">
+                  <AbcBadge classe={item.classe} />
+                </Td>
+              </Tr>
+            )
+          })}
+          {filtered.length === 0 && (
+            <Tr>
+              <Td colSpan={10} className="py-8 text-center text-sm text-gray-400">
+                {items.length === 0
+                  ? 'Nenhum dado. Importe itens na planilha primeiro.'
+                  : 'Nenhum item nessa classe.'}
+              </Td>
+            </Tr>
           )}
-        </table>
-      </div>
+        </Tbody>
+        {filtered.length > 0 && (
+          <tfoot className="border-t border-gray-200 bg-gray-50">
+            <tr>
+              <td colSpan={6} className="px-4 py-2 text-right text-xs text-gray-500">
+                {filtered.length} item(ns)
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums font-bold text-gray-900 text-sm">
+                {fmt(filtered.reduce((s, i) => s + i.valor_total, 0))}
+              </td>
+              <td colSpan={3} />
+            </tr>
+          </tfoot>
+        )}
+      </Table>
     </div>
   )
 }

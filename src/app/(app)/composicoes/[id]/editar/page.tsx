@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -13,6 +13,7 @@ type ItemForm = { insumo_id: string; indice: string };
 export default function EditarComposicaoPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [fetching, setFetching] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,8 +137,10 @@ export default function EditarComposicaoPage() {
       );
       if (insErr) throw insErr;
 
-      router.refresh();
-      router.push(`/composicoes/${id}`);
+      startTransition(() => {
+        router.refresh();
+        router.push(`/composicoes/${id}`);
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       setError(msg.includes('uq_composicao_codigo')
@@ -154,8 +157,10 @@ export default function EditarComposicaoPage() {
       const sb = createClient() as any;
       const { error: dbError } = await sb.from('tabela_composicoes').delete().eq('id', id);
       if (dbError) throw dbError;
-      router.refresh();
-      router.push('/composicoes');
+      startTransition(() => {
+        router.refresh();
+        router.push('/composicoes');
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       setError(msg.includes('itens_orcamento')

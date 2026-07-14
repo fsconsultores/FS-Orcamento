@@ -6,30 +6,10 @@
   * {
     box-sizing: border-box;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
   }
-}
-
-/* ── Cor primária da marca fsconsultores ─────────────────────────────────── */
-@layer utilities {
-  .bg-blue-50  { background-color: #f8eef9; }
-  .bg-blue-100 { background-color: #f0ddf1; }
-  .bg-blue-600 { background-color: #562c59; }
-  .bg-blue-700 { background-color: #442246; }
-
-  .hover\:bg-blue-600:hover { background-color: #562c59; }
-  .hover\:bg-blue-700:hover { background-color: #442246; }
-
-  .text-blue-600 { color: #562c59; }
-  .text-blue-700 { color: #442246; }
-
-  .border-blue-100 { border-color: #f0ddf1; }
-  .border-blue-500 { border-color: #7c4180; }
-
-  .focus\:border-blue-500:focus { border-color: #7c4180; }
-  .focus\:ring-blue-500:focus   { --tw-ring-color: rgb(124 65 128 / 0.2); }
-
-  .ring-blue-500\/20 { --tw-ring-color: rgb(124 65 128 / 0.2); }
-  .focus\:ring-2:focus { --tw-ring-shadow: 0 0 0 2px var(--tw-ring-color); }
 }

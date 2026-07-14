@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { importarEstrutura } from './planilha-action'
 import type { EstruturaRow, ImportResult } from './planilha-action'
@@ -122,6 +122,7 @@ async function parseXlsx(ab: ArrayBuffer): Promise<{ rows: EstruturaRow[]; sheet
 
 export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: string; planilhaId?: string | null }) {
   const router = useRouter()
+  const [, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<EstruturaRow[] | null>(null)
@@ -166,7 +167,7 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
       setPreview(null)
       setOpen(false)
       if (inputRef.current) inputRef.current.value = ''
-      router.refresh()
+      startTransition(() => router.refresh())
       setResult(res)
     } catch (err) {
       setResult({ ok: 0, erros: [String(err)] })

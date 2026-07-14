@@ -24,10 +24,12 @@ import {
 
 const GROUP_FILL = '#ede9f3'
 
-// Classe ABC por item — mesmas cores da coluna "ABC" da Planilha Orçamentária
-// (vermelho = maior concentração de custo, verde = menor).
-const ABC_BG: Record<AbcClasse, string> = { A: '#fee2e2', B: '#fef3c7', C: '#dcfce7' }
-const ABC_FG: Record<AbcClasse, string> = { A: '#b91c1c', B: '#b45309', C: '#15803d' }
+// Classe ABC por item — mesmo mapeamento canônico da Curva ABC (ver
+// src/components/ui/badge.tsx): A = verde (maior prioridade de acompanhamento,
+// concentra ~80% do custo), C = vermelho. Estava invertido aqui (bug real,
+// corrigido durante a reformulação de UI/UX).
+const ABC_BG: Record<AbcClasse, string> = { A: '#dcfce7', B: '#fef3c7', C: '#fee2e2' }
+const ABC_FG: Record<AbcClasse, string> = { A: '#15803d', B: '#b45309', C: '#b91c1c' }
 
 // ─── Cabeçalho de documento (logo + cliente + obra + título + REV + data) ────
 

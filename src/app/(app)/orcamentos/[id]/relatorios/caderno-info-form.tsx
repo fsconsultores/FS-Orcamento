@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { X, Plus } from 'lucide-react'
 import { salvarInfoCadernoAction } from './salvar-info-caderno-action'
+import { Input } from '@/components/ui/input'
+import { Button, IconButton } from '@/components/ui/button'
 
 interface ServicoForm {
   id?: string
@@ -23,13 +26,11 @@ interface Props {
   servicosEstimados: { id?: string; descricao: string; valor: number }[]
 }
 
-const INP = 'w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
-const LABEL = 'text-xs font-medium text-gray-600'
-
 export function CadernoInfoForm({
   orcamentoId, nomeObra, codigo, cliente, local, data, areaTotal, areaCoberta, areaEquivalente, servicosEstimados,
 }: Props) {
   const router = useRouter()
+  const [, startTransition] = useTransition()
   const [form, setForm] = useState({
     nome_obra: nomeObra,
     codigo: codigo ?? '',
@@ -89,9 +90,9 @@ export function CadernoInfoForm({
         servicos_estimados: servicosValidos,
       })
       setSaved(true)
-      router.refresh()
+      startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar.')
+      setError(e instanceof Error ? e.message : 'Não foi possível salvar. Tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -104,64 +105,39 @@ export function CadernoInfoForm({
         <p className="text-xs text-gray-400 mt-0.5">Informações que não vêm da planilha — capa, resumo geral e custo por m².</p>
       </div>
 
-      <div className="space-y-1">
-        <label className={LABEL}>Nome da obra *</label>
-        <input value={form.nome_obra} onChange={e => update('nome_obra', e.target.value)} className={INP} />
+      <Input label="Nome da obra" required value={form.nome_obra} onChange={e => update('nome_obra', e.target.value)} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <Input label="Código" value={form.codigo} onChange={e => update('codigo', e.target.value)} />
+        <Input type="date" label="Data" value={form.data} onChange={e => update('data', e.target.value)} />
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <label className={LABEL}>Código</label>
-          <input value={form.codigo} onChange={e => update('codigo', e.target.value)} className={INP} />
-        </div>
-        <div className="space-y-1">
-          <label className={LABEL}>Data</label>
-          <input type="date" value={form.data} onChange={e => update('data', e.target.value)} className={INP} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <label className={LABEL}>Cliente</label>
-          <input value={form.cliente} onChange={e => update('cliente', e.target.value)} placeholder="Ex: João Silva" className={INP} />
-        </div>
-        <div className="space-y-1">
-          <label className={LABEL}>Local</label>
-          <input value={form.local} onChange={e => update('local', e.target.value)} placeholder="Ex: Conceição do Pará - MG" className={INP} />
-        </div>
+        <Input label="Cliente" value={form.cliente} onChange={e => update('cliente', e.target.value)} placeholder="Ex: João Silva" />
+        <Input label="Local" value={form.local} onChange={e => update('local', e.target.value)} placeholder="Ex: Conceição do Pará - MG" />
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <div className="space-y-1">
-          <label className={LABEL}>Área total (m²)</label>
-          <input type="number" min="0" step="0.01" value={form.area_total} onChange={e => update('area_total', e.target.value)} className={INP} />
-        </div>
-        <div className="space-y-1">
-          <label className={LABEL}>Área coberta (m²)</label>
-          <input type="number" min="0" step="0.01" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} className={INP} />
-        </div>
-        <div className="space-y-1">
-          <label className={LABEL}>Área equiv. (m²)</label>
-          <input type="number" min="0" step="0.01" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} className={INP} />
-        </div>
+        <Input type="number" min="0" step="0.01" label="Área total (m²)" value={form.area_total} onChange={e => update('area_total', e.target.value)} />
+        <Input type="number" min="0" step="0.01" label="Área coberta (m²)" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} />
+        <Input type="number" min="0" step="0.01" label="Área equiv. (m²)" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} />
       </div>
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className={LABEL}>Serviços estimados (B)</label>
-          <button type="button" onClick={addServico} className="text-xs font-medium text-blue-600 hover:underline">
-            + Adicionar
+          <label className="text-xs font-medium text-gray-600">Serviços estimados (B)</label>
+          <button type="button" onClick={addServico} className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline">
+            <Plus size={12} /> Adicionar
           </button>
         </div>
         {servicos.length === 0 && <p className="text-xs text-gray-400">Nenhum serviço estimado cadastrado.</p>}
         {servicos.map((s, i) => (
           <div key={s.id ?? `new-${i}`} className="flex gap-1.5">
-            <input value={s.descricao} onChange={e => updateServico(i, 'descricao', e.target.value)}
-              placeholder="Descrição" className={`${INP} flex-1`} />
-            <input type="number" min="0" step="0.01" value={s.valor} onChange={e => updateServico(i, 'valor', e.target.value)}
-              placeholder="Valor (R$)" className={`${INP} w-28`} />
-            <button type="button" onClick={() => removeServico(i)}
-              className="rounded-md border border-gray-300 px-2 text-sm text-gray-500 hover:bg-gray-50">×</button>
+            <Input value={s.descricao} onChange={e => updateServico(i, 'descricao', e.target.value)}
+              placeholder="Descrição" className="flex-1" />
+            <Input type="number" min="0" step="0.01" value={s.valor} onChange={e => updateServico(i, 'valor', e.target.value)}
+              placeholder="Valor (R$)" className="w-28" />
+            <IconButton label="Remover serviço" icon={<X size={14} />} variant="outline" onClick={() => removeServico(i)} />
           </div>
         ))}
       </div>
@@ -169,14 +145,9 @@ export function CadernoInfoForm({
       {error && <p className="text-xs text-red-600">{error}</p>}
 
       <div className="flex items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={handleSalvar}
-          disabled={loading}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Salvando...' : 'Salvar dados do Caderno'}
-        </button>
+        <Button type="button" size="sm" onClick={handleSalvar} loading={loading}>
+          Salvar dados do Caderno
+        </Button>
         {saved && !loading && <span className="text-xs text-emerald-600">Salvo.</span>}
       </div>
     </div>

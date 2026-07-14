@@ -1,8 +1,11 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { X, Plus, Building2, User, Hash, Ruler, PieChart } from 'lucide-react'
 import { salvarConfiguracoes } from './configuracoes-action'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, sugerirCategoria } from '@/lib/orcamento/categorias-grafico'
+import { Input } from '@/components/ui/input'
+import { Button, IconButton } from '@/components/ui/button'
 
 const MIN_NIVEIS = 1
 const MAX_NIVEIS = 6
@@ -10,40 +13,28 @@ const MIN_DIGITOS = 1
 const MAX_DIGITOS = 6
 const DIGITOS_PADRAO = 2
 
-const INP = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'
+const MINI_INP = 'rounded-md border border-gray-300 px-2 py-1.5 text-sm text-center outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20'
 const LABEL = 'text-sm font-medium text-gray-700'
 
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  )
-}
-
-function AccordionSection({ title, defaultOpen = false, children }: {
+/** Card de configuração sempre visível — nada de acordeão: o orçamentista precisa ver
+ * BDI, numeração e cliente de uma vez, sem cliques extras para revelar cada seção. */
+function SettingsCard({ title, icon, span, children }: {
   title: string
-  defaultOpen?: boolean
+  icon: React.ReactNode
+  span?: boolean
   children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-3 px-5 py-4 text-left"
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-500">
-          <ChevronIcon open={open} />
+    <div className={`rounded-xl border border-gray-200 bg-white shadow-sm ${span ? 'lg:col-span-2' : ''}`}>
+      <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+          {icon}
         </span>
-        <span className="text-sm font-bold text-[#1f4e79]">{title}</span>
-      </button>
-      {open && (
-        <div className="px-5 pb-5 pt-1 space-y-4 border-t border-gray-100">
-          {children}
-        </div>
-      )}
+        <span className="text-sm font-semibold text-gray-900">{title}</span>
+      </div>
+      <div className="space-y-4 px-5 py-5">
+        {children}
+      </div>
     </div>
   )
 }
@@ -168,46 +159,28 @@ export function ConfiguracoesView({
         })
         setSalvo(true)
       } catch (err) {
-        setErro(err instanceof Error ? err.message : 'Erro ao salvar configurações.')
+        setErro(err instanceof Error ? err.message : 'Não foi possível salvar as configurações. Tente novamente.')
       }
     })
   }
 
   return (
-    <div className="max-w-2xl space-y-3">
-      <AccordionSection title="Dados Principais" defaultOpen>
-        <div className="space-y-1">
-          <label className={LABEL}>Nome da obra *</label>
-          <input value={form.nome_obra} onChange={e => update('nome_obra', e.target.value)} className={INP} />
-        </div>
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <SettingsCard title="Dados Principais" icon={<Building2 size={16} />} span>
+        <Input label="Nome da obra" required value={form.nome_obra} onChange={e => update('nome_obra', e.target.value)} />
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <label className={LABEL}>Código</label>
-            <input value={form.codigo} onChange={e => update('codigo', e.target.value)} className={INP} />
-          </div>
-          <div className="space-y-1">
-            <label className={LABEL}>Data</label>
-            <input type="date" value={form.data} onChange={e => update('data', e.target.value)} className={INP} />
-          </div>
+          <Input label="Código" value={form.codigo} onChange={e => update('codigo', e.target.value)} />
+          <Input type="date" label="Data" value={form.data} onChange={e => update('data', e.target.value)} />
         </div>
-        <div className="space-y-1">
-          <label className={LABEL}>Local</label>
-          <input value={form.local} onChange={e => update('local', e.target.value)} placeholder="Ex: Conceição do Pará - MG" className={INP} />
-        </div>
-      </AccordionSection>
+        <Input label="Local" value={form.local} onChange={e => update('local', e.target.value)} placeholder="Ex: Conceição do Pará - MG" />
+      </SettingsCard>
 
-      <AccordionSection title="Dados do Cliente">
-        <div className="space-y-1">
-          <label className={LABEL}>Cliente</label>
-          <input value={form.cliente} onChange={e => update('cliente', e.target.value)} placeholder="Ex: João Silva" className={INP} />
-        </div>
-      </AccordionSection>
+      <SettingsCard title="Dados do Cliente" icon={<User size={16} />}>
+        <Input label="Cliente" value={form.cliente} onChange={e => update('cliente', e.target.value)} placeholder="Ex: João Silva" />
+      </SettingsCard>
 
-      <AccordionSection title="Bases de Dados">
-        <div className="space-y-1">
-          <label className={LABEL}>BDI global (%)</label>
-          <input type="number" min="0" step="0.01" value={form.bdi_global} onChange={e => update('bdi_global', e.target.value)} className={`${INP} max-w-40`} />
-        </div>
+      <SettingsCard title="BDI e Numeração" icon={<Hash size={16} />}>
+        <Input type="number" min="0" step="0.01" label="BDI global (%)" className="max-w-40" value={form.bdi_global} onChange={e => update('bdi_global', e.target.value)} />
 
         <div className="border-t border-gray-100 pt-4 space-y-3">
           <div>
@@ -223,12 +196,12 @@ export function ConfiguracoesView({
               <input
                 type="range" min={MIN_NIVEIS} max={MAX_NIVEIS} value={digitos.length}
                 onChange={e => setNiveis(parseInt(e.target.value))}
-                className="flex-1 accent-[#442246]"
+                className="flex-1 accent-primary-600"
               />
               <input
                 type="number" min={MIN_NIVEIS} max={MAX_NIVEIS} value={digitos.length}
                 onChange={e => setNiveis(Math.min(MAX_NIVEIS, Math.max(MIN_NIVEIS, parseInt(e.target.value) || MIN_NIVEIS)))}
-                className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm text-center outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                className={`w-16 ${MINI_INP}`}
               />
             </div>
           </div>
@@ -242,7 +215,7 @@ export function ConfiguracoesView({
                   <input
                     type="number" min={MIN_DIGITOS} max={MAX_DIGITOS} value={d}
                     onChange={e => setDigito(i, Math.min(MAX_DIGITOS, Math.max(MIN_DIGITOS, parseInt(e.target.value) || MIN_DIGITOS)))}
-                    className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm text-center outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    className={`w-16 ${MINI_INP}`}
                   />
                 </div>
               ))}
@@ -255,34 +228,25 @@ export function ConfiguracoesView({
             </p>
           </div>
         </div>
-      </AccordionSection>
+      </SettingsCard>
 
-      <AccordionSection title="Dados Gerais">
+      <SettingsCard title="Dados Gerais" icon={<Ruler size={16} />} span>
         <div>
           <h3 className={LABEL}>Resumo Geral do Orçamento</h3>
           <p className="text-xs text-gray-500 mt-0.5">Usado no Caderno de Orçamento (Resumo Geral e Custo/m²).</p>
         </div>
 
         <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <label className={LABEL}>Área total (m²)</label>
-            <input type="number" min="0" step="0.01" value={form.area_total} onChange={e => update('area_total', e.target.value)} className={INP} />
-          </div>
-          <div className="space-y-1">
-            <label className={LABEL}>Área coberta (m²)</label>
-            <input type="number" min="0" step="0.01" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} className={INP} />
-          </div>
-          <div className="space-y-1">
-            <label className={LABEL}>Área equivalente (m²)</label>
-            <input type="number" min="0" step="0.01" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} className={INP} />
-          </div>
+          <Input type="number" min="0" step="0.01" label="Área total (m²)" value={form.area_total} onChange={e => update('area_total', e.target.value)} />
+          <Input type="number" min="0" step="0.01" label="Área coberta (m²)" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} />
+          <Input type="number" min="0" step="0.01" label="Área equivalente (m²)" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} />
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className={LABEL}>Serviços estimados (B)</label>
-            <button type="button" onClick={addServico} className="text-xs font-medium text-blue-600 hover:underline">
-              + Adicionar
+            <button type="button" onClick={addServico} className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline">
+              <Plus size={12} /> Adicionar
             </button>
           </div>
           {servicos.length === 0 && (
@@ -290,23 +254,21 @@ export function ConfiguracoesView({
           )}
           {servicos.map((s, i) => (
             <div key={s.id ?? `new-${i}`} className="flex gap-2">
-              <input
+              <Input
                 value={s.descricao} onChange={e => updateServico(i, 'descricao', e.target.value)}
-                placeholder="Descrição" className={`${INP} flex-1`}
+                placeholder="Descrição" className="flex-1"
               />
-              <input
+              <Input
                 type="number" min="0" step="0.01" value={s.valor} onChange={e => updateServico(i, 'valor', e.target.value)}
-                placeholder="Valor (R$)" className={`${INP} w-36`}
+                placeholder="Valor (R$)" className="w-36"
               />
-              <button type="button" onClick={() => removeServico(i)} className="rounded-md border border-gray-300 px-2.5 text-sm text-gray-500 hover:bg-gray-50">
-                ×
-              </button>
+              <IconButton label="Remover serviço" icon={<X size={14} />} variant="outline" onClick={() => removeServico(i)} />
             </div>
           ))}
         </div>
-      </AccordionSection>
+      </SettingsCard>
 
-      <AccordionSection title="Distribuição de Custos (Gráfico)">
+      <SettingsCard title="Distribuição de Custos (Gráfico)" icon={<PieChart size={16} />} span>
         <div>
           <p className="text-xs text-gray-500">
             Define em qual categoria do gráfico &quot;Distribuição dos Custos (A)&quot; do Caderno de Orçamento
@@ -325,7 +287,7 @@ export function ConfiguracoesView({
                 <select
                   value={categorias[g.numero] ?? CATEGORIA_OUTROS}
                   onChange={e => setCategoria(g.numero, e.target.value)}
-                  className="w-64 shrink-0 rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-64 shrink-0 rounded-md border border-gray-300 px-2 py-1.5 text-xs outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
                 >
                   {CATEGORIAS_DISTRIBUICAO_CUSTOS.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
@@ -336,19 +298,16 @@ export function ConfiguracoesView({
             ))}
           </div>
         )}
-      </AccordionSection>
+      </SettingsCard>
 
-      {erro && <p className="text-sm text-red-600">{erro}</p>}
-
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={handleSalvar}
-          disabled={isPending}
-          className="rounded-md bg-[#442246] px-5 py-2 text-sm font-medium text-white hover:bg-[#5a2d5e] disabled:opacity-50"
-        >
-          {isPending ? 'Salvando...' : 'Salvar configurações'}
-        </button>
-        {salvo && <span className="text-sm text-emerald-600">Configurações salvas com sucesso.</span>}
+      <div className="space-y-2 pt-1 lg:col-span-2">
+        {erro && <p className="text-sm text-red-600">{erro}</p>}
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSalvar} loading={isPending}>
+            Salvar configurações
+          </Button>
+          {salvo && <span className="text-sm text-emerald-600">Configurações salvas com sucesso.</span>}
+        </div>
       </div>
     </div>
   )

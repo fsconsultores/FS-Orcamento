@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { LogsList, type LogRow } from './logs-list'
+import { PageHeader } from '@/components/ui/toolbar'
 
 export default async function LogsPage() {
   const sb = (await createClient()) as any
@@ -12,14 +13,11 @@ export default async function LogsPage() {
   const logs = (data ?? []) as LogRow[]
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Logs do Sistema</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Registro de ações realizadas no sistema — últimos 200 eventos.
-        </p>
-      </div>
-
+    <div className="space-y-5">
+      <PageHeader
+        title="Logs do Sistema"
+        description="Registro de ações realizadas no sistema — últimos 200 eventos."
+      />
       <LogsList initialLogs={logs} fetchError={error?.message} />
     </div>
   )

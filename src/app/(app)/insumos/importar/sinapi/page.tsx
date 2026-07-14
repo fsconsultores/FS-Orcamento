@@ -5,6 +5,17 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
+import { PageHeader } from '@/components/ui/toolbar'
+import { Button } from '@/components/ui/button'
+import { ImportResultBox } from '@/components/import-result-box'
+import { Checkbox } from '@/components/ui/checkbox'
+import { WizardSteps } from '@/components/ui/import-wizard'
+
+const STEPS = [
+  { key: 'arquivo', label: 'Arquivo' },
+  { key: 'preview', label: 'Prévia e validação' },
+  { key: 'resultado', label: 'Resultado' },
+]
 
 // 27 states in SINAPI file order (columns 6–32)
 const SINAPI_STATES = [
@@ -326,6 +337,14 @@ export default function ImportarSinapiPage() {
   const { rows, stateFound, debugInfo } = fileText
     ? parseRows(fileText, estado, desoneracao, categoriasAtivas, incluirZero)
     : { rows: [], stateFound: false, debugInfo: '' }
+  const step = resultado ? 'resultado' : fileText ? 'preview' : 'arquivo'
+
+  function resetArquivo() {
+    setFileText('')
+    setNomeArquivo('')
+    setGlobalError(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -370,7 +389,7 @@ export default function ImportarSinapiPage() {
       setNomeArquivo('')
       if (fileRef.current) fileRef.current.value = ''
     } catch (err: unknown) {
-      setGlobalError((err as { message?: string })?.message ?? 'Erro ao importar.')
+      setGlobalError((err as { message?: string })?.message ?? 'Não foi possível importar. Tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -380,20 +399,25 @@ export default function ImportarSinapiPage() {
     <div className="max-w-5xl space-y-6">
 
       <div>
-        <Link href="/insumos/importar" className="text-sm text-blue-600 hover:underline">
+        <Link href="/insumos/importar" className="text-sm text-primary-700 hover:underline">
           ← Importar insumos
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar tabela SINAPI</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Importa a planilha mensal de preços da CEF (CSV ou XLSX).
-          Insumos já cadastrados têm o preço atualizado; novos são inseridos na sua base.
-        </p>
+        <div className="mt-2">
+          <PageHeader
+            title="Importar tabela SINAPI"
+            description="Importa a planilha mensal de preços da CEF (CSV ou XLSX). Insumos já cadastrados têm o preço atualizado; novos são inseridos na sua base."
+          />
+        </div>
       </div>
 
+      <WizardSteps steps={STEPS} currentKey={step} />
+
+      {step === 'arquivo' && (
+        <>
       {/* Instructions */}
-      <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-2">
-        <h2 className="font-semibold text-blue-900">Como obter a tabela SINAPI</h2>
-        <ol className="text-sm text-blue-800 list-decimal list-inside space-y-1">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-2">
+        <h2 className="font-semibold text-gray-900">Como obter a tabela SINAPI</h2>
+        <ol className="text-sm text-gray-600 list-decimal list-inside space-y-1">
           <li>Acesse o portal da CEF → Poder Público → SINAPI → Preços</li>
           <li>Baixe o arquivo <strong>Preços de Insumos com ou sem desoneração</strong> no formato CSV ou XLSX</li>
           <li>O arquivo contém preços para todos os estados em uma única planilha — selecione seu estado abaixo</li>
@@ -401,7 +425,7 @@ export default function ImportarSinapiPage() {
       </div>
 
       {/* Settings */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-5">
         <h2 className="font-semibold text-gray-900">Configurações</h2>
 
         {/* State */}
@@ -410,7 +434,7 @@ export default function ImportarSinapiPage() {
           <select
             value={estado}
             onChange={e => setEstado(e.target.value as StateCode)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
           >
             {SINAPI_STATES.map(s => (
               <option key={s.code} value={s.code}>{s.code} — {s.name}</option>
@@ -432,8 +456,8 @@ export default function ImportarSinapiPage() {
                 onClick={() => setDesoneracao(val)}
                 className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                   desoneracao === val
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                    ? 'bg-primary-700 text-white border-primary-700'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
                 }`}
               >
                 {label}
@@ -449,7 +473,7 @@ export default function ImportarSinapiPage() {
             type="month"
             value={mesAno}
             onChange={e => setMesAno(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
           />
           <p className="text-xs text-gray-400">Detectado automaticamente do conteúdo do arquivo. Pode ser ajustado.</p>
         </div>
@@ -465,7 +489,7 @@ export default function ImportarSinapiPage() {
                 onClick={() => toggleCategoria(cat.key)}
                 className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                   categoriasAtivas.has(cat.key)
-                    ? 'bg-gray-800 text-white border-gray-800'
+                    ? 'bg-primary-700 text-white border-primary-700'
                     : 'bg-white text-gray-400 border-gray-300 hover:border-gray-500'
                 }`}
               >
@@ -477,18 +501,13 @@ export default function ImportarSinapiPage() {
 
         {/* Zero prices */}
         <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={incluirZero}
-            onChange={e => setIncluirZero(e.target.checked)}
-            className="rounded border-gray-300"
-          />
+          <Checkbox checked={incluirZero} onChange={e => setIncluirZero(e.target.checked)} />
           <span className="text-sm text-gray-700">Incluir insumos sem preço para este estado</span>
         </label>
       </div>
 
       {/* File upload */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
         <h2 className="font-semibold text-gray-900">Selecionar arquivo</h2>
         <input
           ref={fileRef}
@@ -499,6 +518,8 @@ export default function ImportarSinapiPage() {
         />
         {nomeArquivo && <p className="text-xs text-gray-500 font-mono">{nomeArquivo}</p>}
       </div>
+        </>
+      )}
 
       {/* State not found warning */}
       {fileText && !stateFound && (
@@ -522,7 +543,7 @@ export default function ImportarSinapiPage() {
       )}
 
       {/* Preview table */}
-      {rows.length > 0 && (
+      {step === 'preview' && rows.length > 0 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -536,19 +557,16 @@ export default function ImportarSinapiPage() {
                   Ref.: {new Date(`${mesAno}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
               )}
+              <button onClick={resetArquivo} className="mt-0.5 text-xs font-medium text-primary-700 hover:underline">
+                ← Trocar arquivo
+              </button>
             </div>
-            <button
-              onClick={handleImportar}
-              disabled={loading}
-              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading
-                ? 'Importando…'
-                : `Importar ${rows.length.toLocaleString('pt-BR')} insumo${rows.length !== 1 ? 's' : ''}`}
-            </button>
+            <Button onClick={handleImportar} loading={loading}>
+              Importar {rows.length.toLocaleString('pt-BR')} insumo{rows.length !== 1 ? 's' : ''}
+            </Button>
           </div>
 
-          <div className="overflow-auto rounded-xl border bg-white shadow-sm max-h-[50vh]">
+          <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm max-h-[50vh]">
             <table className="w-full text-xs">
               <thead className="border-b bg-gray-50 sticky top-0">
                 <tr>
@@ -592,9 +610,8 @@ export default function ImportarSinapiPage() {
 
       {/* Result */}
       {resultado && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-4 space-y-1.5">
-          <p className="text-sm font-semibold text-green-800">Importação concluída!</p>
-          <ul className="text-sm text-green-700 space-y-0.5">
+        <ImportResultBox variant="success" title="Importação concluída!">
+          <ul className="space-y-0.5">
             <li>↻ {resultado.atualizados} insumo{resultado.atualizados !== 1 ? 's' : ''} com preço atualizado</li>
             <li>+ {resultado.inseridos} insumo{resultado.inseridos !== 1 ? 's' : ''} novo{resultado.inseridos !== 1 ? 's' : ''} inserido{resultado.inseridos !== 1 ? 's' : ''}</li>
             {resultado.semPreco > 0 && (
@@ -604,10 +621,10 @@ export default function ImportarSinapiPage() {
               <li className="text-amber-700">⚠ {resultado.erros} erro{resultado.erros !== 1 ? 's' : ''} ao salvar</li>
             )}
           </ul>
-          <Link href="/insumos" className="inline-block text-sm text-green-700 underline mt-1">
+          <Link href="/insumos" className="mt-1 inline-block font-medium text-primary-700 hover:underline">
             Ver insumos →
           </Link>
-        </div>
+        </ImportResultBox>
       )}
 
       {globalError && (
@@ -617,13 +634,9 @@ export default function ImportarSinapiPage() {
       )}
 
       <div>
-        <button
-          type="button"
-          onClick={() => router.push('/insumos/importar')}
-          className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" type="button" onClick={() => router.push('/insumos/importar')}>
           Cancelar
-        </button>
+        </Button>
       </div>
 
     </div>

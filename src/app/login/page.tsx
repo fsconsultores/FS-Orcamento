@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent, useEffect, Suspense } from 'react';
+import { useState, FormEvent, useEffect, useTransition, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -24,6 +24,7 @@ function MicrosoftIcon() {
 
 function LoginForm() {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -76,8 +77,10 @@ function LoginForm() {
         return;
       }
 
-      router.push('/dashboard');
-      router.refresh();
+      startTransition(() => {
+        router.push('/dashboard');
+        router.refresh();
+      });
     } catch {
       setError('Erro inesperado. Tente novamente em instantes.');
     } finally {

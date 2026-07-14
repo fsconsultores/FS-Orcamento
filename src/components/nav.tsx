@@ -1,32 +1,37 @@
-'use client';
+'use client'
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import Image from 'next/image';
+import Link from 'next/link'
+import Image from 'next/image'
+import { usePathname } from 'next/navigation'
+import {
+  Home, FolderKanban, Database, ScrollText, FileSpreadsheet, Package, Layers3, UploadCloud,
+  ChevronLeft, ChevronRight, Building2,
+} from 'lucide-react'
+import { useActiveProject } from '@/lib/active-project-store'
+import { Tooltip } from '@/components/ui/tooltip'
+import { FsIcon } from '@/components/logo'
 
-function getOrcamentoId(pathname: string): string | null {
-  const match = pathname.match(/^\/orcamentos\/([^/]+)/);
-  if (!match) return null;
-  const seg = match[1];
-  if (seg === 'novo' || seg === 'editar') return null;
-  return seg;
+interface NavItemDef {
+  href: string
+  label: string
+  icon: typeof Home
+  active: boolean
 }
 
-function NavLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
-  return (
+function NavItem({ item, collapsed }: { item: NavItemDef; collapsed: boolean }) {
+  const Icon = item.icon
+  const link = (
     <Link
-      href={href as any}
-      className={`flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-        active
-          ? 'bg-blue-600 text-white'
-          : 'text-slate-300 hover:bg-white/10 hover:text-white'
-      }`}
+      href={item.href as any}
+      className={`flex items-center rounded-md text-sm font-medium transition-colors ${
+        collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2'
+      } ${item.active ? 'bg-primary-700 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
     >
-      {children}
+      <Icon size={17} strokeWidth={1.75} className="shrink-0" />
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
-  );
+  )
+  return collapsed ? <Tooltip label={item.label}>{link}</Tooltip> : link
 }
 
 function SubNavLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
@@ -34,145 +39,133 @@ function SubNavLink({ href, active, children }: { href: string; active: boolean;
     <Link
       href={href as any}
       className={`block rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-        active ? 'text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+        active ? 'font-semibold text-white' : 'text-slate-400 hover:text-slate-200'
       }`}
     >
       {children}
     </Link>
-  );
+  )
 }
 
-export function Nav({ userEmail, open = true, onToggle }: { userEmail: string; open?: boolean; onToggle?: () => void }) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const orcamentoId = getOrcamentoId(pathname);
-  const [orcamentoNome, setOrcamentoNome] = useState<string | null>(null);
+function GroupLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
+  if (collapsed) return <div className="mt-4 first:mt-0 h-px bg-white/10 mx-2" />
+  return (
+    <p className="mt-4 first:mt-0 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      {children}
+    </p>
+  )
+}
 
-  useEffect(() => {
-    if (!orcamentoId) { setOrcamentoNome(null); return; }
-    const sb = createClient() as any;
-    sb.from('tabela_orcamentos')
-      .select('nome_obra')
-      .eq('id', orcamentoId)
-      .single()
-      .then(({ data }: { data: { nome_obra: string } | null }) => {
-        setOrcamentoNome(data?.nome_obra ?? null);
-      });
-  }, [orcamentoId]);
+export function Nav({ open = true, onToggle }: { open?: boolean; onToggle?: () => void }) {
+  const pathname = usePathname()
+  const activeProject = useActiveProject()
+  const collapsed = !open
 
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
-  }
+  const emBasesDeDados = pathname.startsWith('/bases') || pathname.startsWith('/insumos') || pathname.startsWith('/composicoes')
 
   return (
     <aside
-      style={{ backgroundColor: '#1C0C1D' }}
-      className={`fixed left-0 top-0 h-full w-72 flex flex-col transition-transform duration-300 z-40 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+      className="fixed left-0 top-0 z-40 flex h-full flex-col bg-primary-950 transition-[width] duration-200"
+      style={{ width: collapsed ? 64 : 288 }}
     >
       {/* Logo */}
-      <div className="px-3 py-3 border-b border-white/10 flex items-center justify-between gap-2">
-        <Link href="/dashboard" className="flex-1 min-w-0">
-          <div className="bg-white rounded-lg px-3 py-2">
-            <Image src="/logofs.jpg" alt="fsconsultores" width={200} height={62} className="h-10 w-full object-contain object-center" priority />
-          </div>
-        </Link>
+      <div className={`flex items-center justify-between gap-2 border-b border-white/10 px-3 py-3 ${collapsed ? 'flex-col' : ''}`}>
+        {collapsed ? (
+          <Link href="/dashboard" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white">
+            <FsIcon size={20} />
+          </Link>
+        ) : (
+          <Link href="/dashboard" className="min-w-0 flex-1">
+            <div className="rounded-lg bg-white px-3 py-2">
+              <Image src="/logofs.jpg" alt="fsconsultores" width={200} height={62} className="h-10 w-full object-contain object-center" priority />
+            </div>
+          </Link>
+        )}
         {onToggle && (
           <button
             onClick={onToggle}
-            title="Fechar menu"
-            className="rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         )}
       </div>
 
-      {/* Menu */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-0.5">
-        <NavLink href="/dashboard" active={pathname === '/dashboard'}>
-          Início
-        </NavLink>
-
-        <NavLink href="/orcamentos" active={pathname.startsWith('/orcamentos')}>
-          Orçamentos
-        </NavLink>
-
-        {orcamentoId && (
-          <div className="ml-3 border-l border-blue-700/40 pl-3 space-y-0.5 pt-0.5">
-            {orcamentoNome && (
-              <Link
-                href={`/orcamentos/${orcamentoId}` as any}
-                title={orcamentoNome}
-                className="block px-3 py-1 text-xs font-semibold text-slate-300 truncate hover:text-white transition-colors"
-              >
-                {orcamentoNome}
+      {/* Projeto ativo */}
+      {activeProject && (
+        collapsed ? (
+          <div className="border-b border-white/10 px-2 py-3">
+            <Tooltip label={activeProject.nome_obra}>
+              <Link href={`/orcamentos/${activeProject.id}` as any} className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-primary-200 hover:bg-white/15">
+                <Building2 size={16} />
               </Link>
-            )}
+            </Tooltip>
+          </div>
+        ) : (
+          <Link
+            href={`/orcamentos/${activeProject.id}` as any}
+            className="block border-b border-white/10 px-3 py-3 transition-colors hover:bg-white/5"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-primary-300">
+              <Building2 size={11} /> Projeto ativo
+            </div>
+            <p className="mt-1 truncate text-sm font-semibold text-white" title={activeProject.nome_obra}>
+              {activeProject.nome_obra}
+            </p>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+              {activeProject.codigo && (
+                <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-300">{activeProject.codigo}</span>
+              )}
+              {activeProject.cliente && <span className="truncate">{activeProject.cliente}</span>}
+            </div>
+          </Link>
+        )
+      )}
+
+      {/* Menu */}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        <NavItem item={{ href: '/dashboard', label: 'Início', icon: Home, active: pathname === '/dashboard' }} collapsed={collapsed} />
+
+        <GroupLabel collapsed={collapsed}>Projetos</GroupLabel>
+        <NavItem item={{ href: '/orcamentos', label: 'Orçamentos', icon: FolderKanban, active: pathname.startsWith('/orcamentos') }} collapsed={collapsed} />
+
+        {activeProject && !collapsed && (
+          <div className="ml-3 space-y-0.5 border-l border-primary-700/40 pl-3 pt-0.5">
             {[
-              { suffix: 'planilha',  label: 'Planilha' },
-              { suffix: 'insumos',   label: 'Insumos' },
-              { suffix: 'composicoes', label: 'Composições' },
-              { suffix: 'importar',  label: 'Importar' },
+              { suffix: 'planilha', label: 'Planilha', icon: FileSpreadsheet },
+              { suffix: 'insumos', label: 'Insumos', icon: Package },
+              { suffix: 'composicoes', label: 'Composições', icon: Layers3 },
+              { suffix: 'importar', label: 'Importar', icon: UploadCloud },
             ].map(({ suffix, label }) => (
-              <SubNavLink key={suffix} href={`/orcamentos/${orcamentoId}/${suffix}`} active={pathname.startsWith(`/orcamentos/${orcamentoId}/${suffix}`)}>
+              <SubNavLink
+                key={suffix}
+                href={`/orcamentos/${activeProject.id}/${suffix}`}
+                active={pathname.startsWith(`/orcamentos/${activeProject.id}/${suffix}`)}
+              >
                 {label}
               </SubNavLink>
             ))}
           </div>
         )}
 
-        <NavLink
-          href="/bases"
-          active={pathname.startsWith('/bases') || pathname.startsWith('/insumos') || pathname.startsWith('/composicoes')}
-        >
-          Bases de Dados
-        </NavLink>
+        <GroupLabel collapsed={collapsed}>Dados</GroupLabel>
+        <NavItem item={{ href: '/bases', label: 'Bases de Dados', icon: Database, active: emBasesDeDados }} collapsed={collapsed} />
 
-        {(pathname.startsWith('/bases') || pathname.startsWith('/insumos') || pathname.startsWith('/composicoes')) && (
-          <div className="ml-3 border-l border-blue-700/40 pl-3 space-y-0.5 pt-0.5">
+        {emBasesDeDados && !collapsed && (
+          <div className="ml-3 space-y-0.5 border-l border-primary-700/40 pl-3 pt-0.5">
             {[
-              { href: '/insumos',    label: 'Insumos' },
+              { href: '/insumos', label: 'Insumos' },
               { href: '/composicoes', label: 'Composições' },
             ].map(({ href, label }) => (
-              <SubNavLink key={href} href={href} active={pathname.startsWith(href)}>
-                {label}
-              </SubNavLink>
+              <SubNavLink key={href} href={href} active={pathname.startsWith(href)}>{label}</SubNavLink>
             ))}
           </div>
         )}
 
-        <NavLink href="/logs" active={pathname.startsWith('/logs')}>
-          Logs do Sistema
-        </NavLink>
+        <GroupLabel collapsed={collapsed}>Sistema</GroupLabel>
+        <NavItem item={{ href: '/logs', label: 'Logs do Sistema', icon: ScrollText, active: pathname.startsWith('/logs') }} collapsed={collapsed} />
       </nav>
-
-      {/* Footer */}
-      <div className="border-t border-white/10 p-4 space-y-2">
-        {orcamentoNome && (
-          <Link
-            href={`/orcamentos/${orcamentoId}` as any}
-            title={orcamentoNome}
-            className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-white/8 group transition-colors"
-          >
-            <svg className="w-3.5 h-3.5 shrink-0 text-slate-400 group-hover:text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span className="text-xs text-slate-300 group-hover:text-white truncate transition-colors">{orcamentoNome}</span>
-          </Link>
-        )}
-        <div className="px-1 text-xs text-slate-400 truncate">{userEmail}</div>
-        <button
-          onClick={handleLogout}
-          className="w-full rounded-md border border-white/20 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
-        >
-          Sair
-        </button>
-      </div>
     </aside>
-  );
+  )
 }

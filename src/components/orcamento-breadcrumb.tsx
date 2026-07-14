@@ -28,25 +28,25 @@ export function OrcamentoBreadcrumb({ orcamentoId, orcamentoNome }: Props) {
   const pageLabel = SEGMENT_LABELS[suffix]
 
   return (
-    <nav aria-label="Navegação" className="flex items-center gap-1.5 text-sm text-gray-500 mb-4">
-      <Link href="/orcamentos" className="hover:text-gray-900 transition-colors">
+    <nav aria-label="Navegação" className="mb-4 flex items-center gap-1.5 text-sm text-gray-500">
+      <Link href="/orcamentos" className="transition-colors hover:text-primary-700">
         Orçamentos
       </Link>
 
       <span className="text-gray-300">/</span>
 
       {pageLabel ? (
-        <Link href={base} className="hover:text-gray-900 transition-colors">
+        <Link href={base} className="transition-colors hover:text-primary-700">
           {orcamentoNome}
         </Link>
       ) : (
-        <span className="text-gray-900 font-medium">{orcamentoNome}</span>
+        <span className="font-medium text-gray-900">{orcamentoNome}</span>
       )}
 
       {pageLabel && (
         <>
           <span className="text-gray-300">/</span>
-          <span className="text-gray-900 font-medium">{pageLabel}</span>
+          <span className="font-medium text-gray-900">{pageLabel}</span>
         </>
       )}
     </nav>

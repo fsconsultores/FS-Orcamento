@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { computeAbcCurvaUnica, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
+import { PageHeader } from '@/components/ui/toolbar'
 
 export default async function CurvaAbcPage({
   params,
@@ -70,13 +71,11 @@ export default async function CurvaAbcPage({
   const items = computeAbcCurvaUnica(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Curva ABC</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Classificação dos itens por impacto financeiro no orçamento.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Curva ABC"
+        description="Classificação dos itens por impacto financeiro no orçamento."
+      />
       <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
     </div>
   )

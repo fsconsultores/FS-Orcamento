@@ -63,7 +63,7 @@ export async function WidgetCurvaAbcResumida() {
                 <span className="w-1/2 truncate text-gray-700 sm:w-2/5">{i.descricao}</span>
                 <span className="relative h-1.5 flex-1 rounded-full bg-gray-100">
                   <span
-                    className="absolute inset-y-0 left-0 rounded-full bg-blue-500"
+                    className="absolute inset-y-0 left-0 rounded-full bg-primary-600"
                     style={{ width: max > 0 ? `${(i.valor_total / max) * 100}%` : '0%' }}
                   />
                 </span>

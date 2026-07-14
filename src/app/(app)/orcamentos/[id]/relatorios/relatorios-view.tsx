@@ -7,6 +7,7 @@ import { REPORT_CATALOG, findReport } from './report-catalog'
 import { ReportList } from './report-list'
 import { ReportDetailPanel } from './report-detail-panel'
 import type { EscopoPlanilha, PlanilhaResumo } from './filters/planilha-selector'
+import { PageHeader } from '@/components/ui/toolbar'
 
 interface ServicoEstimadoManual {
   id?: string
@@ -59,13 +60,10 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">Relatórios</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {data.orcamento.nome_obra} — Total:{' '}
-          <span className="font-medium text-gray-700">{fmt(data.totalGeral)}</span>
-        </p>
-      </div>
+      <PageHeader
+        title="Relatórios"
+        description={<>{data.orcamento.nome_obra} — Total: <span className="font-medium text-gray-700">{fmt(data.totalGeral)}</span></>}
+      />
 
       <div className="flex flex-col md:flex-row gap-6">
         <ReportList selectedId={report.id} onSelect={setSelectedId} search={search} onSearchChange={setSearch} />

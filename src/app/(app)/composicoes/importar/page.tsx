@@ -3,9 +3,20 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Building2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { registrarHistorico } from '@/lib/log';
 import { BASES_ORIGEM, type BaseOrigem } from '@/components/base-filter';
+import { PageHeader } from '@/components/ui/toolbar';
+import { Button } from '@/components/ui/button';
+import { ImportResultBox } from '@/components/import-result-box';
+import { WizardSteps } from '@/components/ui/import-wizard';
+
+const STEPS = [
+  { key: 'arquivo', label: 'Arquivo' },
+  { key: 'preview', label: 'Prévia e validação' },
+  { key: 'resultado', label: 'Resultado' },
+];
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -323,7 +334,7 @@ async function importarEmLote(
 // ─── Componente ──────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
-  ok: 'text-green-600',
+  ok: 'text-emerald-600',
   erro: 'text-red-600 font-medium',
   ignorado: 'text-gray-400 italic',
 };
@@ -388,6 +399,13 @@ export default function ImportarComposicoesPage() {
   const ignoradas = rows.filter((r) => r.status === 'ignorado');
   const grupos    = agrupar(validas);
   const insumosUnicos = new Set(validas.map((r) => r.ins_codigo)).size;
+  const step = resultado ? 'resultado' : rows.length > 0 ? 'preview' : 'arquivo';
+
+  function resetArquivo() {
+    setRows([]);
+    setGlobalError(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }
 
   async function handleImportar() {
     if (grupos.length === 0) return;
@@ -410,7 +428,7 @@ export default function ImportarComposicoesPage() {
       setRows([]);
       if (fileRef.current) fileRef.current.value = '';
     } catch (err: unknown) {
-      const msg = (err as { message?: string })?.message ?? 'Erro ao importar. Tente novamente.';
+      const msg = (err as { message?: string })?.message ?? 'Não foi possível importar. Tente novamente.';
       setGlobalError(msg);
       try {
         const sb = createClient();
@@ -429,64 +447,68 @@ export default function ImportarComposicoesPage() {
   return (
     <div className="max-w-6xl space-y-6">
       <div>
-        <Link href="/composicoes" className="text-sm text-blue-600 hover:underline">
+        <Link href="/composicoes" className="text-sm text-primary-700 hover:underline">
           ← Composições
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar composições via CSV</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {targetBase
-            ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>. Insumos ausentes são criados automaticamente.</>
-            : 'Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são importadas como item — o preço real é assumido do cálculo da composição auxiliar.'}
-        </p>
+        <div className="mt-2">
+          <PageHeader
+            title="Importar composições via CSV"
+            description={targetBase
+              ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>. Insumos ausentes são criados automaticamente.</>
+              : 'Insumos ausentes são criados automaticamente com preço 0. Composições auxiliares (sub-composições) são importadas como item — o preço real é assumido do cálculo da composição auxiliar.'}
+          />
+        </div>
       </div>
 
+      <WizardSteps steps={STEPS} currentKey={step} />
+
       {targetBase && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-          <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M9 3h6M9 3v4m6-4v4" />
-          </svg>
-          <p className="text-sm text-blue-800">
+        <div className="flex items-center gap-3 rounded-lg border border-secondary-200 bg-secondary-50 px-4 py-3">
+          <Building2 size={16} className="text-secondary-500 shrink-0" />
+          <p className="text-sm text-secondary-800">
             Destino: <strong>{targetBase.orgao}</strong>
           </p>
-          <Link href="/bases" className="ml-auto text-xs text-blue-600 hover:underline">← Bases</Link>
+          <Link href="/bases" className="ml-auto text-xs text-secondary-700 hover:underline">← Bases</Link>
         </div>
       )}
 
+      {step === 'arquivo' && (
+      <>
       {/* Formato */}
-      <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-3">
-        <h2 className="font-semibold text-blue-900">Formato esperado</h2>
-        <p className="text-sm text-blue-800">
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-3">
+        <h2 className="font-semibold text-gray-900">Formato esperado</h2>
+        <p className="text-sm text-gray-600">
           Arquivo <strong>XLSX</strong> (nativo SINAPI) ou <strong>CSV</strong> com delimitador vírgula (,) ou ponto-e-vírgula (;).
-          Cada linha = um insumo de uma composição. Linhas sem <code className="bg-blue-100 px-1 rounded text-xs">CodigoInsumo</code> são ignoradas automaticamente.
+          Cada linha = um insumo de uma composição. Linhas sem <code className="bg-gray-200 px-1 rounded text-xs">CodigoInsumo</code> são ignoradas automaticamente.
         </p>
         <div className="overflow-x-auto">
-          <table className="text-xs text-blue-800 border-collapse">
+          <table className="text-xs text-gray-600 border-collapse">
             <thead>
-              <tr className="bg-blue-100">
+              <tr className="bg-gray-100">
                 {['#', 'codigo', 'descricao', 'unidade', 'tipoItemComposicao', 'CodigoInsumo', 'DescricaoAbreviada...', 'Unidade', 'indice', 'grupodoInsumo'].map((h) => (
-                  <th key={h} className="px-2 py-1 border border-blue-200 font-mono font-semibold whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-2 py-1 border border-gray-200 font-mono font-semibold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr>
                 {['0', '1', '2', '3', '4', '5', '6', '7', '8'].map((n) => (
-                  <td key={n} className="px-2 py-1 border border-blue-200 text-center text-blue-500">{n}</td>
+                  <td key={n} className="px-2 py-1 border border-gray-200 text-center text-gray-400">{n}</td>
                 ))}
               </tr>
             </tbody>
           </table>
         </div>
-        <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
+        <ul className="text-xs text-gray-500 list-disc list-inside space-y-0.5">
           <li>Arquivo pode ter ou não linha de cabeçalho — detectado automaticamente</li>
           <li>Insumos já existentes na sua base são reutilizados; ausentes são criados com <strong>fonte = BASE_PROPRIA</strong> e preço = 0</li>
-          <li>Atualize os preços dos insumos criados em <Link href="/insumos" className="underline">Insumos</Link></li>
+          <li>Atualize os preços dos insumos criados em <Link href="/insumos" className="text-primary-700 underline">Insumos</Link></li>
           <li>Composições com código já existente são ignoradas (não sobreescreve)</li>
         </ul>
       </div>
 
       {/* Base de origem */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
         <h2 className="font-semibold text-gray-900">Base de origem <span className="text-red-500">*</span></h2>
         <div className="flex flex-wrap gap-2">
           {BASES_ORIGEM.map((b) => (
@@ -496,8 +518,8 @@ export default function ImportarComposicoesPage() {
               onClick={() => setBaseOrigem(b)}
               className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                 baseOrigem === b
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                  ? 'bg-primary-700 text-white border-primary-700'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
               }`}
             >
               {b}
@@ -518,16 +540,18 @@ export default function ImportarComposicoesPage() {
           className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded-md file:border file:border-gray-300 file:text-sm file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
         />
       </div>
+      </>
+      )}
 
       {/* Preview */}
-      {rows.length > 0 && (
+      {step === 'preview' && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-0.5">
               <p className="text-sm font-medium text-gray-700">
                 {rows.length} linha{rows.length !== 1 ? 's' : ''} lida{rows.length !== 1 ? 's' : ''}
                 {' · '}
-                <span className="text-green-700">{validas.length} válida{validas.length !== 1 ? 's' : ''}</span>
+                <span className="text-emerald-700">{validas.length} válida{validas.length !== 1 ? 's' : ''}</span>
                 {invalidas.length > 0 && <span className="text-red-600"> · {invalidas.length} com erro</span>}
                 {ignoradas.length > 0 && <span className="text-gray-400"> · {ignoradas.length} ignorada{ignoradas.length !== 1 ? 's' : ''}</span>}
               </p>
@@ -538,17 +562,16 @@ export default function ImportarComposicoesPage() {
                   {insumosUnicos} insumo{insumosUnicos !== 1 ? 's' : ''} único{insumosUnicos !== 1 ? 's' : ''}
                 </p>
               )}
+              <button onClick={resetArquivo} className="text-xs font-medium text-primary-700 hover:underline">
+                ← Trocar arquivo
+              </button>
             </div>
-            <button
-              onClick={handleImportar}
-              disabled={loading || grupos.length === 0}
-              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Importando...' : `Importar ${grupos.length} composição${grupos.length !== 1 ? 'ões' : ''}`}
-            </button>
+            <Button onClick={handleImportar} disabled={grupos.length === 0} loading={loading}>
+              Importar {grupos.length} composição{grupos.length !== 1 ? 'ões' : ''}
+            </Button>
           </div>
 
-          <div className="overflow-auto rounded-xl border bg-white shadow-sm max-h-[60vh]">
+          <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm max-h-[60vh]">
             <table className="w-full text-xs">
               <thead className="border-b bg-gray-50 sticky top-0">
                 <tr>
@@ -599,27 +622,26 @@ export default function ImportarComposicoesPage() {
 
       {/* Resultado */}
       {resultado && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-4 space-y-1.5">
-          <p className="text-sm font-semibold text-green-800">Importação concluída!</p>
-          <ul className="text-sm text-green-700 space-y-0.5">
+        <ImportResultBox variant="success" title="Importação concluída!">
+          <ul className="space-y-0.5">
             <li>✔ {resultado.composicoesCriadas} composição{resultado.composicoesCriadas !== 1 ? 'ões' : ''} criada{resultado.composicoesCriadas !== 1 ? 's' : ''}</li>
             <li>✔ {resultado.itensAdicionados} vínculo{resultado.itensAdicionados !== 1 ? 's' : ''} composição-insumo registrado{resultado.itensAdicionados !== 1 ? 's' : ''}</li>
             <li>✔ {resultado.insumosCriados} insumo{resultado.insumosCriados !== 1 ? 's' : ''} criado{resultado.insumosCriados !== 1 ? 's' : ''} automaticamente (preço = 0, fonte = BASE_PROPRIA)</li>
-            <li className="text-green-600">↩ {resultado.insumosReutilizados} insumo{resultado.insumosReutilizados !== 1 ? 's' : ''} já existia{resultado.insumosReutilizados !== 1 ? 'm' : ''} e {resultado.insumosReutilizados !== 1 ? 'foram reutilizados' : 'foi reutilizado'}</li>
+            <li>↩ {resultado.insumosReutilizados} insumo{resultado.insumosReutilizados !== 1 ? 's' : ''} já existia{resultado.insumosReutilizados !== 1 ? 'm' : ''} e {resultado.insumosReutilizados !== 1 ? 'foram reutilizados' : 'foi reutilizado'}</li>
             {resultado.composicoesSkipped > 0 && (
               <li className="text-amber-700">⚠ {resultado.composicoesSkipped} composição{resultado.composicoesSkipped !== 1 ? 'ões' : ''} já existia{resultado.composicoesSkipped !== 1 ? 'm' : ''} — ignorada{resultado.composicoesSkipped !== 1 ? 's' : ''}</li>
             )}
           </ul>
           {resultado.insumosCriados > 0 && (
-            <p className="text-xs text-amber-700 mt-1">
+            <p className="mt-1 text-xs text-amber-700">
               Atualize o preço dos insumos criados em{' '}
               <Link href="/insumos" className="underline">Insumos →</Link>
             </p>
           )}
-          <Link href="/composicoes" className="mt-1 inline-block text-sm text-green-700 underline">
+          <Link href="/composicoes" className="mt-1 inline-block font-medium text-primary-700 hover:underline">
             Ver composições →
           </Link>
-        </div>
+        </ImportResultBox>
       )}
 
       {globalError && (
@@ -629,12 +651,9 @@ export default function ImportarComposicoesPage() {
       )}
 
       <div>
-        <button
-          onClick={() => router.push('/composicoes')}
-          className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={() => router.push('/composicoes')}>
           Cancelar
-        </button>
+        </Button>
       </div>
     </div>
   );

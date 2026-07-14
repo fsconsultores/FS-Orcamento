@@ -3,8 +3,20 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Building2, ArrowRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { BASES_ORIGEM, type BaseOrigem } from '@/components/base-filter';
+import { PageHeader } from '@/components/ui/toolbar';
+import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { ImportResultBox } from '@/components/import-result-box';
+import { WizardSteps } from '@/components/ui/import-wizard';
+
+const STEPS = [
+  { key: 'arquivo', label: 'Arquivo' },
+  { key: 'preview', label: 'Prévia e validação' },
+  { key: 'resultado', label: 'Resultado' },
+];
 
 type RowParsed = {
   linha: number;
@@ -155,6 +167,13 @@ export default function ImportarInsumosPage() {
 
   const validas = rows.filter((r) => !r.erro);
   const invalidas = rows.filter((r) => r.erro);
+  const step = resultado ? 'resultado' : rows.length > 0 ? 'preview' : 'arquivo';
+
+  function resetArquivo() {
+    setRows([]);
+    setGlobalError(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }
 
   async function handleImportar() {
     if (validas.length === 0) return;
@@ -211,7 +230,7 @@ export default function ImportarInsumosPage() {
       setRows([]);
       if (fileRef.current) fileRef.current.value = '';
     } catch (err: unknown) {
-      setGlobalError((err as { message?: string })?.message ?? 'Erro ao importar.');
+      setGlobalError((err as { message?: string })?.message ?? 'Não foi possível importar. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -220,114 +239,116 @@ export default function ImportarInsumosPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <Link href="/insumos" className="text-sm text-blue-600 hover:underline">
+        <Link href="/insumos" className="text-sm text-primary-700 hover:underline">
           ← Insumos
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-gray-900">Importar insumos via CSV</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {targetBase
-            ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>.</>
-            : 'Os insumos serão importados para a sua base própria.'}
-        </p>
+        <div className="mt-2">
+          <PageHeader
+            title="Importar insumos via CSV"
+            description={targetBase
+              ? <>Importando para a base <strong className="text-gray-800">{targetBase.orgao}</strong>.</>
+              : 'Os insumos serão importados para a sua base própria.'}
+          />
+        </div>
       </div>
 
+      <WizardSteps steps={STEPS} currentKey={step} />
+
       {targetBase && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-          <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M9 3h6M9 3v4m6-4v4" />
-          </svg>
-          <p className="text-sm text-blue-800">
+        <div className="flex items-center gap-3 rounded-lg border border-secondary-200 bg-secondary-50 px-4 py-3">
+          <Building2 size={16} className="text-secondary-500 shrink-0" />
+          <p className="text-sm text-secondary-800">
             Destino: <strong>{targetBase.orgao}</strong>
           </p>
-          <Link href="/bases" className="ml-auto text-xs text-blue-600 hover:underline">← Bases</Link>
+          <Link href="/bases" className="ml-auto text-xs text-secondary-700 hover:underline">← Bases</Link>
         </div>
       )}
 
-      {/* Atalho Cotação */}
-      <Link
-        href={'/insumos/importar/cotacao' as any}
-        className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 hover:bg-green-100 transition-colors"
-      >
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-green-900">Importar Cotação de Preços (XLSX / CSV)</p>
-          <p className="text-xs text-green-700 mt-0.5">
-            Atualize preços em massa a partir de uma planilha de cotação. Compara preços atuais × importados, exibe prévia e grava histórico.
-          </p>
-        </div>
-        <svg className="w-5 h-5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </Link>
+      {step === 'arquivo' && (
+        <>
+          {/* Atalho Cotação */}
+          <Link
+            href={'/insumos/importar/cotacao' as any}
+            className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 hover:bg-emerald-100 transition-colors"
+          >
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-emerald-900">Importar Cotação de Preços (XLSX / CSV)</p>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                Atualize preços em massa a partir de uma planilha de cotação. Compara preços atuais × importados, exibe prévia e grava histórico.
+              </p>
+            </div>
+            <ArrowRight size={18} className="text-emerald-500 shrink-0" />
+          </Link>
 
-      {/* Atalho SINAPI */}
-      <Link
-        href="/insumos/importar/sinapi"
-        className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 hover:bg-blue-100 transition-colors"
-      >
-        <div className="flex-1">
-          <p className="text-sm font-semibold text-blue-900">Importar tabela SINAPI (CSV / XLSX)</p>
-          <p className="text-xs text-blue-700 mt-0.5">
-            Importa a planilha mensal de preços da CEF (todos os estados). Selecione seu estado, filtre categorias e importe com um clique.
-          </p>
-        </div>
-        <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </Link>
+          {/* Atalho SINAPI */}
+          <Link
+            href="/insumos/importar/sinapi"
+            className="flex items-center gap-3 rounded-xl border border-secondary-200 bg-secondary-50 p-4 hover:bg-secondary-100 transition-colors"
+          >
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-secondary-900">Importar tabela SINAPI (CSV / XLSX)</p>
+              <p className="text-xs text-secondary-700 mt-0.5">
+                Importa a planilha mensal de preços da CEF (todos os estados). Selecione seu estado, filtre categorias e importe com um clique.
+              </p>
+            </div>
+            <ArrowRight size={18} className="text-secondary-500 shrink-0" />
+          </Link>
 
-      {/* Instruções */}
-      <div className="rounded-xl border bg-blue-50 border-blue-100 p-5 space-y-2">
-        <h2 className="font-semibold text-blue-900">Formato esperado</h2>
-        <p className="text-sm text-blue-800">
-          Arquivo CSV com delimitador <strong>vírgula (,)</strong> ou <strong>ponto-e-vírgula (;)</strong>.
-          Os nomes das colunas são detectados automaticamente — compatível com formatos variados.
-        </p>
-        <p className="text-sm text-blue-700 font-mono bg-blue-100 rounded px-3 py-2">
-          CÓD;DESCRIÇÃO;UND;PREÇO;GRUPO IS;ORIGEM
-        </p>
-        <ul className="text-xs text-blue-700 list-disc list-inside space-y-0.5">
-          <li><strong>Código</strong> (CÓD, Codigo…), <strong>Descrição</strong>, <strong>Unidade</strong> (UND, Und…) e <strong>Preço</strong> (PREÇO, Custo Unit., CustoUnitario…) — obrigatórios</li>
-          <li><strong>Grupo</strong> (GRUPO IS, GrupoInsumo…) e <strong>Origem</strong> (Origem, Cotação, Fonte…) — opcionais</li>
-          <li><strong>Data ref.</strong> — opcional, formato dd/mm/aaaa ou aaaa-mm-dd</li>
-        </ul>
-      </div>
+          {/* Instruções */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-2">
+            <h2 className="font-semibold text-gray-900">Formato esperado</h2>
+            <p className="text-sm text-gray-600">
+              Arquivo CSV com delimitador <strong>vírgula (,)</strong> ou <strong>ponto-e-vírgula (;)</strong>.
+              Os nomes das colunas são detectados automaticamente — compatível com formatos variados.
+            </p>
+            <p className="text-sm text-gray-700 font-mono bg-gray-100 rounded px-3 py-2">
+              CÓD;DESCRIÇÃO;UND;PREÇO;GRUPO IS;ORIGEM
+            </p>
+            <ul className="text-xs text-gray-500 list-disc list-inside space-y-0.5">
+              <li><strong>Código</strong> (CÓD, Codigo…), <strong>Descrição</strong>, <strong>Unidade</strong> (UND, Und…) e <strong>Preço</strong> (PREÇO, Custo Unit., CustoUnitario…) — obrigatórios</li>
+              <li><strong>Grupo</strong> (GRUPO IS, GrupoInsumo…) e <strong>Origem</strong> (Origem, Cotação, Fonte…) — opcionais</li>
+              <li><strong>Data ref.</strong> — opcional, formato dd/mm/aaaa ou aaaa-mm-dd</li>
+            </ul>
+          </div>
 
-      {/* Base de origem */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
-        <h2 className="font-semibold text-gray-900">Base de origem <span className="text-red-500">*</span></h2>
-        <div className="flex flex-wrap gap-2">
-          {BASES_ORIGEM.map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => setBaseOrigem(b)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                baseOrigem === b
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
-              }`}
-            >
-              {b}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gray-400">Origem declarada dos dados — salva em cada registro para filtragem e rastreabilidade.</p>
-      </div>
+          {/* Base de origem */}
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
+            <h2 className="font-semibold text-gray-900">Base de origem <span className="text-red-500">*</span></h2>
+            <div className="flex flex-wrap gap-2">
+              {BASES_ORIGEM.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setBaseOrigem(b)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                    baseOrigem === b
+                      ? 'bg-primary-700 text-white border-primary-700'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400 hover:text-primary-700'
+                  }`}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400">Origem declarada dos dados — salva em cada registro para filtragem e rastreabilidade.</p>
+          </div>
 
-      {/* Upload */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm space-y-4">
-        <h2 className="font-semibold text-gray-900">Selecionar arquivo</h2>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.txt"
-          onChange={handleFile}
-          className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded-md file:border file:border-gray-300 file:text-sm file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
-        />
-      </div>
+          {/* Upload */}
+          <div className="rounded-xl border bg-white p-5 shadow-sm space-y-4">
+            <h2 className="font-semibold text-gray-900">Selecionar arquivo</h2>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.txt"
+              onChange={handleFile}
+              className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded-md file:border file:border-gray-300 file:text-sm file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50 cursor-pointer"
+            />
+          </div>
+        </>
+      )}
 
       {/* Preview */}
-      {rows.length > 0 && (
+      {step === 'preview' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -339,72 +360,62 @@ export default function ImportarInsumosPage() {
                   <span className="text-red-600"> · {invalidas.length} com erro</span>
                 )}
               </p>
+              <button onClick={resetArquivo} className="mt-0.5 text-xs font-medium text-primary-700 hover:underline">
+                ← Trocar arquivo
+              </button>
             </div>
-            <button
-              onClick={handleImportar}
-              disabled={loading || validas.length === 0}
-              className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Importando...' : `Importar ${validas.length} insumo${validas.length !== 1 ? 's' : ''}`}
-            </button>
+            <Button onClick={handleImportar} disabled={validas.length === 0} loading={loading}>
+              Importar {validas.length} insumo{validas.length !== 1 ? 's' : ''}
+            </Button>
           </div>
 
-          <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="border-b bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-10">#</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-24">Código</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">Descrição</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-16">Unid.</th>
-                  <th className="px-3 py-2 text-right font-medium text-gray-600 w-24">Preço</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-16">Grupo</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 w-28">Origem</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rows.map((r) => (
-                  <tr key={r.linha} className={r.erro ? 'bg-red-50' : 'bg-white'}>
-                    <td className="px-3 py-1.5 text-gray-400">{r.linha}</td>
-                    <td className="px-3 py-1.5 font-mono text-gray-700">{r.codigo || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-1.5 text-gray-800">{r.descricao || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-1.5 text-gray-600">{r.unidade || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-1.5 text-right text-gray-700">
-                      {r.preco_base > 0
-                        ? r.preco_base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-gray-500">{r.grupo ?? <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-1.5 text-gray-500">{r.fonte ?? <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-1.5">
-                      {r.erro ? (
-                        <span className="text-red-600 font-medium">{r.erro}</span>
-                      ) : (
-                        <span className="text-green-600">OK</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <Thead>
+              <Th className="w-10">#</Th>
+              <Th className="w-24">Código</Th>
+              <Th>Descrição</Th>
+              <Th className="w-16">Unid.</Th>
+              <Th className="w-24 text-right">Preço</Th>
+              <Th className="w-16">Grupo</Th>
+              <Th className="w-28">Origem</Th>
+              <Th>Status</Th>
+            </Thead>
+            <Tbody>
+              {rows.map((r) => (
+                <Tr key={r.linha} className={r.erro ? 'bg-red-50' : ''}>
+                  <Td className="text-xs text-gray-400">{r.linha}</Td>
+                  <Td className="text-xs font-mono text-gray-700">{r.codigo || <span className="text-gray-300">—</span>}</Td>
+                  <Td className="text-xs text-gray-800">{r.descricao || <span className="text-gray-300">—</span>}</Td>
+                  <Td className="text-xs text-gray-600">{r.unidade || <span className="text-gray-300">—</span>}</Td>
+                  <Td className="text-xs text-right text-gray-700">
+                    {r.preco_base > 0
+                      ? r.preco_base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : <span className="text-gray-300">—</span>}
+                  </Td>
+                  <Td className="text-xs text-gray-500">{r.grupo ?? <span className="text-gray-300">—</span>}</Td>
+                  <Td className="text-xs text-gray-500">{r.fonte ?? <span className="text-gray-300">—</span>}</Td>
+                  <Td className="text-xs">
+                    {r.erro ? (
+                      <span className="text-red-600 font-medium">{r.erro}</span>
+                    ) : (
+                      <span className="text-emerald-600">OK</span>
+                    )}
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
         </div>
       )}
 
       {/* Resultado */}
       {resultado && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-1">
-          <p className="text-sm font-semibold text-green-800">
-            Importação concluída: {resultado.ok} insumo{resultado.ok !== 1 ? 's' : ''} importado{resultado.ok !== 1 ? 's' : ''}.
-          </p>
-          {resultado.erros > 0 && (
-            <p className="text-sm text-amber-700">{resultado.erros} linha{resultado.erros !== 1 ? 's' : ''} ignorada{resultado.erros !== 1 ? 's' : ''} por erro.</p>
-          )}
-          <Link href="/insumos" className="text-sm text-green-700 underline">
+        <ImportResultBox variant={resultado.erros > 0 ? 'warning' : 'success'} title={`Importação concluída: ${resultado.ok} insumo${resultado.ok !== 1 ? 's' : ''} importado${resultado.ok !== 1 ? 's' : ''}.`}>
+          {resultado.erros > 0 && <p>{resultado.erros} linha{resultado.erros !== 1 ? 's' : ''} ignorada{resultado.erros !== 1 ? 's' : ''} por erro.</p>}
+          <Link href="/insumos" className="font-medium text-primary-700 hover:underline">
             Ver insumos →
           </Link>
-        </div>
+        </ImportResultBox>
       )}
 
       {globalError && (
@@ -412,12 +423,9 @@ export default function ImportarInsumosPage() {
       )}
 
       <div className="flex gap-3">
-        <button
-          onClick={() => router.push('/insumos')}
-          className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={() => router.push('/insumos')}>
           Cancelar
-        </button>
+        </Button>
       </div>
     </div>
   );

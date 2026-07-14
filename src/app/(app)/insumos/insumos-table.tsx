@@ -2,17 +2,28 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { Package, Download } from 'lucide-react';
 import { formatCurrency } from '@/lib/costs';
 import { baseBadgeClass } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import type { InsumoComBase } from '@/lib/supabase/types';
 import { createClient } from '@/lib/supabase/client';
+import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { SelectionBar } from '@/components/ui/toolbar';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
+import { ExportXlsxButton } from '@/components/export-xlsx-button';
 
 export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase[] }) {
   const [insumos, setInsumos] = useState(initialInsumos);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toast = useToast();
 
   function startEdit(ins: InsumoComBase, e: React.MouseEvent) {
     e.preventDefault();
@@ -51,53 +62,89 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
       });
     } catch {
       setInsumos(prev => prev.map(ins => ins.id === id && current ? { ...ins, preco_base: current.preco_base } : ins));
-      alert('Erro ao salvar. Verifique a conexão.');
+      toast.show('Não foi possível salvar o novo custo. Tente novamente em alguns segundos.', 'error');
     } finally {
       setSavingId(null);
     }
   }
 
+  function toggleAll() {
+    setSelected(prev => prev.size === insumos.length ? new Set() : new Set(insumos.map(i => i.id)));
+  }
+
+  function toggleOne(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const selectedRows = insumos.filter(i => selected.has(i.id));
+
+  if (insumos.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <EmptyState
+          icon={<Package size={20} />}
+          title="Nenhum insumo encontrado"
+          description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="border-b bg-gray-50">
-          <tr>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Código</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Descrição</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Grupo</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Unidade</th>
-            <th className="px-4 py-3 text-right font-medium text-gray-600">Custo</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Base</th>
-            <th className="px-4 py-3 text-left font-medium text-gray-600">Data ref.</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
+    <div className="space-y-3">
+      <SelectionBar
+        count={selected.size}
+        onClear={() => setSelected(new Set())}
+        actions={
+          <ExportXlsxButton
+            rows={selectedRows.map(ins => ({
+              'Código': ins.codigo,
+              'Descrição': ins.descricao,
+              'Grupo': ins.grupo ?? '',
+              'Unidade': ins.unidade,
+              'Custo': ins.preco_base,
+              'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
+            }))}
+            sheetName="Insumos"
+            fileName="insumos_selecionados.xlsx"
+          />
+        }
+      />
+
+      <Table>
+        <Thead>
+          <Th className="w-9"><Checkbox checked={selected.size === insumos.length} onChange={toggleAll} aria-label="Selecionar todos" /></Th>
+          <Th className="w-28">Código</Th>
+          <Th>Descrição</Th>
+          <Th className="w-36">Grupo</Th>
+          <Th className="w-20">Unidade</Th>
+          <Th className="w-36 text-right">Custo</Th>
+          <Th className="w-32">Base</Th>
+          <Th className="w-28">Data ref.</Th>
+        </Thead>
+        <Tbody>
           {insumos.map((ins) => (
-            <tr
-              key={ins.id}
-              className="cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all"
-            >
-              <td className="px-3 py-1.5 w-24">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full font-mono text-xs text-gray-600">
-                  {ins.codigo}
-                </Link>
-              </td>
-              <td className="px-3 py-1.5">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-900">
-                  {ins.descricao}
-                </Link>
-              </td>
-              <td className="px-3 py-1.5 w-36">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
-                  {ins.grupo ?? '—'}
-                </Link>
-              </td>
-              <td className="px-3 py-1.5 w-20">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-600">
-                  {ins.unidade}
-                </Link>
-              </td>
-              <td className="px-3 py-1.5 w-36 text-right">
+            <Tr key={ins.id} className={selected.has(ins.id) ? 'bg-primary-50/60' : ''}>
+              <Td className="!py-2">
+                <Checkbox checked={selected.has(ins.id)} onChange={() => toggleOne(ins.id)} aria-label={`Selecionar ${ins.descricao}`} />
+              </Td>
+              <Td className="!p-0 font-mono text-xs text-gray-500">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.codigo}</Link>
+              </Td>
+              <Td className="!p-0 text-gray-900">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.descricao}</Link>
+              </Td>
+              <Td className="!p-0 text-gray-600">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.grupo ?? '—'}</Link>
+              </Td>
+              <Td className="!p-0 text-gray-600">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.unidade}</Link>
+              </Td>
+              <Td className="!py-1.5 text-right">
                 {editingId === ins.id ? (
                   <input
                     autoFocus
@@ -111,7 +158,7 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
                       if (e.key === 'Enter') { e.preventDefault(); saveEdit(ins.id, (e.target as HTMLInputElement).value); }
                       if (e.key === 'Escape') cancelEdit();
                     }}
-                    className="w-full text-right border border-blue-400 rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/40 bg-white"
+                    className="w-full rounded border border-primary-400 bg-white px-1.5 py-0.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-primary-500/40"
                   />
                 ) : (
                   <button
@@ -119,54 +166,36 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
                     title="Clique para editar o custo"
                     className={`block w-full text-right font-medium tabular-nums ${
                       savingId === ins.id
-                        ? 'text-gray-400 cursor-wait'
-                        : 'text-gray-900 hover:text-blue-600 hover:underline cursor-text'
+                        ? 'cursor-wait text-gray-400'
+                        : 'cursor-text text-gray-900 hover:text-primary-700 hover:underline'
                     }`}
                   >
                     {savingId === ins.id ? '…' : formatCurrency(ins.preco_base)}
                   </button>
                 )}
-              </td>
-              <td className="px-3 py-1.5 w-32">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full">
+              </Td>
+              <Td className="!p-0">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">
                   {ins.base_origem && ins.tabela_bases?.tipo_base === 'propria' ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border bg-blue-50 text-blue-700 border-blue-200">
-                      {ins.base_origem}
-                    </span>
+                    <Badge variant="brand">{ins.base_origem}</Badge>
                   ) : ins.tabela_bases ? (
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${baseBadgeClass(ins.tabela_bases.tipo_base)}`}
-                    >
-                      {ins.tabela_bases.tipo_base === 'externa' && (
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                      )}
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${baseBadgeClass(ins.tabela_bases.tipo_base)}`}>
                       {baseLabelFromOrgao(ins.tabela_bases.orgao)}
                     </span>
                   ) : (
                     <span className="text-gray-400">—</span>
                   )}
                 </Link>
-              </td>
-              <td className="px-3 py-1.5 w-28">
-                <Link href={`/insumos/${ins.id}/editar`} className="block w-full h-full text-gray-500">
-                  {ins.data_referencia
-                    ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
-                    : '—'}
+              </Td>
+              <Td className="!p-0 text-gray-500">
+                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">
+                  {ins.data_referencia ? new Date(ins.data_referencia).toLocaleDateString('pt-BR') : '—'}
                 </Link>
-              </td>
-            </tr>
+              </Td>
+            </Tr>
           ))}
-          {insumos.length === 0 && (
-            <tr>
-              <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
-                Nenhum insumo encontrado.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+        </Tbody>
+      </Table>
     </div>
   );
 }

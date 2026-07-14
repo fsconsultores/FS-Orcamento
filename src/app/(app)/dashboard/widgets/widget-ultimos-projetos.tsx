@@ -30,7 +30,7 @@ export async function WidgetUltimosProjetos() {
             <li key={r.id}>
               <Link
                 href={`/orcamentos/${r.id}` as any}
-                className="flex items-center justify-between gap-2 text-sm text-gray-700 hover:text-blue-600"
+                className="flex items-center justify-between gap-2 text-sm text-gray-700 hover:text-primary-700"
               >
                 <span className="truncate">{r.nome_obra}</span>
                 <span className="ml-2 flex shrink-0 items-center gap-2">

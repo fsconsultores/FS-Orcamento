@@ -1,4 +1,4 @@
-export function FsIcon({ size = 28, color = '#3D4EE8' }: { size?: number; color?: string }) {
+export function FsIcon({ size = 28, color = '#52276E' }: { size?: number; color?: string }) {
   const h = Math.round(size * 0.75)
   return (
     <svg width={size} height={h} viewBox="0 0 32 24" fill="none" aria-hidden="true">
@@ -14,7 +14,7 @@ export function FsIcon({ size = 28, color = '#3D4EE8' }: { size?: number; color?
 
 export function FsLogo({
   size = 28,
-  color = '#3D4EE8',
+  color = '#52276E',
   textColor,
 }: {
   size?: number

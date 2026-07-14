@@ -1,9 +1,20 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus, Eye, RotateCcw, History, GitCommit } from 'lucide-react'
 import type { OrcamentoVersaoResumo, VersaoSnapshotV1 } from '@/lib/orcamento/versoes'
 import { criarVersao, restaurarVersao, buscarSnapshotVersao } from './versoes-action'
+import { PageHeader } from '@/components/ui/toolbar'
+import { Timeline, TimelineItem } from '@/components/ui/timeline'
+import { Badge } from '@/components/ui/badge'
+import { Button, IconButton } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Modal, ConfirmDialog } from '@/components/ui/modal'
+import { Textarea } from '@/components/ui/input'
+import { StatRow, StatCard } from '@/components/ui/stat-row'
+import { EmptyState } from '@/components/ui/empty-state'
+import { useToast } from '@/components/ui/toast'
 
 function fmtData(iso: string): string {
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
@@ -63,6 +74,8 @@ export function VersoesView({
   usuarioAtualEmail?: string | null
 }) {
   const router = useRouter()
+  const [, startTransition] = useTransition()
+  const toast = useToast()
   const [filtroOrigem, setFiltroOrigem] = useState<FiltroOrigem>('todas')
   const [somenteMinhas, setSomenteMinhas] = useState(false)
 
@@ -86,7 +99,6 @@ export function VersoesView({
 
   const [restaurando, setRestaurando] = useState<OrcamentoVersaoResumo | null>(null)
   const [executandoRestore, setExecutandoRestore] = useState(false)
-  const [erroRestore, setErroRestore] = useState<string | null>(null)
 
   const arvorePreview = useMemo(
     () => (snapshotVisualizado ? montarArvorePreview(snapshotVisualizado.estrutura) : []),
@@ -101,9 +113,10 @@ export function VersoesView({
       await criarVersao(orcamentoId, mensagem)
       setShowCriar(false)
       setMensagem('')
-      router.refresh()
+      toast.show('Versão criada.')
+      startTransition(() => router.refresh())
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao criar versão')
+      setErro(e instanceof Error ? e.message : 'Não foi possível criar a versão. Tente novamente.')
     } finally {
       setCriando(false)
     }
@@ -124,35 +137,29 @@ export function VersoesView({
   async function handleConfirmarRestaurar() {
     if (!restaurando || executandoRestore) return
     setExecutandoRestore(true)
-    setErroRestore(null)
     try {
       await restaurarVersao(orcamentoId, restaurando.id)
-      router.push(`/orcamentos/${orcamentoId}/planilha`)
-      router.refresh()
+      startTransition(() => {
+        router.push(`/orcamentos/${orcamentoId}/planilha`)
+        router.refresh()
+      })
     } catch (e) {
-      setErroRestore(e instanceof Error ? e.message : 'Erro ao restaurar versão')
-    } finally {
+      toast.show(e instanceof Error ? e.message : 'Não foi possível restaurar a versão. Tente novamente.', 'error')
       setExecutandoRestore(false)
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Versões</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Histórico de snapshots do orçamento. Nenhuma versão é apagada automaticamente.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCriar(true)}
-          disabled={!!fetchError}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          Criar versão
-        </button>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Versões"
+        description="Histórico de snapshots do orçamento. Nenhuma versão é apagada automaticamente."
+        actions={
+          <Button onClick={() => setShowCriar(true)} disabled={!!fetchError} icon={<Plus size={15} />}>
+            Criar versão
+          </Button>
+        }
+      />
 
       {fetchError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4">
@@ -177,7 +184,7 @@ export function VersoesView({
               key={valor}
               onClick={() => setFiltroOrigem(valor)}
               className={`rounded px-2.5 py-1 font-medium transition-colors ${
-                filtroOrigem === valor ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                filtroOrigem === valor ? 'bg-primary-700 text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               {label}
@@ -185,12 +192,10 @@ export function VersoesView({
           ))}
         </div>
         <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={somenteMinhas}
             onChange={e => setSomenteMinhas(e.target.checked)}
             disabled={!usuarioAtualEmail}
-            className="rounded border-gray-300"
           />
           Criadas por mim
         </label>
@@ -199,196 +204,151 @@ export function VersoesView({
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-gray-50">
-            <tr>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-500">Mensagem</th>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-500 w-48">Autor</th>
-              <th className="px-4 py-2.5 text-left font-medium text-gray-500 w-40">Data</th>
-              <th className="px-4 py-2.5 text-right font-medium text-gray-500 w-56">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {versoes.map(v => (
-              <tr key={v.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2.5 text-gray-900">
-                  {v.mensagem}
-                  {v.origem === 'pre_restore' && (
-                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
-                      backup automático
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-gray-600">{v.autor_email ?? '—'}</td>
-                <td className="px-4 py-2.5 text-gray-600 tabular-nums" suppressHydrationWarning>{fmtData(v.criado_em)}</td>
-                <td className="px-4 py-2.5 text-right">
-                  <button
-                    onClick={() => handleVisualizar(v)}
-                    className="mr-2 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
-                  >
-                    Visualizar
-                  </button>
-                  <button
-                    onClick={() => { setRestaurando(v); setErroRestore(null) }}
-                    className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    Restaurar
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {versoes.length === 0 && versoesIniciais.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-400">
-                  Nenhuma versão criada ainda. Clique em &quot;Criar versão&quot; para registrar o estado atual do orçamento.
-                </td>
-              </tr>
-            )}
-            {versoes.length === 0 && versoesIniciais.length > 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-400">
-                  Nenhuma versão encontrada com os filtros selecionados.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal: Criar versão */}
-      {showCriar && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
-            <div className="bg-blue-600 px-6 py-4">
-              <h2 className="text-base font-bold text-white">Criar versão</h2>
-              <p className="text-xs text-blue-100 mt-0.5">Salva um snapshot completo do orçamento atual.</p>
-            </div>
-            <div className="px-6 py-5 space-y-3">
-              <label className="block text-xs font-medium text-gray-600">
-                Mensagem <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                autoFocus
-                value={mensagem}
-                onChange={e => setMensagem(e.target.value)}
-                rows={3}
-                placeholder="Ex.: Fechamento da revisão 1 para aprovação do cliente"
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              />
-              {erro && <p className="text-xs text-red-600">{erro}</p>}
-            </div>
-            <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-4">
-              <button
-                onClick={() => { setShowCriar(false); setErro(null) }}
-                disabled={criando}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCriar}
-                disabled={criando || !mensagem.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {criando ? 'Salvando...' : 'Criar versão'}
-              </button>
-            </div>
-          </div>
+      {versoes.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <EmptyState
+            icon={<History size={20} />}
+            title={versoesIniciais.length === 0 ? 'Nenhuma versão criada ainda' : 'Nenhuma versão encontrada'}
+            description={
+              versoesIniciais.length === 0
+                ? 'Clique em "Criar versão" para registrar o estado atual do orçamento.'
+                : 'Ajuste os filtros para ver outras versões.'
+            }
+            action={versoesIniciais.length === 0 ? (
+              <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowCriar(true)} disabled={!!fetchError}>
+                Criar versão
+              </Button>
+            ) : undefined}
+          />
         </div>
-      )}
-
-      {/* Modal: Visualizar */}
-      {visualizando && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-2xl overflow-hidden">
-            <div className="bg-gray-800 px-6 py-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-white">{visualizando.mensagem}</h2>
-                <p className="text-xs text-gray-400 mt-0.5" suppressHydrationWarning>{fmtData(visualizando.criado_em)} · {visualizando.autor_email ?? 'autor desconhecido'}</p>
-              </div>
-              <button onClick={() => setVisualizando(null)} className="text-gray-400 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
-              {carregandoSnapshot || !snapshotVisualizado ? (
-                <p className="text-sm text-gray-400">Carregando...</p>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {[
-                      { label: 'Planilhas', value: snapshotVisualizado.planilhas.length },
-                      { label: 'Itens (EAP)', value: snapshotVisualizado.estrutura.length },
-                      { label: 'Composições', value: snapshotVisualizado.composicoes.length },
-                      { label: 'Insumos', value: snapshotVisualizado.insumos.length },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="rounded-lg border bg-gray-50 p-3 text-center">
-                        <p className="text-lg font-bold text-gray-900 tabular-nums">{value}</p>
-                        <p className="text-xs text-gray-500">{label}</p>
-                      </div>
-                    ))}
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <Timeline>
+            {versoes.map((v, i) => (
+              <TimelineItem
+                key={v.id}
+                icon={<GitCommit size={14} />}
+                tone={v.origem === 'pre_restore' ? 'warning' : 'primary'}
+                isLast={i === versoes.length - 1}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">
+                      {v.mensagem}
+                      {v.origem === 'pre_restore' && (
+                        <Badge variant="warning" className="ml-2">backup automático</Badge>
+                      )}
+                    </p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-gray-400">
+                      <span className="font-mono">{v.id.slice(0, 7)}</span>
+                      <span>·</span>
+                      <span>{v.autor_email ?? 'autor desconhecido'}</span>
+                      <span>·</span>
+                      <span className="tabular-nums" suppressHydrationWarning>{fmtData(v.criado_em)}</span>
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Estrutura (EAP)</p>
-                    <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm max-h-72 overflow-y-auto">
-                      {arvorePreview.length > 0 ? <ArvorePreview nodes={arvorePreview} /> : <p className="text-gray-400">Estrutura vazia.</p>}
-                    </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button variant="outline" size="sm" icon={<Eye size={13} />} onClick={() => handleVisualizar(v)}>
+                      Visualizar
+                    </Button>
+                    <Button variant="outline" size="sm" icon={<RotateCcw size={13} />} onClick={() => setRestaurando(v)}>
+                      Restaurar
+                    </Button>
                   </div>
                 </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-4">
-              <button
-                onClick={() => setVisualizando(null)}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
+              </TimelineItem>
+            ))}
+          </Timeline>
         </div>
       )}
 
-      {/* Modal: Confirmar restauração */}
-      {restaurando && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden">
-            <div className="bg-amber-500 px-6 py-4">
-              <h2 className="text-base font-bold text-white">Restaurar versão</h2>
-            </div>
-            <div className="px-6 py-5 space-y-2">
-              <p className="text-sm text-gray-600 leading-relaxed">
-                Isso substituirá a planilha, composições, insumos e configurações atuais do orçamento
-                pelo estado salvo em <strong>&quot;{restaurando.mensagem}&quot;</strong> ({fmtData(restaurando.criado_em)}).
-              </p>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                Uma versão de segurança com o estado atual será criada automaticamente antes da restauração,
-                então nada é perdido — mas essa ação altera o orçamento imediatamente.
-              </p>
-              {erroRestore && <p className="text-xs text-red-600">{erroRestore}</p>}
-            </div>
-            <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-4">
-              <button
-                onClick={() => setRestaurando(null)}
-                disabled={executandoRestore}
-                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmarRestaurar}
-                disabled={executandoRestore}
-                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {executandoRestore ? 'Restaurando...' : 'Restaurar versão'}
-              </button>
-            </div>
-          </div>
+      {/* Modal: Criar versão */}
+      <Modal
+        open={showCriar}
+        onClose={() => { if (!criando) { setShowCriar(false); setErro(null) } }}
+        title="Criar versão"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => { setShowCriar(false); setErro(null) }} disabled={criando}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleCriar} loading={criando} disabled={!mensagem.trim()}>
+              Criar versão
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">Salva um snapshot completo do orçamento atual.</p>
+          <Textarea
+            autoFocus
+            label="Mensagem"
+            required
+            value={mensagem}
+            onChange={e => setMensagem(e.target.value)}
+            rows={3}
+            placeholder="Ex.: Fechamento da revisão 1 para aprovação do cliente"
+            error={erro ?? undefined}
+          />
         </div>
-      )}
+      </Modal>
+
+      {/* Modal: Visualizar */}
+      <Modal
+        open={!!visualizando}
+        onClose={() => setVisualizando(null)}
+        title={visualizando?.mensagem ?? ''}
+        size="lg"
+        footer={<Button variant="outline" size="sm" onClick={() => setVisualizando(null)}>Fechar</Button>}
+      >
+        {visualizando && (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-400" suppressHydrationWarning>
+              {fmtData(visualizando.criado_em)} · {visualizando.autor_email ?? 'autor desconhecido'}
+            </p>
+            {carregandoSnapshot || !snapshotVisualizado ? (
+              <p className="text-sm text-gray-400">Carregando…</p>
+            ) : (
+              <>
+                <StatRow>
+                  <StatCard label="Planilhas" value={snapshotVisualizado.planilhas.length} />
+                  <StatCard label="Itens (EAP)" value={snapshotVisualizado.estrutura.length} />
+                  <StatCard label="Composições" value={snapshotVisualizado.composicoes.length} />
+                  <StatCard label="Insumos" value={snapshotVisualizado.insumos.length} />
+                </StatRow>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Estrutura (EAP)</p>
+                  <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3 text-sm">
+                    {arvorePreview.length > 0 ? <ArvorePreview nodes={arvorePreview} /> : <p className="text-gray-400">Estrutura vazia.</p>}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal: Confirmar restauração */}
+      <ConfirmDialog
+        open={!!restaurando}
+        onClose={() => setRestaurando(null)}
+        onConfirm={handleConfirmarRestaurar}
+        title="Restaurar versão"
+        danger
+        loading={executandoRestore}
+        confirmLabel="Restaurar versão"
+        description={
+          restaurando ? (
+            <>
+              Isso substituirá a planilha, composições, insumos e configurações atuais do orçamento
+              pelo estado salvo em &quot;{restaurando.mensagem}&quot; ({fmtData(restaurando.criado_em)}).
+              {' '}Uma versão de segurança com o estado atual será criada automaticamente antes da
+              restauração, então nada é perdido — mas essa ação altera o orçamento imediatamente.
+            </>
+          ) : ''
+        }
+      />
     </div>
   )
 }

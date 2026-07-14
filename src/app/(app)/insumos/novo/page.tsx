@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -21,6 +21,7 @@ const GRUPOS = [
 
 export default function NovoInsumoPage() {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grupoOpen, setGrupoOpen] = useState(false);
@@ -88,8 +89,10 @@ export default function NovoInsumoPage() {
         base_id: baseId,
       });
       if (dbError) throw dbError;
-      router.refresh();
-      router.push('/insumos');
+      startTransition(() => {
+        router.refresh();
+        router.push('/insumos');
+      });
     } catch (err: unknown) {
       const msg = (err as { message?: string })?.message ?? '';
       if (msg.includes('tabela_insumos_codigo')) {
