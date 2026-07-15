@@ -587,6 +587,23 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [calcPanelOpen])
+
+  // Atalhos de teclado: F9 calcula a planilha ativa, F7 salva as alterações
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (e.repeat) return
+      if (e.key === 'F9') {
+        e.preventDefault()
+        if (calcMode === null) handleCalcular('planilha')
+      } else if (e.key === 'F7') {
+        e.preventDefault()
+        if (!isSaving && invalidCodigos.size === 0) handleSave()
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcMode, isSaving, invalidCodigos, activePlanilhaId])
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
@@ -1448,6 +1465,16 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               {analiticaLoading ? '...' : 'Analítica'}
             </button>
           </div>
+
+          {/* Legenda de atalhos — sempre visível, não só em tooltip */}
+          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-gray-400">
+            <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-gray-500 shadow-sm">F7</kbd>
+            <span>Salvar</span>
+            <span className="text-gray-300">·</span>
+            <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-gray-500 shadow-sm">F9</kbd>
+            <span>Calcular</span>
+          </div>
+
           {/* Indicador de status + botão Salvar */}
           <div className="flex items-center gap-2">
             <div className="text-right text-[11px]">
@@ -1464,6 +1491,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             <button
               onClick={handleSave}
               disabled={isSaving || invalidCodigos.size > 0}
+              title="Salvar Planilha (F7)"
               className="flex items-center gap-1.5 rounded-md bg-primary-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-800 disabled:opacity-60 transition-colors shadow-sm"
             >
               <Save size={14} />
@@ -1526,13 +1554,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       <button
                         onClick={() => handleCalcular('planilha')}
                         disabled={calcMode !== null}
+                        title="Calcular Planilha (F9)"
                         className="w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-xs text-gray-800 hover:bg-blue-50 disabled:opacity-40 transition-colors"
                       >
                         <svg className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <span>
-                          <span className="block font-medium">Calcular Planilha</span>
+                          <span className="block font-medium">Calcular Planilha <span className="font-normal text-gray-400">(F9)</span></span>
                           <span className="text-[10px] text-gray-400 font-normal leading-tight">Recalcula apenas <strong className="text-gray-600">{nomePlanilha ?? 'esta planilha'}</strong>. Atualiza os preços e totais desta planilha.</span>
                         </span>
                       </button>

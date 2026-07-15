@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { Search, Bell, Plus, LogOut, Circle } from 'lucide-react'
+import { Bell, Plus, LogOut, Circle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 function useClickOutside(onOutside: () => void) {
@@ -18,34 +18,21 @@ function useClickOutside(onOutside: () => void) {
   return ref
 }
 
-interface SearchResult { id: string; nome_obra: string; codigo: string | null }
-
 export function Header({ userEmail }: { userEmail: string }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [, startTransition] = useTransition()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [searchOpen, setSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
 
-  const searchRef = useClickOutside(() => setSearchOpen(false))
+  // "Novo orçamento" some quando já se está dentro de um projeto específico
+  // (/orcamentos/[id]/...) — ali o atalho relevante é para o projeto atual,
+  // não para criar um novo.
+  const segments = pathname.split('/').filter(Boolean)
+  const dentroDeProjeto = segments[0] === 'orcamentos' && segments[1] && segments[1] !== 'novo'
+
   const userRef = useClickOutside(() => setUserMenuOpen(false))
   const notifRef = useClickOutside(() => setNotifOpen(false))
-
-  useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return }
-    const sb = createClient() as any
-    const timer = setTimeout(async () => {
-      const { data } = await sb
-        .from('tabela_orcamentos')
-        .select('id, nome_obra, codigo')
-        .ilike('nome_obra', `%${query.trim()}%`)
-        .limit(6)
-      setResults(data ?? [])
-    }, 250)
-    return () => clearTimeout(timer)
-  }, [query])
 
   async function handleLogout() {
     const supabase = createClient()
@@ -60,46 +47,17 @@ export function Header({ userEmail }: { userEmail: string }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-6">
-      {/* Busca rápida de orçamentos */}
-      <div ref={searchRef} className="relative w-full max-w-xs">
-        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          value={query}
-          onChange={e => { setQuery(e.target.value); setSearchOpen(true) }}
-          onFocus={() => setSearchOpen(true)}
-          placeholder="Buscar orçamento..."
-          className="w-full rounded-md border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-3 text-sm outline-none transition-colors focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-primary-500/20"
-        />
-        {searchOpen && query.trim().length >= 2 && (
-          <div className="absolute left-0 top-full z-40 mt-1 w-full rounded-md border border-gray-200 bg-white py-1 shadow-lg">
-            {results.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-gray-400">Nenhum orçamento encontrado.</p>
-            ) : (
-              results.map(r => (
-                <Link
-                  key={r.id}
-                  href={`/orcamentos/${r.id}` as any}
-                  onClick={() => setSearchOpen(false)}
-                  className="flex items-center justify-between px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  <span className="truncate">{r.nome_obra}</span>
-                  {r.codigo && <span className="ml-2 shrink-0 font-mono text-xs text-gray-400">{r.codigo}</span>}
-                </Link>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-
       <div className="flex-1" />
 
-      {/* Ação rápida */}
-      <Link
-        href={'/orcamentos/novo' as any}
-        className="inline-flex items-center gap-1.5 rounded-md bg-primary-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-800"
-      >
-        <Plus size={14} /> Novo orçamento
-      </Link>
+      {/* Ação rápida — só faz sentido fora de um projeto específico */}
+      {!dentroDeProjeto && (
+        <Link
+          href={'/orcamentos/novo' as any}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-800"
+        >
+          <Plus size={14} /> Novo orçamento
+        </Link>
+      )}
 
       {/* Status do sistema */}
       <span className="hidden items-center gap-1.5 text-xs text-gray-400 sm:inline-flex">

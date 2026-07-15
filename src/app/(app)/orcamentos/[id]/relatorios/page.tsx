@@ -15,7 +15,9 @@ export default async function RelatoriosPage({
   const supabase = await createClient()
 
   const planilhaAtualId = typeof sp.planilha === 'string' ? sp.planilha : null
-  const escopoParam = typeof sp.escopo === 'string' ? sp.escopo : 'todas'
+  // Sem escolha explícita de escopo: acompanha a planilha ativa (seletor no
+  // topo) em vez de sempre agregar todas — consistente com as outras abas.
+  const escopoParam = typeof sp.escopo === 'string' ? sp.escopo : (planilhaAtualId ? 'atual' : 'todas')
   const escopo: EscopoPlanilha = escopoParam === 'atual' || escopoParam === 'selecionar' ? escopoParam : 'todas'
   const planilhasParam = typeof sp.planilhas === 'string' ? sp.planilhas : ''
   const planilhaIdsSelecionadas = planilhasParam ? planilhasParam.split(',').filter(Boolean) : []

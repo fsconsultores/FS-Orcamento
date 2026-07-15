@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Button } from './button'
 
@@ -16,6 +16,10 @@ interface ModalProps {
 const SIZE_CLS = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' }
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
+  // Fecha só quando o mousedown E o click começaram no próprio backdrop —
+  // evita fechar ao selecionar texto dentro do modal e soltar o botão fora.
+  const mouseDownOnBackdrop = useRef(false)
+
   useEffect(() => {
     if (!open) return
     function onKey(e: KeyboardEvent) {
@@ -30,7 +34,11 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-      onClick={onClose}
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget }}
+      onClick={e => {
+        if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose()
+        mouseDownOnBackdrop.current = false
+      }}
     >
       <div
         className={`w-full ${SIZE_CLS[size]} rounded-xl bg-white shadow-xl`}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { createComposicao } from '@/lib/orcamento'
@@ -23,6 +23,18 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
   function set(field: keyof CreateComposicaoData, value: string | null) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
+
+  // Atalho: F4 abre o formulário de nova composição
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (e.key === 'F4' && !e.repeat) {
+        e.preventDefault()
+        setOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
 
   function handleClose() {
     setOpen(false)
@@ -50,12 +62,13 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
+        title="Nova Composição (F4)"
         className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
-        Nova Composição
+        Nova Composição <span className="text-blue-200 font-normal">(F4)</span>
       </button>
     )
   }
@@ -133,7 +146,7 @@ export function NovaComposicaoForm({ orcamentoId }: { orcamentoId: string }) {
           disabled={loading}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? 'Criando...' : 'Criar e adicionar insumos →'}
+          {loading ? 'Salvando...' : 'Salvar e adicionar insumos →'}
         </button>
       </div>
     </form>

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { recalcularComposicaoAction } from '../../planilha/calcular-action'
 import { atualizarPrecoInsumoAction } from '../../atualizar-preco-insumo-action'
@@ -153,6 +154,8 @@ export function ComposicaoDetail({
   custoInicial: number
   autoOpenAdd?: boolean
 }) {
+  const router = useRouter()
+  const [, startTransition] = useTransition()
   const [insumos, setInsumos] = useState(initialInsumos)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -252,6 +255,14 @@ export function ComposicaoDetail({
     setAdding(false)
     setSaving(false)
     sincronizar()
+  }
+
+  function handleConcluir() {
+    if (editingId) handleSaveIndice(editingId)
+    if (editingPrecoId) handleSavePreco(editingPrecoId)
+    startTransition(() => {
+      router.push(`/orcamentos/${orcamentoId}/composicoes` as any)
+    })
   }
 
   return (
@@ -473,6 +484,20 @@ export function ComposicaoDetail({
             </tfoot>
           </table>
         )}
+      </div>
+
+      {/* Ação final */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleConcluir}
+          title="Salvar e voltar às Composições"
+          className="flex items-center gap-1.5 rounded-md bg-primary-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-800 shadow-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Salvar e voltar
+        </button>
       </div>
     </div>
   )

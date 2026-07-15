@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
-import { NovaComposicaoForm } from './nova-composicao-form'
 import { ComposicoesTable } from './composicoes-table'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
 import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
@@ -97,8 +96,6 @@ export default async function OrcamentoComposicoesPage({
           <ExportComposicoesButton composicoes={composicoesParaExport} />
         </div>
       </div>
-
-      <NovaComposicaoForm orcamentoId={orcamentoId} />
 
       <ComposicoesTable composicoes={composicoes} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
     </div>

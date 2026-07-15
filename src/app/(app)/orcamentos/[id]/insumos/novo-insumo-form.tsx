@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { createInsumo } from '@/lib/orcamento'
@@ -49,6 +49,18 @@ export function NovoInsumoForm({ orcamentoId, composicoes }: Props) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  // Atalho: F2 abre o formulário de novo insumo
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (e.key === 'F2' && !e.repeat) {
+        e.preventDefault()
+        setOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -71,12 +83,13 @@ export function NovoInsumoForm({ orcamentoId, composicoes }: Props) {
     return (
       <button
         onClick={() => setOpen(true)}
+        title="Novo Insumo (F2)"
         className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
-        Novo Insumo
+        Novo Insumo <span className="text-blue-200 font-normal">(F2)</span>
       </button>
     )
   }

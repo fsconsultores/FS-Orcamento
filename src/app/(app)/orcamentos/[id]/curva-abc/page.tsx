@@ -2,15 +2,25 @@ import { createClient } from '@/lib/supabase/server'
 import { computeAbcCurvaUnica, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
 import { PageHeader } from '@/components/ui/toolbar'
+import { getOrCreateDefaultPlanilha, getPlanilhasByOrcamento } from '@/lib/orcamento/planilhas'
 
 export default async function CurvaAbcPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ planilha?: string }>
 }) {
   const { id: orcamentoId } = await params
+  const { planilha: planilhaParam } = await searchParams
   const supabase = await createClient()
   const sb = supabase as any
+
+  // Mesma resolução de planilha ativa da Planilha — a Curva ABC mostra só os
+  // itens da planilha selecionada no seletor, não o orçamento inteiro.
+  const defaultPlanilha = await getOrCreateDefaultPlanilha(sb, orcamentoId)
+  const todasPlanilhas = await getPlanilhasByOrcamento(sb, orcamentoId)
+  const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? defaultPlanilha
 
   // 1. Orçamento + planilha + composições em paralelo
   const [{ data: orcamento }, { data: estrutura }, { data: composicoes }] = await Promise.all([
@@ -21,6 +31,7 @@ export default async function CurvaAbcPage({
     sb.from('orcamento_estrutura')
       .select('codigo, descricao, unidade, quantidade, custo_unitario')
       .eq('orcamento_id', orcamentoId)
+      .eq('planilha_id', activePlanilha.id)
       .eq('tipo', 'item'),
     sb.from('orcamento_composicoes')
       .select('id, codigo, descricao')
@@ -74,7 +85,7 @@ export default async function CurvaAbcPage({
     <div className="space-y-5">
       <PageHeader
         title="Curva ABC"
-        description="Classificação dos itens por impacto financeiro no orçamento."
+        description={`Classificação dos itens por impacto financeiro na planilha "${activePlanilha.nome}".`}
       />
       <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
     </div>

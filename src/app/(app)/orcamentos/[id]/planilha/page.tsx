@@ -1,4 +1,3 @@
-import { FileSpreadsheet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { PlanilhaView } from './planilha-view'
 import { ImportPlanilhaForm } from './import-planilha-form'
@@ -50,13 +49,7 @@ export default async function PlanilhaPage({
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Planilha Orçamentária</h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-semibold text-primary-700 ring-1 ring-primary-200">
-              <FileSpreadsheet size={12} strokeWidth={2} />
-              {activePlanilha.nome}
-            </span>
-          </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Planilha Orçamentária</h1>
           <p className="text-sm text-gray-500 mt-1">
             {items.length === 0
               ? 'Nenhum item. Importe um CSV ou adicione manualmente.'

@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { getInsumosByOrcamento, getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
-import { NovoInsumoForm } from './novo-insumo-form'
 import { OrcamentoInsumosTable } from './insumos-table'
 
 export default async function OrcamentoInsumosPage({
@@ -90,8 +89,6 @@ export default async function OrcamentoInsumosPage({
           </div>
         )}
       </div>
-
-      <NovoInsumoForm orcamentoId={orcamentoId} composicoes={composicoes} />
 
       <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
     </div>
