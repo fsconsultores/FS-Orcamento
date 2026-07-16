@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Download, FileText, Printer, BarChart3 } from 'lucide-react'
 import type { AbcItem, AbcItemComCategoria, CategoriaAbc } from '@/lib/curva-abc'
@@ -11,6 +11,11 @@ import { AbcBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useToast } from '@/components/ui/toast'
+import { ClientPagination } from '@/components/client-pagination'
+
+// Mesmo tamanho de página usado em Insumos/Composições — mantém a tabela
+// leve mesmo em orçamentos com milhares de itens na Curva ABC.
+const PAGE_SIZE = 100
 
 // ─── Chart ───────────────────────────────────────────────────────────────────
 
@@ -153,12 +158,38 @@ export function CurvaAbcView({
   const [exportandoPdf, setExportandoPdf] = useState(false)
   const [editandoCodigo, setEditandoCodigo] = useState<string | null>(null)
   const [salvandoCodigo, setSalvandoCodigo] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // A curva ABC é uma só (percentuais/classes calculados uma única vez sobre
   // todos os itens); o filtro por categoria só restringe quais linhas aparecem,
   // sem recalcular percentual/acumulado/classe.
   const items = categoria === 'todas' ? todosItens : todosItens.filter(i => i.categoria === categoria)
   const filtered = filtro === 'todos' ? items : items.filter(i => i.classe === filtro)
+
+  useEffect(() => { setCurrentPage(1) }, [categoria, filtro])
+
+  // Rank (posição no ranking) por item — precomputado em O(n) numa Map, em
+  // vez de items.indexOf(item) dentro do .map() de renderização, que era
+  // O(n) por linha (O(n²) no total, sensível em orçamentos com milhares de
+  // itens na Curva ABC).
+  const rankMap = useMemo(() => new Map(items.map((it, i) => [it, i + 1])), [items])
+
+  // Impressão (window.print) captura o DOM atual — com paginação ativa isso
+  // cortaria linhas fora da página corrente. Enquanto `printing`, a tabela
+  // renderiza a lista inteira; volta a paginar assim que o diálogo fecha.
+  const [printing, setPrinting] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const onAfterPrint = () => setPrinting(false)
+    window.addEventListener('afterprint', onAfterPrint)
+    return () => window.removeEventListener('afterprint', onAfterPrint)
+  }, [])
+  function handlePrint() {
+    setPrinting(true)
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()))
+  }
+
+  const paged = printing ? filtered : filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const total = items.reduce((s, i) => s + i.valor_total, 0)
   const byClass = (c: 'A' | 'B' | 'C') => items.filter(i => i.classe === c)
@@ -391,7 +422,7 @@ export function CurvaAbcView({
           <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={items.length === 0} loading={exportandoPdf} icon={<FileText size={14} />}>
             {exportandoPdf ? 'Gerando PDF…' : 'Exportar PDF'}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()} disabled={items.length === 0} icon={<Printer size={14} />}>
+          <Button variant="outline" size="sm" onClick={handlePrint} disabled={items.length === 0} icon={<Printer size={14} />}>
             Imprimir / PDF
           </Button>
         </div>
@@ -412,8 +443,8 @@ export function CurvaAbcView({
           <Th className="w-16 text-center">Classe</Th>
         </Thead>
         <Tbody>
-          {filtered.map(item => {
-            const rank = items.indexOf(item) + 1
+          {paged.map(item => {
+            const rank = rankMap.get(item)!
             return (
               <Tr key={rank} className={ROW_BG[item.classe]}>
                 <Td className="text-right font-mono text-xs text-gray-400 tabular-nums">{rank}</Td>
@@ -479,6 +510,10 @@ export function CurvaAbcView({
           </tfoot>
         )}
       </Table>
+
+      <div className="print:hidden">
+        <ClientPagination total={filtered.length} page={currentPage} pageSize={PAGE_SIZE} onPageChange={setCurrentPage} />
+      </div>
     </div>
   )
 }

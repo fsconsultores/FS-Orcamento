@@ -131,15 +131,20 @@ export function OrcamentoInsumosTable({
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
 
   const q = query.trim().toLowerCase()
-  const porTexto = q
-    ? insumos.filter(ins =>
-        ins.codigo.toLowerCase().includes(q) ||
-        ins.descricao.toLowerCase().includes(q)
-      )
-    : insumos
-  const visible = filtroUso === 'todos'
-    ? porTexto
-    : porTexto.filter(ins => usadosSet.has(ins.codigo) === (filtroUso === 'usados'))
+  // Memoizado: sem isso, o filter+toLowerCase rodava a cada render do
+  // componente inteiro — inclusive a cada keystroke ao editar uma célula
+  // inline (savingId/editing mudando não tem nada a ver com a busca).
+  const visible = useMemo(() => {
+    const porTexto = q
+      ? insumos.filter(ins =>
+          ins.codigo.toLowerCase().includes(q) ||
+          ins.descricao.toLowerCase().includes(q)
+        )
+      : insumos
+    return filtroUso === 'todos'
+      ? porTexto
+      : porTexto.filter(ins => usadosSet.has(ins.codigo) === (filtroUso === 'usados'))
+  }, [insumos, q, filtroUso, usadosSet])
 
   useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
 

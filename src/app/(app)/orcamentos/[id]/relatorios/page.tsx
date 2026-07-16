@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { getCadernoData, getPlanilhasByOrcamento } from '@/lib/orcamento'
+import { getCadernoData } from '@/lib/orcamento'
+import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
 import { RelatoriosView } from './relatorios-view'
 import type { EscopoPlanilha } from './filters/planilha-selector'
 
@@ -29,7 +30,7 @@ export default async function RelatoriosPage({
 
   const [data, planilhas, { data: servicosManuais }] = await Promise.all([
     getCadernoData(supabase as any, orcamentoId, planilhaIdsParaQuery),
-    getPlanilhasByOrcamento(supabase as any, orcamentoId),
+    getPlanilhasEnsuredCached(orcamentoId),
     (supabase as any).from('orcamento_servicos_estimados')
       .select('id, descricao, valor')
       .eq('orcamento_id', orcamentoId)

@@ -617,6 +617,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   // Map id→item para lookups O(1) — evita items.find() em loops O(n²)
   const itemMap = useMemo(() => new Map(items.map(i => [i.id, i])), [items])
 
+  // Índices O(1) adicionais para árvore/drag — evitam escanear a planilha
+  // inteira a cada clique/frame de drag (computeProjection roda a cada
+  // pointer-move durante um drag).
+  const childrenMap = useMemo(() => {
+    const m = new Map<string | null, EstruturaItem[]>()
+    for (const it of items) {
+      const key = it.parent_id
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(it)
+    }
+    for (const arr of m.values()) arr.sort((a, b) => a.ordem - b.ordem)
+    return m
+  }, [items])
+
   // Rebuild tree — memoizado para não recalcular em cada keystroke/estado de UI
   const { tree, flat, grandTotal, grandTotalComBdi } = useMemo(() => {
     const t = buildTree(items)
@@ -655,6 +669,14 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }
     return result
   }, [flat, collapsed])
+
+  // Lookups O(1) por id — usados na navegação de célula (clique, Tab/Enter)
+  // e no overlay de drag, em vez de flat.find()/visible.findIndex() a cada
+  // clique/keypress/frame (regressão de uma refatoração de UI anterior:
+  // esses índices existiam antes e foram perdidos).
+  const flatNodeMap = useMemo(() => new Map(flat.map(f => [f.nodo.id, f])), [flat])
+  const flatIndexMap = useMemo(() => new Map(flat.map((f, i) => [f.nodo.id, i])), [flat])
+  const visibleIndexMap = useMemo(() => new Map(visible.map((v, i) => [v.nodo.id, i])), [visible])
 
   // ── Virtualização ─────────────────────────────────────────────────────────
   // Ativa quando: modo sintético + sem formulário inline + >50 linhas visíveis
@@ -724,7 +746,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   // ── Inline editing ──────────────────────────────────────────────────────────
 
   function openCell(id: string, field: string) {
-    const nodoFlat = flat.find(f => f.nodo.id === id)
+    const nodoFlat = flatNodeMap.get(id)
     if (!nodoFlat) return
     if (!editableFields(nodoFlat.nodo, composicaoCodigos).includes(field)) {
       if (field === 'custo_unitario' && nodoFlat.nodo.codigo && composicaoCodigos.has(nodoFlat.nodo.codigo)) {
@@ -746,7 +768,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       value = draft.trim() || null
     }
     if (field === 'codigo') {
-      const oldCodigo = items.find(i => i.id === id)?.codigo
+      const oldCodigo = itemMap.get(id)?.codigo
       if (oldCodigo) setInvalidCodigos(prev => { const s = new Set(prev); s.delete(oldCodigo); return s })
     }
     setIsDirty(true)
@@ -756,11 +778,11 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   }
 
   function navigateFrom(id: string, field: string, dir: 'tab' | 'back' | 'enter') {
-    const nodoFlat = flat.find(f => f.nodo.id === id)
+    const nodoFlat = flatNodeMap.get(id)
     if (!nodoFlat) { setEditingCell(null); return }
     const fields = editableFields(nodoFlat.nodo, composicaoCodigos)
     const colIdx = (fields as readonly string[]).indexOf(field)
-    const rowIdx = visible.findIndex(v => v.nodo.id === id)
+    const rowIdx = visibleIndexMap.get(id) ?? -1
 
     if (dir === 'tab') {
       if (colIdx < fields.length - 1) { openCell(id, fields[colIdx + 1]); return }
@@ -851,7 +873,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     const toRemove = new Set<string>()
     function collect(itemId: string) {
       toRemove.add(itemId)
-      for (const it of itemMap.values()) if (it.parent_id === itemId) collect(it.id)
+      for (const child of childrenMap.get(itemId) ?? []) collect(child.id)
     }
     collect(id)
     setItems(prev => { const next = prev.filter(it => !toRemove.has(it.id)); agendarSincronizacaoComItems(next); return next })
@@ -861,9 +883,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
     setIsDirty(true)
-    const siblings = items
-      .filter(it => it.parent_id === nodo.parent_id)
-      .sort((a, b) => a.ordem - b.ordem)
+    const siblings = childrenMap.get(nodo.parent_id) ?? []
     const idx = siblings.findIndex(it => it.id === nodo.id)
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1
     if (targetIdx < 0 || targetIdx >= siblings.length) return
@@ -1303,8 +1323,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   function computeProjection(activeId: string, overId: string, deltaX: number): { parentId: string | null; ordem: number } | null {
     if (activeId === overId) return null
     const flatAll = flat // usa a flat já memoizada — evita O(n) a cada drag move
-    const overIdx = flatAll.findIndex(f => f.nodo.id === overId)
-    const activeEntry = flatAll.find(f => f.nodo.id === activeId)
+    const overIdx = flatIndexMap.get(overId) ?? -1
+    const activeEntry = flatNodeMap.get(activeId)
     if (overIdx === -1 || !activeEntry) return null
 
     // Impede mover para dentro de descendente
@@ -1332,9 +1352,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }
 
     // Ordem: posiciona logo antes do `over` item entre os irmãos do novo pai
-    const siblings = items
-      .filter(i => i.parent_id === newParentId && i.id !== activeId)
-      .sort((a, b) => a.ordem - b.ordem)
+    const siblings = (childrenMap.get(newParentId) ?? []).filter(i => i.id !== activeId)
     const overSibIdx = siblings.findIndex(s => s.id === overId)
     const novaOrdem = overSibIdx >= 0 ? siblings[overSibIdx].ordem : (siblings.at(-1)?.ordem ?? -1) + 1
 
@@ -2335,7 +2353,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       </div>
       <DragOverlay>
         {dragActiveId && (() => {
-          const entry = flat.find(f => f.nodo.id === dragActiveId)
+          const entry = flatNodeMap.get(dragActiveId)
           if (!entry) return null
           return (
             <div className="bg-white border border-blue-400 shadow-xl rounded px-3 py-1.5 text-xs font-medium text-gray-800 opacity-90">

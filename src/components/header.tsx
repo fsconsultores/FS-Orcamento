@@ -27,9 +27,14 @@ export function Header({ userEmail }: { userEmail: string }) {
 
   // "Novo orçamento" some quando já se está dentro de um projeto específico
   // (/orcamentos/[id]/...) — ali o atalho relevante é para o projeto atual,
-  // não para criar um novo.
+  // não para criar um novo. Também some na lista (/orcamentos) e no Início
+  // (/dashboard), que já têm seu próprio botão "Novo orçamento"/"Cadastrar
+  // Novo Orçamento" no corpo da página — mostrar os dois ao mesmo tempo é
+  // redundante.
   const segments = pathname.split('/').filter(Boolean)
   const dentroDeProjeto = segments[0] === 'orcamentos' && segments[1] && segments[1] !== 'novo'
+  const naListaDeOrcamentos = segments[0] === 'orcamentos' && !segments[1]
+  const noInicio = segments[0] === 'dashboard'
 
   const userRef = useClickOutside(() => setUserMenuOpen(false))
   const notifRef = useClickOutside(() => setNotifOpen(false))
@@ -49,8 +54,9 @@ export function Header({ userEmail }: { userEmail: string }) {
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-6">
       <div className="flex-1" />
 
-      {/* Ação rápida — só faz sentido fora de um projeto específico */}
-      {!dentroDeProjeto && (
+      {/* Ação rápida — só faz sentido fora de um projeto específico e fora
+          das telas que já têm o próprio botão (lista de orçamentos, Início) */}
+      {!dentroDeProjeto && !naListaDeOrcamentos && !noInicio && (
         <Link
           href={'/orcamentos/novo' as any}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-800"

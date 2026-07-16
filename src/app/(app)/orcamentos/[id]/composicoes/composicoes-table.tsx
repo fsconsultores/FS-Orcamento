@@ -26,16 +26,21 @@ export function ComposicoesTable({
   const [clearing, setClearing] = useState(false)
 
   const q = query.trim().toLowerCase()
-  const porTexto = q
-    ? composicoes.filter(
-        (c) =>
-          c.codigo.toLowerCase().includes(q) ||
-          c.descricao.toLowerCase().includes(q)
-      )
-    : composicoes
-  const visible = filtroUso === 'todos'
-    ? porTexto
-    : porTexto.filter((c) => usadosSet.has(c.codigo) === (filtroUso === 'usados'))
+  // Memoizado pelo mesmo motivo de insumos-table.tsx: evita refiltrar a
+  // lista inteira em renders disparados por estado que não afeta a busca
+  // (deletingId, clearing, etc.).
+  const visible = useMemo(() => {
+    const porTexto = q
+      ? composicoes.filter(
+          (c) =>
+            c.codigo.toLowerCase().includes(q) ||
+            c.descricao.toLowerCase().includes(q)
+        )
+      : composicoes
+    return filtroUso === 'todos'
+      ? porTexto
+      : porTexto.filter((c) => usadosSet.has(c.codigo) === (filtroUso === 'usados'))
+  }, [composicoes, q, filtroUso, usadosSet])
 
   useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
 

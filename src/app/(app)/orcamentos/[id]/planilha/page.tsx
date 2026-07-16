@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { PlanilhaView } from './planilha-view'
 import { ImportPlanilhaForm } from './import-planilha-form'
-import { getOrCreateDefaultPlanilha, getPlanilhasByOrcamento } from '@/lib/orcamento/planilhas'
+import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
+import { DevProfiler } from '@/components/dev-profiler'
 import type { EstruturaItem } from './planilha-action'
 
 export default async function PlanilhaPage({
@@ -16,12 +17,12 @@ export default async function PlanilhaPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  // Garante que o orçamento tenha ao menos uma planilha (retrocompatibilidade)
-  const defaultPlanilha = await getOrCreateDefaultPlanilha(sb, orcamentoId)
-  const todasPlanilhas  = await getPlanilhasByOrcamento(sb, orcamentoId)
+  // Garante que o orçamento tenha ao menos uma planilha (retrocompatibilidade).
+  // Memoizado por requisição — o layout desta rota já chamou isso.
+  const todasPlanilhas = await getPlanilhasEnsuredCached(orcamentoId)
 
   // Planilha ativa: prioriza param da URL, cai para a primeira
-  const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? defaultPlanilha
+  const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? todasPlanilhas[0]
 
   const [{ data }, { data: orc }, { data: config }] = await Promise.all([
     sb.from('orcamento_estrutura')
@@ -59,17 +60,19 @@ export default async function PlanilhaPage({
         <ImportPlanilhaForm orcamentoId={orcamentoId} planilhaId={activePlanilha.id} />
       </div>
 
-      <PlanilhaView
-        initialItems={items}
-        orcamentoId={orcamentoId}
-        nomeOrcamento={nomeOrcamento}
-        nomePlanilha={activePlanilha.nome}
-        bdiGlobal={bdiGlobal}
-        cliente={orc?.cliente ?? null}
-        dataOrcamento={orc?.data ?? null}
-        numeracaoDigitos={numeracaoDigitos}
-        activePlanilhaId={activePlanilha.id}
-      />
+      <DevProfiler id="PlanilhaView">
+        <PlanilhaView
+          initialItems={items}
+          orcamentoId={orcamentoId}
+          nomeOrcamento={nomeOrcamento}
+          nomePlanilha={activePlanilha.nome}
+          bdiGlobal={bdiGlobal}
+          cliente={orc?.cliente ?? null}
+          dataOrcamento={orc?.data ?? null}
+          numeracaoDigitos={numeracaoDigitos}
+          activePlanilhaId={activePlanilha.id}
+        />
+      </DevProfiler>
     </div>
   )
 }

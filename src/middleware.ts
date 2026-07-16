@@ -5,7 +5,14 @@ const ALLOWED_EMAIL_DOMAIN = 'fsconsultores.com.br';
 const PUBLIC_PATHS = ['/login', '/signup', '/auth/callback'];
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+  // Propaga o pathname atual como header de requisição — única forma
+  // suportada de um Server Component saber a rota corrente sem depender de
+  // params. Usado só pela instrumentação de performance dev-only
+  // (src/lib/dev-metrics) para rotular queries/renders pela página de origem;
+  // não afeta nada de autenticação abaixo.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('x-pathname', req.nextUrl.pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

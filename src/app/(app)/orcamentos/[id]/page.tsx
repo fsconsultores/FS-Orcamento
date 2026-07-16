@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { PlanilhasPicker } from './planilhas-picker'
-import { getOrCreateDefaultPlanilha, getPlanilhasByOrcamento } from '@/lib/orcamento/planilhas'
+import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
+import { getOrcamentoHeaderCached } from '@/lib/orcamento/orcamento-header'
 
 export default async function OrcamentoDetailPage({
   params,
@@ -9,23 +9,19 @@ export default async function OrcamentoDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const sb = (await createClient()) as any
 
-  const { data: orc } = await sb
-    .from('tabela_orcamentos')
-    .select('id, nome_obra, codigo, cliente, data')
-    .eq('id', id)
-    .single()
-
+  // Mesma consulta já feita pelo layout desta rota — memoizada por
+  // requisição (React cache) para não repetir o SELECT.
+  const orc = await getOrcamentoHeaderCached(id)
   if (!orc) notFound()
 
   // Retrocompatibilidade: orçamentos criados antes do suporte a múltiplas
   // planilhas ainda não têm nenhuma linha em orcamento_planilhas. Garante que
-  // ao menos a "Planilha Principal" exista antes de listar.
+  // ao menos a "Planilha Principal" exista antes de listar. Mesma consulta já
+  // feita pelo layout — memoizada por requisição, não repete o round-trip.
   let planilhas: { id: string; nome: string; bdi_global: number; ordem: number }[] = []
   try {
-    await getOrCreateDefaultPlanilha(sb, id)
-    planilhas = await getPlanilhasByOrcamento(sb, id)
+    planilhas = await getPlanilhasEnsuredCached(id)
   } catch {}
 
   return (

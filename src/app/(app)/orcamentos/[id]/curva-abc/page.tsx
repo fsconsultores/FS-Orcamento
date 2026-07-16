@@ -2,7 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { computeAbcCurvaUnica, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
 import { PageHeader } from '@/components/ui/toolbar'
-import { getOrCreateDefaultPlanilha, getPlanilhasByOrcamento } from '@/lib/orcamento/planilhas'
+import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
+import { DevProfiler } from '@/components/dev-profiler'
 
 export default async function CurvaAbcPage({
   params,
@@ -18,9 +19,9 @@ export default async function CurvaAbcPage({
 
   // Mesma resolução de planilha ativa da Planilha — a Curva ABC mostra só os
   // itens da planilha selecionada no seletor, não o orçamento inteiro.
-  const defaultPlanilha = await getOrCreateDefaultPlanilha(sb, orcamentoId)
-  const todasPlanilhas = await getPlanilhasByOrcamento(sb, orcamentoId)
-  const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? defaultPlanilha
+  // Memoizado por requisição — o layout desta rota já chamou isso.
+  const todasPlanilhas = await getPlanilhasEnsuredCached(orcamentoId)
+  const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? todasPlanilhas[0]
 
   // 1. Orçamento + planilha + composições em paralelo
   const [{ data: orcamento }, { data: estrutura }, { data: composicoes }] = await Promise.all([
@@ -87,7 +88,9 @@ export default async function CurvaAbcPage({
         title="Curva ABC"
         description={`Classificação dos itens por impacto financeiro na planilha "${activePlanilha.nome}".`}
       />
-      <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
+      <DevProfiler id="CurvaAbcView">
+        <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
+      </DevProfiler>
     </div>
   )
 }

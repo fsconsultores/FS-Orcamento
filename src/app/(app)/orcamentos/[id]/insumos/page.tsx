@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getInsumosByOrcamento, getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
 import { OrcamentoInsumosTable } from './insumos-table'
+import { DevProfiler } from '@/components/dev-profiler'
 
 export default async function OrcamentoInsumosPage({
   params,
@@ -90,7 +91,9 @@ export default async function OrcamentoInsumosPage({
         )}
       </div>
 
-      <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
+      <DevProfiler id="OrcamentoInsumosTable">
+        <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
+      </DevProfiler>
     </div>
   )
 }

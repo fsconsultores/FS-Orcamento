@@ -5,12 +5,16 @@
   "scripts": {
     "dev": "next dev --turbo",
     "build": "next build",
+    "analyze": "cross-env ANALYZE=true next build",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
+    "check:bundle:update": "node scripts/check-bundle-size.mjs --update",
+    "benchmark": "playwright test tests/e2e/benchmark.spec.ts --project=chromium"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -29,11 +33,13 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.10",
     "@playwright/test": "^1.60.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "^15.3.1",

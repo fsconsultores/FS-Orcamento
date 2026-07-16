@@ -7,6 +7,7 @@ import { BaseFilter } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumosTable } from './insumos-table';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
+import { exportInsumosAction } from './export-action';
 import { Pagination } from '@/components/pagination';
 import { PageHeader, Toolbar } from '@/components/ui/toolbar';
 import { StatRow, StatCard } from '@/components/ui/stat-row';
@@ -56,9 +57,14 @@ export default async function InsumosPage({
     return query
   }
 
-  // count + data em paralelo — salva um round-trip a cada carregamento
-  const [countResult, { data: insumos, error }] = await Promise.all([
+  // count + count sem base + dados da página, em paralelo. A busca completa
+  // do dataset (para export) NÃO roda mais aqui — em bases grandes (SINAPI
+  // chega a dezenas de milhares de itens) isso custava até ~20 round-trips
+  // sequenciais em toda visita à página, só para alimentar um botão de
+  // export que o usuário pode nunca clicar. Ver export-action.ts.
+  const [countResult, semBaseResult, { data: insumos, error }] = await Promise.all([
     addFilters(sb.from('tabela_insumos').select('id', { count: 'exact' }).range(0, 0)),
+    addFilters(sb.from('tabela_insumos').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
     addFilters(
       sb.from('tabela_insumos')
         .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
@@ -68,36 +74,18 @@ export default async function InsumosPage({
   ])
   if (error) throw error;
   const total: number = countResult.count ?? 0
-
-  // paginado em lotes de 1000 — evita o limite padrão de linhas do PostgREST
-  const insumosExport: InsumoComBase[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data, error: exportError } = await addFilters(
-        sb.from('tabela_insumos')
-          .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
-          .order('codigo')
-          .range(start, start + BATCH - 1)
-      )
-      if (exportError) throw exportError
-      insumosExport.push(...((data ?? []) as InsumoComBase[]))
-      if ((data?.length ?? 0) < BATCH) break
-      start += BATCH
-    }
-  }
+  const semBase: number = semBaseResult.count ?? 0
 
   const baseOptions = bases.map((b) => ({
     orgao: b.orgao,
     label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
   }));
 
-  // Estatísticas do resultado filtrado — calculadas em cima de `insumosExport`
-  // (já buscado para a exportação), sem round-trip extra ao banco.
-  const semBase = insumosExport.filter((ins) => !ins.base_id).length;
-  const custoMedio = insumosExport.length > 0
-    ? insumosExport.reduce((acc, ins) => acc + (ins.preco_base ?? 0), 0) / insumosExport.length
+  // Custo médio: calculado sobre a página atual (mesmo critério já usado em
+  // /composicoes — evita buscar o dataset inteiro só para uma média).
+  const insumosPagina = (insumos ?? []) as InsumoComBase[];
+  const custoMedio = insumosPagina.length > 0
+    ? insumosPagina.reduce((acc, ins) => acc + (ins.preco_base ?? 0), 0) / insumosPagina.length
     : 0;
   const basesPropias = bases.filter((b) => b.tipo_base === 'propria').length;
 
@@ -109,17 +97,7 @@ export default async function InsumosPage({
         actions={
           <>
             <ExportXlsxButton
-              rows={(insumosExport ?? []).map((ins: InsumoComBase) => ({
-                'Código': ins.codigo,
-                'Descrição': ins.descricao,
-                'Grupo': ins.grupo ?? '',
-                'Unidade': ins.unidade,
-                'Custo': ins.preco_base,
-                'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
-                'Data Ref.': ins.data_referencia
-                  ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
-                  : '',
-              }))}
+              fetchRows={exportInsumosAction.bind(null, { q, orgao, origem })}
               sheetName="Insumos"
               fileName="insumos.xlsx"
             />
@@ -151,7 +129,7 @@ export default async function InsumosPage({
       <StatRow>
         <StatCard label="Itens encontrados" value={total.toLocaleString('pt-BR')} icon={<Package size={16} />} />
         <StatCard label="Bases carregadas" value={bases.length} icon={<Database size={16} />} hint={basesPropias > 0 ? `${basesPropias} própria(s)` : undefined} />
-        <StatCard label="Custo médio" value={formatCurrency(custoMedio)} icon={<Coins size={16} />} />
+        <StatCard label="Custo médio" value={formatCurrency(custoMedio)} icon={<Coins size={16} />} hint="nesta página" />
         <StatCard label="Sem base vinculada" value={semBase.toLocaleString('pt-BR')} icon={<HelpCircle size={16} />} />
       </StatRow>
 

@@ -116,7 +116,7 @@ function LoginForm() {
 
           <div className="relative flex items-center gap-3">
             <div className="flex-1 border-t border-gray-200" />
-            <span className="text-xs text-gray-400">ou</span>
+            <span className="text-xs text-gray-500">ou</span>
             <div className="flex-1 border-t border-gray-200" />
           </div>
 
