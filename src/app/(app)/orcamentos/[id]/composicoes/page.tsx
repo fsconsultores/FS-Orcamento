@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
+import { getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados } from '@/lib/orcamento'
 import { ComposicoesTable } from './composicoes-table'
 import { DevProfiler } from '@/components/dev-profiler'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
@@ -16,32 +16,13 @@ export default async function OrcamentoComposicoesPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  const composicoes = await getComposicoesByOrcamento(sb, orcamentoId)
-
-  const { data: estrutura } = await sb
-    .from('orcamento_estrutura')
-    .select('codigo')
-    .eq('orcamento_id', orcamentoId)
-    .eq('tipo', 'item')
-
-  // Insumos dentro de composições — buscados uma única vez (todas as colunas
-  // necessárias) e reaproveitados tanto para decompor recursivamente quais
-  // códigos estão em uso na planilha quanto para montar o export. Filtrado
-  // por compIds (não por orcamento_id do insumo) porque essa é a fonte mais
-  // confiável: getInsumosByOrcamento já lida com linhas cujo orcamento_id
-  // ficou inconsistente, mas o composicao_id sempre aponta certo.
-  const compIds = composicoes.map((c: OrcamentoComposicao) => c.id)
-  const insumosDeComposicao: { composicao_id: string; codigo: string; descricao: string; unidade: string; custo: number; indice: number; grupo: string | null }[] = []
-  if (compIds.length > 0) {
-    const BATCH = 100
-    for (let i = 0; i < compIds.length; i += BATCH) {
-      const { data } = await sb
-        .from('orcamento_insumos')
-        .select('composicao_id, codigo, descricao, unidade, custo, indice, grupo')
-        .in('composicao_id', compIds.slice(i, i + BATCH))
-      insumosDeComposicao.push(...(data ?? []))
-    }
-  }
+  // getComposicoesByOrcamentoDetalhado já busca internamente os insumos de
+  // cada composição (pra calcular custo_unitario) — reaproveitado aqui em
+  // vez de rodar uma segunda varredura própria de orcamento_insumos.
+  const [{ composicoes, insumosDeComposicao }, { data: estrutura }] = await Promise.all([
+    getComposicoesByOrcamentoDetalhado(sb, orcamentoId),
+    sb.from('orcamento_estrutura').select('codigo').eq('orcamento_id', orcamentoId).eq('tipo', 'item'),
+  ])
 
   const codigosUtilizados = calcularCodigosUtilizados(
     (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),

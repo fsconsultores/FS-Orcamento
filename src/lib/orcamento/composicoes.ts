@@ -1,60 +1,92 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { OrcamentoComposicao, CreateComposicaoData, UpdateComposicaoData } from './types'
+import { fetchAllPaginatedParallel } from './paginate'
 
 const TABLE = 'orcamento_composicoes'
 
-export async function getComposicoesByOrcamento(
+export interface InsumoDeComposicao {
+  composicao_id: string
+  codigo: string
+  descricao: string
+  unidade: string
+  custo: number
+  indice: number
+  grupo: string | null
+}
+
+export interface ComposicoesByOrcamentoDetalhado {
+  /** Deduplicado — mesmo retorno de sempre de getComposicoesByOrcamento. */
+  composicoes: OrcamentoComposicao[]
+  /**
+   * Todos os insumos vinculados a alguma composição do orçamento (dado já
+   * buscado internamente para calcular custo_unitario) — quem precisa do
+   * vínculo composição→insumos filhos (calcularCodigosUtilizados, export)
+   * usa isto em vez de rodar uma nova varredura de orcamento_insumos.
+   */
+  insumosDeComposicao: InsumoDeComposicao[]
+}
+
+/**
+ * Versão que expõe também `insumosDeComposicao` (dado já buscado
+ * internamente para o cálculo de custo_unitario) — evita que cada chamador
+ * que precisa dessa relação (tela de Composições) rode sua própria
+ * varredura redundante de orcamento_insumos. `getComposicoesByOrcamento`
+ * abaixo é um wrapper fino sobre esta função, mantendo o contrato antigo
+ * inalterado.
+ */
+export async function getComposicoesByOrcamentoDetalhado(
   supabase: SupabaseClient,
   orcamentoId: string
-): Promise<OrcamentoComposicao[]> {
-  const allData: Omit<OrcamentoComposicao, 'custo_unitario'>[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select('*')
+): Promise<ComposicoesByOrcamentoDetalhado> {
+  const composicoes = await fetchAllPaginatedParallel<Omit<OrcamentoComposicao, 'custo_unitario'>>(
+    (from, to) =>
+      supabase
+        .from('orcamento_composicoes')
+        .select('*', { count: 'exact' })
         .eq('orcamento_id', orcamentoId)
         .order('codigo')
-        .range(start, start + BATCH - 1)
-      if (error) throw new Error(`Erro ao buscar composições: ${error.message}`)
-      allData.push(...(data as Omit<OrcamentoComposicao, 'custo_unitario'>[]))
-      if ((data?.length ?? 0) < BATCH) break
-      start += BATCH
-    }
-  }
-  const composicoes = allData
+        .range(from, to) as any
+  )
 
-  if (composicoes.length === 0) return []
+  if (composicoes.length === 0) return { composicoes: [], insumosDeComposicao: [] }
 
   // Calcula custo_unitario = Σ(custo_efetivo × indice) por composição.
   // custo_efetivo: usa o custo do avulso (composicao_id IS NULL) com o mesmo código,
   // pois avulsos representam a tabela de preços do orçamento.
-  const compIds = composicoes.map((c) => c.id)
-  const allInsData: { composicao_id: string; codigo: string; custo: number; indice: number }[] = []
-  for (let i = 0; i < compIds.length; i += 100) {
-    const { data: lote } = await supabase
-      .from('orcamento_insumos')
-      .select('composicao_id, codigo, custo, indice')
-      .in('composicao_id', compIds.slice(i, i + 100))
-    allInsData.push(...((lote ?? []) as { composicao_id: string; codigo: string; custo: number; indice: number }[]))
-  }
+  //
+  // Busca via vw_insumos_de_composicao (JOIN orcamento_insumos+orcamento_composicoes
+  // já feito no banco) filtrando por orcamento_id direto — 1 requisição, em
+  // vez de enviar centenas de composicao_id pela URL em lotes de 100 (era o
+  // gargalo dominante em orçamentos com muitas composições: Insumos,
+  // Composições e Relatórios travando). Colunas: busca o conjunto completo
+  // (não só o que o cálculo de custo usa) porque esse mesmo resultado é
+  // reaproveitado pela tela de Composições (descrição/unidade/grupo).
+  const allInsData = await fetchAllPaginatedParallel<InsumoDeComposicao>(
+    (from, to) =>
+      supabase
+        .from('vw_insumos_de_composicao')
+        .select('composicao_id, codigo, descricao, unidade, custo, indice, grupo', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .order('id')
+        .range(from, to) as any
+  )
 
-  // Busca custos dos avulsos para os códigos usados nas composições
-  const codigos = [...new Set(allInsData.map((i) => i.codigo).filter(Boolean))]
+  // Busca custos de TODOS os avulsos do orçamento (paginado em paralelo,
+  // mesma cautela) — extras não usados por nenhuma composição não custam
+  // nada além de memória (o Map só é lido pelos códigos que aparecem em allInsData).
   const precoMap = new Map<string, number>() // codigo → custo efetivo
-
-  for (let i = 0; i < codigos.length; i += 500) {
-    const { data: avs } = await supabase
-      .from('orcamento_insumos')
-      .select('codigo, custo')
-      .eq('orcamento_id', orcamentoId)
-      .is('composicao_id', null)
-      .in('codigo', codigos.slice(i, i + 500))
-    for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
-      precoMap.set(av.codigo, av.custo)
-    }
+  const avulsosRows = await fetchAllPaginatedParallel<{ codigo: string; custo: number }>(
+    (from, to) =>
+      supabase
+        .from('orcamento_insumos')
+        .select('codigo, custo', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .is('composicao_id', null)
+        .order('codigo')
+        .range(from, to) as any
+  )
+  for (const av of avulsosRows) {
+    precoMap.set(av.codigo, av.custo)
   }
 
   // Para códigos sem avulso: verifica se é uma composição filha e usa o custo_unitario dela.
@@ -83,7 +115,18 @@ export async function getComposicoesByOrcamento(
     }
   }
 
-  return composicoes.map((c) => ({ ...c, custo_unitario: custoMapFinal[c.id] ?? 0 }))
+  return {
+    composicoes: composicoes.map((c) => ({ ...c, custo_unitario: custoMapFinal[c.id] ?? 0 })),
+    insumosDeComposicao: allInsData,
+  }
+}
+
+export async function getComposicoesByOrcamento(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<OrcamentoComposicao[]> {
+  const { composicoes } = await getComposicoesByOrcamentoDetalhado(supabase, orcamentoId)
+  return composicoes
 }
 
 /**

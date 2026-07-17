@@ -1,36 +1,61 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { OrcamentoInsumo, CreateInsumoData, UpdateInsumoData } from './types'
+import { fetchAllPaginatedParallel } from './paginate'
 
 const TABLE = 'orcamento_insumos'
 
-export async function getInsumosByOrcamento(
+export interface InsumosByOrcamentoDetalhado {
+  /** Deduplicado — mesmo retorno de sempre de getInsumosByOrcamento. */
+  insumos: OrcamentoInsumo[]
+  /**
+   * Todos os insumos vinculados a alguma composição do orçamento, SEM a
+   * deduplicação (que descarta a linha-filha quando existe avulso com o
+   * mesmo código) — quem precisa do vínculo composição→insumos filhos
+   * (calcularCodigosUtilizados, montagem de export) usa isto em vez de
+   * rodar uma nova varredura de orcamento_insumos.
+   */
+  insumosDeComposicao: OrcamentoInsumo[]
+}
+
+/**
+ * Versão que expõe também `insumosDeComposicao` (dado já buscado
+ * internamente) — evita que cada chamador que precisa dessa relação
+ * (Insumos do orçamento, Caderno/Relatórios) rode sua própria varredura
+ * redundante de orcamento_insumos. `getInsumosByOrcamento` abaixo é um
+ * wrapper fino sobre esta função, mantendo o contrato antigo inalterado.
+ */
+export async function getInsumosByOrcamentoDetalhado(
   supabase: SupabaseClient,
   orcamentoId: string
-): Promise<OrcamentoInsumo[]> {
-  // 1. IDs das composições deste orçamento
-  const { data: comps } = await supabase
-    .from('orcamento_composicoes')
-    .select('id')
-    .eq('orcamento_id', orcamentoId)
-  const compIds = ((comps ?? []) as { id: string }[]).map(c => c.id)
-
-  // 2. Todos os insumos vinculados a composições deste orçamento
-  //    Paginado em lotes de 100 para não exceder o limite de URL do PostgREST
-  //    (sem filtro de orcamento_id — captura dados com orcamento_id inconsistente)
-  let porComp: OrcamentoInsumo[] = []
-  for (let i = 0; i < compIds.length; i += 100) {
-    const { data } = await supabase
-      .from(TABLE)
-      .select('*')
-      .in('composicao_id', compIds.slice(i, i + 100))
-      .order('codigo')
-    porComp.push(...((data ?? []) as OrcamentoInsumo[]))
-  }
+): Promise<InsumosByOrcamentoDetalhado> {
+  // 2. Todos os insumos vinculados a composições deste orçamento — via
+  //    vw_insumos_de_composicao (JOIN orcamento_insumos+orcamento_composicoes
+  //    já feito no banco), filtrando por orcamento_id direto. `orcamento_id`
+  //    na view vem da COMPOSIÇÃO (sempre correto), não da linha do insumo —
+  //    preserva a mesma defesa contra orcamento_id inconsistente que o
+  //    filtro por compIds tinha, só que em 1 requisição em vez de N/100
+  //    (era o gargalo dominante em orçamentos com muitas composições).
+  //    `orcamento_id_raw` (valor cru da linha) vem junto só para a
+  //    auto-correção abaixo não precisar de uma consulta extra. Páginas
+  //    buscadas em paralelo (fetchAllPaginatedParallel) — em orçamentos com
+  //    muitos insumos vinculados a composições isso soma até dezenas de
+  //    milhares de linhas, e paginação sequencial somava a latência de cada
+  //    página em vez de pagar só a mais lenta.
+  const porCompComRaw = await fetchAllPaginatedParallel<OrcamentoInsumo & { orcamento_id_raw: string }>(
+    (from, to) =>
+      supabase
+        .from('vw_insumos_de_composicao')
+        .select('*', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .order('codigo')
+        .range(from, to) as any
+  )
+  const porComp: OrcamentoInsumo[] = porCompComRaw
 
   // Auto-correção: atualiza orcamento_id incorreto para garantir consistência futura
-  if (porComp.length > 0) {
-    const idsErrados = porComp
-      .filter(ins => ins.orcamento_id !== orcamentoId)
+  if (porCompComRaw.length > 0) {
+    const idsErrados = porCompComRaw
+      .filter(ins => ins.orcamento_id_raw !== orcamentoId)
       .map(ins => ins.id)
     if (idsErrados.length > 0) {
       for (let i = 0; i < idsErrados.length; i += 500) {
@@ -42,37 +67,48 @@ export async function getInsumosByOrcamento(
     }
   }
 
-  // 3. Todos os insumos com orcamento_id correto (inclui avulsos) — paginado para passar do limite de 1000
-  const todosArr: OrcamentoInsumo[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data, error } = await supabase
+  // 3. Avulsos deste orçamento (composicao_id IS NULL) — têm custo explícito
+  //    e prioridade na deduplicação abaixo. Filtra direto no banco: a versão
+  //    antiga buscava TODOS os insumos do orçamento (inclusive os vinculados
+  //    a composições, potencialmente milhares de linhas) só para em seguida
+  //    descartar tudo que não fosse avulso — em orçamentos grandes isso
+  //    sozinho gerava dezenas de páginas sequenciais de 1000 linhas (o maior
+  //    gargalo medido em produção: 27 queries / ~9s numa única visita à aba
+  //    Insumos). Em orçamentos com um catálogo de avulsos muito grande
+  //    (alguns passam de 9 mil linhas — provavelmente uma base de preços
+  //    inteira importada como avulsos) mesmo só os avulsos ainda paginam
+  //    bastante, daí buscar as páginas em paralelo em vez de sequencial.
+  const avulsos = await fetchAllPaginatedParallel<OrcamentoInsumo>(
+    (from, to) =>
+      supabase
         .from(TABLE)
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('orcamento_id', orcamentoId)
+        .is('composicao_id', null)
         .order('codigo')
-        .range(start, start + BATCH - 1)
-      if (error) throw new Error(`Erro ao buscar insumos: ${error.message}`)
-      todosArr.push(...(data as OrcamentoInsumo[]))
-      if ((data?.length ?? 0) < BATCH) break
-      start += BATCH
-    }
-  }
+        .range(from, to) as any
+  )
 
-  // Avulsos (composicao_id=null) têm custo explícito — devem ter prioridade na deduplicação.
   // Insumos de composições (custo=0) só aparecem se não houver avulso com o mesmo código.
-  const avulsos = todosArr.filter(ins => ins.composicao_id === null)
   const avulsosCodigos = new Set(avulsos.map(ins => ins.codigo ?? ''))
   const compSemAvulso = porComp.filter(ins => !avulsosCodigos.has(ins.codigo ?? ''))
   const seen = new Set<string>()
-  return [...avulsos, ...compSemAvulso].filter(ins => {
+  const insumos = [...avulsos, ...compSemAvulso].filter(ins => {
     const key = ins.codigo ?? ''
     if (seen.has(key)) return false
     seen.add(key)
     return true
   })
+
+  return { insumos, insumosDeComposicao: porComp }
+}
+
+export async function getInsumosByOrcamento(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<OrcamentoInsumo[]> {
+  const { insumos } = await getInsumosByOrcamentoDetalhado(supabase, orcamentoId)
+  return insumos
 }
 
 export async function createInsumo(

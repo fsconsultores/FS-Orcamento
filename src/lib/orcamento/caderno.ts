@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeAbcCurves, computeAbcCurvaUnica, type AbcItem, type AbcItemComCategoria, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '../curva-abc'
-import { getInsumosByOrcamento } from './insumos'
+import { getInsumosByOrcamentoDetalhado } from './insumos'
 import { getComposicoesByOrcamento } from './composicoes'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
 import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
@@ -159,7 +159,7 @@ export async function getCadernoData(
     .order('nivel', { ascending: true })
     .order('ordem', { ascending: true })
 
-  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, todosInsumos] = await Promise.all([
+  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, { insumos: todosInsumos, insumosDeComposicao }] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
       .eq('id', orcamentoId)
@@ -170,29 +170,22 @@ export async function getCadernoData(
       .eq('orcamento_id', orcamentoId)
       .order('ordem', { ascending: true }),
     getComposicoesByOrcamento(supabase, orcamentoId),
-    getInsumosByOrcamento(supabase, orcamentoId),
+    getInsumosByOrcamentoDetalhado(supabase, orcamentoId),
   ])
 
   const estItems: EstruturaFullItem[] = estrutura ?? []
 
-  // Insumos dentro de composições (paginado)
-  const allInsumos: InsumoComposicaoBasico[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data } = await sb
-        .from('orcamento_insumos')
-        .select('codigo, descricao, unidade, custo, indice, composicao_id, grupo')
-        .eq('orcamento_id', orcamentoId)
-        .not('composicao_id', 'is', null)
-        .range(start, start + BATCH - 1)
-      if (!data || data.length === 0) break
-      allInsumos.push(...data)
-      if (data.length < BATCH) break
-      start += BATCH
-    }
-  }
+  // Insumos dentro de composições — já buscados por getInsumosByOrcamentoDetalhado
+  // (composicao_id é sempre não-nulo aqui, pela própria query que os produziu).
+  const allInsumos: InsumoComposicaoBasico[] = insumosDeComposicao.map(ins => ({
+    codigo: ins.codigo,
+    descricao: ins.descricao,
+    unidade: ins.unidade,
+    custo: ins.custo,
+    indice: ins.indice,
+    composicao_id: ins.composicao_id!,
+    grupo: ins.grupo,
+  }))
 
   // ── Mapas auxiliares ─────────────────────────────────────────────────────────
   const compIdToCode = new Map<string, string>()
