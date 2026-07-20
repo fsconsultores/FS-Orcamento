@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { Bell, Plus, LogOut, Circle } from 'lucide-react'
+import { Bell, Plus, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 function useClickOutside(onOutside: () => void) {
@@ -64,12 +64,6 @@ export function Header({ userEmail }: { userEmail: string }) {
           <Plus size={14} /> Novo orçamento
         </Link>
       )}
-
-      {/* Status do sistema */}
-      <span className="hidden items-center gap-1.5 text-xs text-gray-400 sm:inline-flex">
-        <Circle size={7} className="fill-emerald-500 text-emerald-500" />
-        Conectado
-      </span>
 
       {/* Notificações */}
       <div ref={notifRef} className="relative">
