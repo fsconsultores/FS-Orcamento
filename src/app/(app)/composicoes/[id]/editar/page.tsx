@@ -157,6 +157,7 @@ export default function EditarComposicaoPage() {
       const sb = createClient() as any;
       const { error: dbError } = await sb.from('tabela_composicoes').delete().eq('id', id);
       if (dbError) throw dbError;
+      sb.from('favoritos').delete().eq('entity_type', 'composicao').eq('entity_id', id).then(() => {});
       startTransition(() => {
         router.refresh();
         router.push('/composicoes');

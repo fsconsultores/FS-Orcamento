@@ -16,8 +16,15 @@ import { SelectionBar } from '@/components/ui/toolbar';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
+import { FavoriteButton } from '@/components/ui/favorite-button';
 
-export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase[] }) {
+export function InsumosTable({
+  initialInsumos,
+  favoritosAtivo = false,
+}: {
+  initialInsumos: InsumoComBase[];
+  favoritosAtivo?: boolean;
+}) {
   const [insumos, setInsumos] = useState(initialInsumos);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -85,11 +92,19 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
   if (insumos.length === 0) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <EmptyState
-          icon={<Package size={20} />}
-          title="Nenhum insumo encontrado"
-          description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
-        />
+        {favoritosAtivo ? (
+          <EmptyState
+            icon={<Package size={20} />}
+            title="Você ainda não favoritou nenhum insumo"
+            description="Toque na estrela ☆ ao lado de um insumo para adicioná-lo aos favoritos."
+          />
+        ) : (
+          <EmptyState
+            icon={<Package size={20} />}
+            title="Nenhum insumo encontrado"
+            description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
+          />
+        )}
       </div>
     );
   }
@@ -118,6 +133,7 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
       <Table>
         <Thead>
           <Th className="w-9"><Checkbox checked={selected.size === insumos.length} onChange={toggleAll} aria-label="Selecionar todos" /></Th>
+          <Th className="w-9" />
           <Th className="w-28">Código</Th>
           <Th>Descrição</Th>
           <Th className="w-36">Grupo</Th>
@@ -131,6 +147,9 @@ export function InsumosTable({ initialInsumos }: { initialInsumos: InsumoComBase
             <Tr key={ins.id} className={selected.has(ins.id) ? 'bg-primary-50/60' : ''}>
               <Td className="!py-2">
                 <Checkbox checked={selected.has(ins.id)} onChange={() => toggleOne(ins.id)} aria-label={`Selecionar ${ins.descricao}`} />
+              </Td>
+              <Td className="!py-2">
+                <FavoriteButton entityType="insumo" entityId={ins.id} initialFavorito={!!ins.is_favorito} />
               </Td>
               <Td className="!p-0 font-mono text-xs text-gray-500">
                 <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.codigo}</Link>

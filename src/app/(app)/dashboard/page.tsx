@@ -10,6 +10,7 @@ import {
   getBasesExternasResumo,
   getBasePropriaResumo,
   getResumoSistema,
+  getFavoritosRecentes,
   type PlanilhaResumo,
   type BaseResumo,
 } from '@/lib/dashboard/queries'
@@ -25,6 +26,7 @@ import { Alertas } from './sections/alertas'
 import { ChartDistribuicao, type DistribuicaoItem } from './sections/chart-distribuicao'
 import { ChartCurvaAbc } from './sections/chart-curva-abc'
 import { ProjetosRecentes, type ProjetoRecenteItem } from './sections/projetos-recentes'
+import { FavoritosRecentes } from './sections/favoritos-recentes'
 import { AtividadeRecente } from './sections/atividade-recente'
 import { BasesDados } from './sections/bases-dados'
 import { ResumoSistema } from './sections/resumo-sistema'
@@ -54,7 +56,7 @@ export default async function DashboardPage() {
   const sb = supabase as any
   const { data: { user } } = await sb.auth.getUser()
 
-  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema] =
+  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes] =
     await Promise.all([
       getOrcamentosResumo(sb),
       getPlanilhasResumo(sb),
@@ -64,6 +66,7 @@ export default async function DashboardPage() {
       getBasesExternasResumo(sb),
       getBasePropriaResumo(sb),
       getResumoSistema(sb),
+      user ? getFavoritosRecentes(sb, user.id) : Promise.resolve([]),
     ])
 
   // --- Derivações em memória, sem I/O extra ---
@@ -171,10 +174,14 @@ export default async function DashboardPage() {
         <SectionCard title="Atividade Recente" action={<Link href="/logs" className="text-xs font-medium text-primary-700 hover:underline">Ver tudo →</Link>}>
           <AtividadeRecente items={atividadeAgrupada} />
         </SectionCard>
-        <SectionCard title="Bases de Dados">
-          <BasesDados bases={bases} />
+        <SectionCard title="Favoritos Recentes" description="Insumos, composições e orçamentos favoritados">
+          <FavoritosRecentes items={favoritosRecentes} />
         </SectionCard>
       </div>
+
+      <SectionCard title="Bases de Dados">
+        <BasesDados bases={bases} />
+      </SectionCard>
 
       <SectionCard title="Resumo do Sistema" description="Totais da biblioteca global e dos seus orçamentos">
         <ResumoSistema

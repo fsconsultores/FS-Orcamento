@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/supabase/auth'
 import { registrarHistorico } from '@/lib/log'
+import { removerFavoritosDaEntidade } from '@/lib/favoritos'
 
 export async function createBase(orgao: string): Promise<{ id: string } | { error: string }> {
   if (!orgao.trim()) return { error: 'Nome obrigatório.' }
@@ -113,6 +114,7 @@ export async function deleteBase(baseId: string): Promise<{ error?: string }> {
   const { error } = await sb.from('tabela_bases').delete().eq('id', baseId)
   if (error) return { error: error.message }
 
+  removerFavoritosDaEntidade(supabase, 'base', baseId).catch(console.error)
   revalidatePath('/bases')
   registrarHistorico(supabase, {
     entidade: 'base',

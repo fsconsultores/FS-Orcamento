@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { Star } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { registrarHistorico } from '@/lib/log';
@@ -14,6 +15,7 @@ type Composicao = {
   custo_unitario: number;
   orgao: string | null;
   tipo: 'shared' | 'proprio'; // 'shared' = biblioteca, 'proprio' = orcamento_composicoes
+  is_favorito?: boolean;
 };
 
 function highlight(text: string, query: string) {
@@ -47,6 +49,7 @@ export function AdicionarItemForm({
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [selectedComp, setSelectedComp] = useState<Composicao | null>(null);
+  const [showingFavoritos, setShowingFavoritos] = useState(false);
 
   const [quantidade, setQuantidade] = useState('');
   const [bdiEspecifico, setBdiEspecifico] = useState('');
@@ -66,8 +69,9 @@ export function AdicionarItemForm({
       // Busca em paralelo: biblioteca compartilhada + composições próprias do orçamento
       const [resShared, resProprias] = await Promise.all([
         sb.from('vw_custo_composicao')
-          .select('id, codigo, descricao, unidade, custo_unitario, orgao')
+          .select('id, codigo, descricao, unidade, custo_unitario, orgao, is_favorito')
           .or(`codigo.ilike.%${query}%,descricao.ilike.%${query}%`)
+          .order('is_favorito', { ascending: false })
           .order('codigo')
           .limit(10),
         sb.from('orcamento_composicoes')
@@ -110,12 +114,41 @@ export function AdicionarItemForm({
     }
   }, [orcamentoId]);
 
+  // Sugestões instantâneas ao focar o campo vazio — mostra as composições
+  // favoritas do usuário sem precisar digitar nada (reduz cliques para os
+  // itens que ele mais repete entre orçamentos).
+  const loadFavoritos = useCallback(async () => {
+    setSearching(true);
+    try {
+      const sb = createClient() as any;
+      const { data } = await sb
+        .from('vw_custo_composicao')
+        .select('id, codigo, descricao, unidade, custo_unitario, orgao, is_favorito')
+        .eq('is_favorito', true)
+        .order('codigo')
+        .limit(10);
+      setResultados(((data ?? []) as any[]).map((c) => ({ ...c, tipo: 'shared' as const })));
+      setActiveIdx(-1);
+      setShowingFavoritos(true);
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
   function handleChange(value: string) {
     setBusca(value);
     setSelectedComp(null);
+    setShowingFavoritos(false);
     setOpen(true);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => search(value), 200);
+  }
+
+  function handleFocus() {
+    if (selectedComp) return;
+    if (busca.trim()) { setOpen(true); return; }
+    setOpen(true);
+    loadFavoritos();
   }
 
   function select(c: Composicao) {
@@ -228,7 +261,7 @@ export function AdicionarItemForm({
               type="text"
               value={busca}
               onChange={e => handleChange(e.target.value)}
-              onFocus={() => { if (busca && !selectedComp) setOpen(true); }}
+              onFocus={handleFocus}
               onKeyDown={handleKeyDown}
               placeholder="Digite código ou descrição..."
               autoComplete="off"
@@ -265,6 +298,11 @@ export function AdicionarItemForm({
                 className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg"
                 role="listbox"
               >
+                {showingFavoritos && (
+                  <p className="sticky top-0 flex items-center gap-1 border-b border-amber-100 bg-amber-50/70 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                    <Star size={10} fill="currentColor" /> Suas composições favoritas
+                  </p>
+                )}
                 {resultados.map((c, idx) => (
                   <button
                     key={c.id}
@@ -286,6 +324,7 @@ export function AdicionarItemForm({
                       </span>
                     </span>
                     <span className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                      {c.is_favorito && <Star size={11} className="text-amber-400" fill="currentColor" />}
                       {c.tipo === 'proprio' ? (
                         <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
                           Própria
@@ -314,6 +353,14 @@ export function AdicionarItemForm({
             {open && !searching && busca.trim() && resultados.length === 0 && (
               <div className="absolute z-30 mt-1 w-full rounded-md border border-gray-200 bg-white px-3 py-3 text-sm text-gray-400 shadow-lg">
                 Nenhuma composição encontrada para "{busca}".
+              </div>
+            )}
+
+            {/* Campo vazio focado, sem favoritos cadastrados ainda */}
+            {open && !searching && !busca.trim() && showingFavoritos && resultados.length === 0 && (
+              <div className="absolute z-30 mt-1 w-full rounded-md border border-gray-200 bg-white px-3 py-3 text-sm text-gray-400 shadow-lg">
+                Você ainda não tem composições favoritas. Toque na ⭐ em{' '}
+                <span className="font-medium text-gray-600">Composições</span> para adicionar.
               </div>
             )}
           </div>

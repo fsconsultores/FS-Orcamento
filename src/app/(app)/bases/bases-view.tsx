@@ -10,6 +10,7 @@ import { Button, IconButton } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { FavoriteButton } from '@/components/ui/favorite-button'
 
 type Base = {
   id: string
@@ -18,6 +19,7 @@ type Base = {
   tipo_base: string
   total_insumos: number
   total_composicoes: number
+  is_favorito?: boolean
 }
 
 type PreencherState = { baseId: string; referenciaId: string; loading: boolean; resultado: string | null }
@@ -121,6 +123,7 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <FavoriteButton entityType="base" entityId={base.id} initialFavorito={!!base.is_favorito} />
               <Link href={`/bases/${base.id}/importar` as any}>
                 <Button variant="outline" size="sm" icon={<UploadCloud size={14} />}>Importar</Button>
               </Link>
@@ -177,6 +180,7 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
         ) : (
           <Table>
             <Thead>
+              <Th className="w-9" />
               <Th>Base</Th>
               <Th className="text-right">Insumos</Th>
               <Th className="text-right">Composições</Th>
@@ -186,6 +190,9 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
             <Tbody>
               {basesExternas.map(base => (
                 <Tr key={base.id} className={deletingId === base.id ? 'opacity-40' : ''}>
+                  <Td>
+                    <FavoriteButton entityType="base" entityId={base.id} initialFavorito={!!base.is_favorito} />
+                  </Td>
                   <Td className="font-medium text-gray-900">{base.orgao}</Td>
                   <Td className="text-right tabular-nums text-gray-700">
                     {base.total_insumos > 0 ? base.total_insumos.toLocaleString('pt-BR') : <span className="text-gray-300">—</span>}

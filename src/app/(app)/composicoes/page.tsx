@@ -4,7 +4,9 @@ import { Plus, Layers3, Database, Coins, HelpCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
+import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+import { getFavoritoIds } from '@/lib/favoritos';
 import { ComposicoesTable } from './composicoes-table';
 import { ExportComposicoesButton } from '@/components/export-composicoes-button';
 import type { ComposicaoParaExport } from '@/components/export-composicoes-button';
@@ -24,6 +26,7 @@ type ComposicaoView = {
   tipo_base: string | null;
   custo_unitario: number;
   base_origem: string | null;
+  is_favorito?: boolean;
 };
 
 const PAGE_SIZE = 100;
@@ -31,17 +34,19 @@ const PAGE_SIZE = 100;
 export default async function ComposicoesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string; favoritos?: string }>;
 }) {
-  const { q, orgao, origem, page: pageParam } = await searchParams;
+  const { q, orgao, origem, page: pageParam, favoritos } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
+  const favoritosAtivo = favoritos === '1';
 
   const qs = new URLSearchParams()
   if (q) qs.set('q', q)
   if (orgao) qs.set('orgao', orgao)
   if (origem) qs.set('origem', origem)
+  if (favoritosAtivo) qs.set('favoritos', '1')
   const baseHref = `/composicoes${qs.toString() ? '?' + qs.toString() : ''}`
 
   const supabase = await createClient();
@@ -60,25 +65,32 @@ export default async function ComposicoesPage({
     if (match) baseIdFiltro = match.id;
   }
 
+  const favoritoIds = favoritosAtivo ? await getFavoritoIds('composicao') : null
+  const semFavoritos = favoritosAtivo && (favoritoIds?.length ?? 0) === 0
+
   function addFilters(query: any) {
     if (q) query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`)
     if (orgao === 'SEM_BASE') query = query.is('base_id', null)
     else if (baseIdFiltro) query = query.eq('base_id', baseIdFiltro)
     if (origem) query = query.eq('base_origem', origem)
+    if (favoritoIds) query = query.in('id', favoritoIds)
     return query
   }
 
   // count total + count sem base + data da página, em paralelo
-  const [countResult, semBaseResult, { data: composicoes, error }] = await Promise.all([
-    addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)),
-    addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
-    addFilters(
-      sb.from('vw_custo_composicao')
-        .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem')
-        .order('codigo')
-        .range(from, to)
-    ),
-  ])
+  const [countResult, semBaseResult, { data: composicoes, error }] = semFavoritos
+    ? [{ count: 0 }, { count: 0 }, { data: [], error: null }]
+    : await Promise.all([
+        addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)),
+        addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
+        addFilters(
+          sb.from('vw_custo_composicao')
+            .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem, is_favorito')
+            .order('is_favorito', { ascending: false })
+            .order('codigo')
+            .range(from, to)
+        ),
+      ])
   if (error) throw error;
   const total: number = countResult.count ?? 0
   const semBase: number = semBaseResult.count ?? 0
@@ -147,11 +159,16 @@ export default async function ComposicoesPage({
           </Suspense>
         }
         filters={
-          baseOptions.length > 0 ? (
+          <>
+            {baseOptions.length > 0 && (
+              <Suspense>
+                <BaseFilter bases={baseOptions} />
+              </Suspense>
+            )}
             <Suspense>
-              <BaseFilter bases={baseOptions} />
+              <FavoritosFilterToggle />
             </Suspense>
-          ) : undefined
+          </>
         }
       />
 
@@ -162,7 +179,11 @@ export default async function ComposicoesPage({
         <StatCard label="Sem base vinculada" value={semBase.toLocaleString('pt-BR')} icon={<HelpCircle size={16} />} />
       </StatRow>
 
-      <ComposicoesTable initialComposicoes={(composicoes ?? []) as ComposicaoView[]} />
+      <ComposicoesTable
+        key={`${page}-${q}-${orgao}-${origem}-${favoritos}`}
+        initialComposicoes={(composicoes ?? []) as ComposicaoView[]}
+        favoritosAtivo={favoritosAtivo}
+      />
 
       <Pagination total={total} page={page} pageSize={PAGE_SIZE} baseHref={baseHref} />
     </div>

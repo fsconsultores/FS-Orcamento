@@ -14,12 +14,13 @@ export default async function BasesPage() {
 
   const { data: basesRaw } = await sb
     .from('tabela_bases')
-    .select('id, nome, orgao, tipo_base, created_at')
+    .select('id, nome, orgao, tipo_base, created_at, is_favorito')
     .order('tipo_base')   // propria primeiro
+    .order('is_favorito', { ascending: false })
     .order('created_at')
 
   const bases = (basesRaw ?? []) as {
-    id: string; nome: string; orgao: string; tipo_base: string; created_at: string
+    id: string; nome: string; orgao: string; tipo_base: string; created_at: string; is_favorito?: boolean
   }[]
 
   // Contagens em paralelo — cache de 5 min para reduzir round-trips repetidos

@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { SelectionBar } from '@/components/ui/toolbar';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
+import { FavoriteButton } from '@/components/ui/favorite-button';
 
 type ComposicaoRow = {
   id: string;
@@ -23,9 +24,16 @@ type ComposicaoRow = {
   tipo_base: string | null;
   custo_unitario: number;
   base_origem: string | null;
+  is_favorito?: boolean;
 };
 
-export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: ComposicaoRow[] }) {
+export function ComposicoesTable({
+  initialComposicoes,
+  favoritosAtivo = false,
+}: {
+  initialComposicoes: ComposicaoRow[];
+  favoritosAtivo?: boolean;
+}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   function toggleAll() {
@@ -43,11 +51,19 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
   if (initialComposicoes.length === 0) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <EmptyState
-          icon={<Layers3 size={20} />}
-          title="Nenhuma composição encontrada"
-          description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
-        />
+        {favoritosAtivo ? (
+          <EmptyState
+            icon={<Layers3 size={20} />}
+            title="Você ainda não favoritou nenhuma composição"
+            description="Toque na estrela ☆ ao lado de uma composição para adicioná-la aos favoritos."
+          />
+        ) : (
+          <EmptyState
+            icon={<Layers3 size={20} />}
+            title="Nenhuma composição encontrada"
+            description="Ajuste a busca ou os filtros, ou importe uma base de dados para começar."
+          />
+        )}
       </div>
     );
   }
@@ -77,6 +93,7 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
       <Table>
         <Thead>
           <Th className="w-9"><Checkbox checked={selected.size === initialComposicoes.length} onChange={toggleAll} aria-label="Selecionar todas" /></Th>
+          <Th className="w-9" />
           <Th className="w-28">Código</Th>
           <Th>Descrição</Th>
           <Th className="w-20">Unidade</Th>
@@ -88,6 +105,9 @@ export function ComposicoesTable({ initialComposicoes }: { initialComposicoes: C
             <Tr key={c.id} className={selected.has(c.id) ? 'bg-primary-50/60' : ''}>
               <Td className="!py-2">
                 <Checkbox checked={selected.has(c.id)} onChange={() => toggleOne(c.id)} aria-label={`Selecionar ${c.descricao}`} />
+              </Td>
+              <Td className="!py-2">
+                <FavoriteButton entityType="composicao" entityId={c.id} initialFavorito={!!c.is_favorito} />
               </Td>
               <Td className="!p-0 font-mono text-xs text-gray-500">
                 <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.codigo}</Link>

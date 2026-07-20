@@ -148,6 +148,7 @@ export default function EditarInsumoPage() {
       const sb = createClient() as any;
       const { error: dbError } = await sb.from('tabela_insumos').delete().eq('id', id);
       if (dbError) throw dbError;
+      sb.from('favoritos').delete().eq('entity_type', 'insumo').eq('entity_id', id).then(() => {});
       startTransition(() => {
         router.refresh();
         router.push('/insumos');

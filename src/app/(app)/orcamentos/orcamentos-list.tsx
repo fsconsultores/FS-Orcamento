@@ -13,6 +13,7 @@ import { Modal, ConfirmDialog } from '@/components/ui/modal';
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
+import { FavoriteButton } from '@/components/ui/favorite-button';
 
 type OrcRow = {
   id: string;
@@ -24,11 +25,13 @@ type OrcRow = {
   tabela_itens_orcamento: { id: string }[];
   ultimo_acesso: string | null;
   created_at: string | null;
+  is_favorito?: boolean;
 };
 
 interface Props {
   initialOrcamentos: OrcRow[];
   totaisMap: Record<string, number>;
+  favoritosAtivo?: boolean;
   children?: React.ReactNode;
 }
 
@@ -71,10 +74,11 @@ function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
     tabela_itens_orcamento: Array.from({ length: itemCount }, (_, i) => ({ id: String(i) })),
     ultimo_acesso: r.ultimo_acesso,
     created_at: new Date().toISOString(),
+    is_favorito: false,
   };
 }
 
-export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
+export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, children }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -355,20 +359,29 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
 
       {orcamentos.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <EmptyState
-            icon={<FolderPlus size={20} />}
-            title="Nenhum orçamento criado"
-            description="Comece cadastrando o primeiro orçamento do sistema."
-            action={
-              <Button size="sm" icon={<Plus size={14} />} onClick={() => router.push('/orcamentos/novo')}>
-                Criar primeiro orçamento
-              </Button>
-            }
-          />
+          {favoritosAtivo ? (
+            <EmptyState
+              icon={<FolderPlus size={20} />}
+              title="Você ainda não favoritou nenhum orçamento"
+              description="Toque na estrela ☆ ao lado de um orçamento para adicioná-lo aos favoritos."
+            />
+          ) : (
+            <EmptyState
+              icon={<FolderPlus size={20} />}
+              title="Nenhum orçamento criado"
+              description="Comece cadastrando o primeiro orçamento do sistema."
+              action={
+                <Button size="sm" icon={<Plus size={14} />} onClick={() => router.push('/orcamentos/novo')}>
+                  Criar primeiro orçamento
+                </Button>
+              }
+            />
+          )}
         </div>
       ) : (
         <Table>
           <Thead>
+            <Th className="w-9" />
             <Th className="w-28">Código</Th>
             <Th>Nome da Obra</Th>
             <Th>Cliente</Th>
@@ -388,6 +401,9 @@ export function OrcamentosGrid({ initialOrcamentos, children }: Props) {
                   }}
                   className={`transition-all ${isPending ? 'pointer-events-none animate-pulse bg-primary-50 opacity-60' : 'cursor-pointer'} ${isDeleting ? 'opacity-40' : ''}`}
                 >
+                  <Td onClick={(e) => e.stopPropagation()}>
+                    {!isPending && <FavoriteButton entityType="orcamento" entityId={orc.id} initialFavorito={!!orc.is_favorito} />}
+                  </Td>
                   <Td className="font-mono text-xs text-gray-500">{orc.codigo}</Td>
                   <Td className="font-medium text-gray-900">{orc.nome_obra}</Td>
                   <Td className="text-gray-600">{orc.cliente ?? '—'}</Td>

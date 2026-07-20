@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/supabase/auth'
 import { registrarHistorico } from '@/lib/log'
 import { duplicarOrcamento } from '@/lib/orcamento/duplicate'
+import { removerFavoritosDaEntidade } from '@/lib/favoritos'
 
 
 export async function deleteOrcamento(orcamentoId: string): Promise<void> {
@@ -14,6 +15,7 @@ export async function deleteOrcamento(orcamentoId: string): Promise<void> {
   const { data: orc } = await sb.from('tabela_orcamentos').select('nome_obra').eq('id', orcamentoId).single()
   const { error } = await sb.from('tabela_orcamentos').delete().eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao excluir orçamento: ${error.message}`)
+  removerFavoritosDaEntidade(supabase, 'orcamento', orcamentoId).catch(console.error)
   revalidatePath('/orcamentos')
   // orcamento_id não é enviado aqui de propósito: o orçamento já foi excluído
   // (ON DELETE CASCADE apagaria este próprio registro de auditoria também).

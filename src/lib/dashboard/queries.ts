@@ -58,6 +58,14 @@ export interface BaseResumo {
   ultima_importacao: string | null
 }
 
+export interface FavoritoRecenteItem {
+  id: string
+  entityType: 'insumo' | 'composicao' | 'orcamento'
+  label: string
+  sublabel: string | null
+  href: string
+}
+
 export interface ResumoSistema {
   total_insumos_globais: number
   total_composicoes_globais: number
@@ -151,6 +159,59 @@ export async function getBasePropriaResumo(sb: SB): Promise<BaseResumo | null> {
     .eq('tipo_base', 'propria')
     .maybeSingle()
   return data ?? null
+}
+
+/** Favoritos mais recentes do usuário logado (insumos, composições, orçamentos
+ * — bases ficam de fora, não fazem sentido no card "recentes utilizados").
+ * Por-usuário, NUNCA envolver em unstable_cache (mesma regra de getBasePropriaResumo). */
+export async function getFavoritosRecentes(sb: SB, userId: string): Promise<FavoritoRecenteItem[]> {
+  const { data: favsRaw } = await sb
+    .from('favoritos')
+    .select('entity_type, entity_id, created_at')
+    .eq('user_id', userId)
+    .neq('entity_type', 'base')
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const favs = (favsRaw ?? []) as { entity_type: string; entity_id: string; created_at: string }[]
+  if (favs.length === 0) return []
+
+  const idsByType: Record<string, string[]> = {}
+  for (const f of favs) (idsByType[f.entity_type] ??= []).push(f.entity_id)
+
+  const [insumosRes, composicoesRes, orcamentosRes] = await Promise.all([
+    idsByType.insumo?.length
+      ? sb.from('tabela_insumos').select('id, codigo, descricao').in('id', idsByType.insumo)
+      : Promise.resolve({ data: [] as any[] }),
+    idsByType.composicao?.length
+      ? sb.from('tabela_composicoes').select('id, codigo, descricao').in('id', idsByType.composicao)
+      : Promise.resolve({ data: [] as any[] }),
+    idsByType.orcamento?.length
+      ? sb.from('tabela_orcamentos').select('id, nome_obra, codigo').in('id', idsByType.orcamento)
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+
+  const insumoMap = new Map<string, any>((insumosRes.data ?? []).map((i: any) => [i.id, i]))
+  const composicaoMap = new Map<string, any>((composicoesRes.data ?? []).map((c: any) => [c.id, c]))
+  const orcamentoMap = new Map<string, any>((orcamentosRes.data ?? []).map((o: any) => [o.id, o]))
+
+  const items: FavoritoRecenteItem[] = []
+  for (const f of favs) {
+    if (f.entity_type === 'insumo') {
+      const i = insumoMap.get(f.entity_id)
+      if (!i) continue
+      items.push({ id: f.entity_id, entityType: 'insumo', label: i.descricao, sublabel: i.codigo, href: `/insumos/${f.entity_id}/editar` })
+    } else if (f.entity_type === 'composicao') {
+      const c = composicaoMap.get(f.entity_id)
+      if (!c) continue
+      items.push({ id: f.entity_id, entityType: 'composicao', label: c.descricao, sublabel: c.codigo, href: `/composicoes/${f.entity_id}` })
+    } else if (f.entity_type === 'orcamento') {
+      const o = orcamentoMap.get(f.entity_id)
+      if (!o) continue
+      items.push({ id: f.entity_id, entityType: 'orcamento', label: o.nome_obra, sublabel: o.codigo, href: `/orcamentos/${f.entity_id}` })
+    }
+    if (items.length >= 8) break
+  }
+  return items
 }
 
 /** Totais da biblioteca global (insumos/composições por categoria, itens sem
