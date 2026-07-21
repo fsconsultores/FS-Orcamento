@@ -372,11 +372,20 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   // snapshot próprio para serem revertidas. Ver handleConfirmLeave.
   const baselineRef = useRef<EstruturaItem[]>(initialItems.map(it => ({ ...it })))
   const structuralDirtyRef = useRef(false)
+  // Toda Server Action (adicionar/excluir/mover item já são Server Actions)
+  // faz o Next.js re-renderizar implicitamente os Server Components da rota
+  // atual — isso muda a prop `initialItems` MESMO sem navegação real. Por
+  // isso o reset do baseline não pode depender só de `initialItems` mudar;
+  // só deve acontecer quando a planilha ativa de fato muda (troca de aba).
+  const activePlanilhaIdRef = useRef(activePlanilhaId)
 
   useEffect(() => {
     setItems(initialItems)
-    baselineRef.current = initialItems.map(it => ({ ...it }))
-    structuralDirtyRef.current = false
+    if (activePlanilhaIdRef.current !== activePlanilhaId) {
+      baselineRef.current = initialItems.map(it => ({ ...it }))
+      structuralDirtyRef.current = false
+      activePlanilhaIdRef.current = activePlanilhaId
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems])
   const [deletingId, setDeletingId]     = useState<string | null>(null)
@@ -522,9 +531,18 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleConfirmLeave() {
     setShowLeaveModal(false)
+    console.log('[DEBUG sair-sem-salvar]', {
+      structuralDirty: structuralDirtyRef.current,
+      baselineCount: baselineRef.current.length,
+      currentCount: items.length,
+      activePlanilhaId,
+      baselineIds: baselineRef.current.map(it => it.id),
+      currentIds: items.map(it => it.id),
+    })
     if (structuralDirtyRef.current) {
       try {
         await restaurarEstruturaSnapshot(orcamentoId, activePlanilhaId, baselineRef.current)
+        console.log('[DEBUG sair-sem-salvar] restaurarEstruturaSnapshot OK')
       } catch (e) {
         // Best-effort: não trava a navegação por causa disso — pior caso é
         // igual ao bug original (item adicionado/excluído/movido permanece).
