@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes } from './planilha-action'
+import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, limparPlanilha, buscarSugestoesCodigo, salvarNumeros, moverItem, buscarItensEstrutura, validarComposicoes, restaurarEstruturaSnapshot } from './planilha-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-action'
 import { calcularPlanilhaAtualAction, recalcularProjetoAction, verificarConsistenciaAction, detectarOrfaosAction, confirmarLimpezaAction } from './calcular-action'
 import { atualizarPrecoInsumoAction } from '../atualizar-preco-insumo-action'
@@ -365,8 +365,18 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
 
+  // "Estado confirmado" da planilha ativa — usado para desfazer operações
+  // estruturais (adicionar/excluir/mover) se o usuário sair sem salvar. Essas
+  // operações persistem no banco na hora do clique (diferente das edições de
+  // célula, que só vão ao banco no "Salvar Planilha"), então precisam de um
+  // snapshot próprio para serem revertidas. Ver handleConfirmLeave.
+  const baselineRef = useRef<EstruturaItem[]>(initialItems.map(it => ({ ...it })))
+  const structuralDirtyRef = useRef(false)
+
   useEffect(() => {
     setItems(initialItems)
+    baselineRef.current = initialItems.map(it => ({ ...it }))
+    structuralDirtyRef.current = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems])
   const [deletingId, setDeletingId]     = useState<string | null>(null)
@@ -500,15 +510,29 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       }
       setInvalidCodigos(new Set())
       setIsDirty(false)
+      // Tudo até aqui (edições de célula + qualquer add/excluir/mover feito
+      // nesta sessão) agora está confirmado no banco — vira o novo baseline.
+      baselineRef.current = items.map(it => ({ ...it }))
+      structuralDirtyRef.current = false
       scheduleSaved()
     } catch {
       setSaveStatus('error')
     }
   }
 
-  function handleConfirmLeave() {
-    dirtyItemsRef.current.clear()
+  async function handleConfirmLeave() {
     setShowLeaveModal(false)
+    if (structuralDirtyRef.current) {
+      try {
+        await restaurarEstruturaSnapshot(orcamentoId, activePlanilhaId, baselineRef.current)
+      } catch (e) {
+        // Best-effort: não trava a navegação por causa disso — pior caso é
+        // igual ao bug original (item adicionado/excluído/movido permanece).
+        console.error('[Planilha] Falha ao descartar alterações estruturais:', e)
+      }
+      structuralDirtyRef.current = false
+    }
+    dirtyItemsRef.current.clear()
     setIsDirty(false)
     const href = pendingHrefRef.current
     pendingHrefRef.current = null
@@ -537,6 +561,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       if (modo === 'projeto' && result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
       const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
+      // Calcular também persiste no servidor — os itens recém-buscados são
+      // um novo ponto confirmado, igual a um "Salvar Planilha".
+      baselineRef.current = fresh.map(it => ({ ...it }))
+      structuralDirtyRef.current = false
     } finally {
       setCalcMode(null)
     }
@@ -825,6 +853,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleInsert(nodo: Nodo, position: 'above' | 'below') {
     setIsDirty(true)
+    structuralDirtyRef.current = true
     setContextMenu(null)
 
     // "Adicionar abaixo" num agrupador → cria filho
@@ -857,6 +886,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleAfterCreate(newItem: EstruturaItem) {
     setIsDirty(true)
+    structuralDirtyRef.current = true
     setItems(prev => {
       const next = [...prev, newItem]
       agendarSincronizacaoComItems(next)
@@ -869,6 +899,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   async function handleDelete(id: string) {
     if (!confirm('Remover este item e todos seus sub-itens?')) return
     setIsDirty(true)
+    structuralDirtyRef.current = true
     setDeletingId(id)
     const toRemove = new Set<string>()
     function collect(itemId: string) {
@@ -883,6 +914,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
     setIsDirty(true)
+    structuralDirtyRef.current = true
     const siblings = childrenMap.get(nodo.parent_id) ?? []
     const idx = siblings.findIndex(it => it.id === nodo.id)
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1
@@ -1364,6 +1396,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     setDragActiveId(null)
     if (!over || active.id === over.id) return
     setIsDirty(true)
+    structuralDirtyRef.current = true
 
     const proj = computeProjection(String(active.id), String(over.id), dragDeltaX.current)
     if (!proj) return

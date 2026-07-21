@@ -215,6 +215,67 @@ export async function deletarItemEstrutura(
   }
 }
 
+// Descarta operações estruturais (adicionar/excluir/mover) feitas desde o
+// último "Salvar Planilha"/"Calcular" — essas operações já persistem no banco
+// na hora do clique (diferente das edições de célula, que ficam em
+// dirtyItemsRef até o Salvar), então "Sair sem salvar" sozinho não tinha como
+// revertê-las. Restaura a planilha ativa para o snapshot capturado no último
+// ponto confirmado, apagando e reinserindo nível a nível — mesmo padrão de
+// restaurarEstrutura() em versoes/versoes-action.ts (evita violar a FK
+// parent_id ao inserir um filho antes do pai existir), só que escopado a uma
+// única planilha e sem remapear planilha_id (não atravessa planilhas).
+export async function restaurarEstruturaSnapshot(
+  orcamentoId: string,
+  planilhaId: string | null,
+  snapshot: EstruturaItem[]
+): Promise<void> {
+  const supabase = await createClient()
+  const sb = supabase as any
+
+  const delQ = planilhaId
+    ? sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId).eq('planilha_id', planilhaId)
+    : sb.from('orcamento_estrutura').delete().eq('orcamento_id', orcamentoId).is('planilha_id', null)
+  const { error: delErr } = await delQ
+  if (delErr) throw new Error(`Erro ao descartar alterações: ${delErr.message}`)
+
+  if (snapshot.length > 0) {
+    const idMap = new Map<string, string>()
+    const byNivel = new Map<number, EstruturaItem[]>()
+    for (const it of snapshot) {
+      const arr = byNivel.get(it.nivel) ?? []
+      arr.push(it)
+      byNivel.set(it.nivel, arr)
+    }
+
+    for (const nivel of [...byNivel.keys()].sort((a, b) => a - b)) {
+      const itens = byNivel.get(nivel)!
+      const rows = itens.map(it => ({
+        orcamento_id: orcamentoId,
+        planilha_id: planilhaId,
+        parent_id: it.parent_id ? (idMap.get(it.parent_id) ?? null) : null,
+        numero: it.numero,
+        nivel: it.nivel,
+        codigo: it.codigo,
+        descricao: it.descricao,
+        unidade: it.unidade,
+        quantidade: it.quantidade,
+        custo_unitario: it.custo_unitario,
+        bdi_especifico: it.bdi_especifico,
+        tipo: it.tipo,
+        ordem: it.ordem,
+      }))
+      const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
+      if (error) throw new Error(`Erro ao descartar alterações (nível ${nivel}): ${error.message}`)
+      itens.forEach((it, i) => idMap.set(it.id, inserted[i].id))
+    }
+  }
+
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  if (planilhaId) {
+    await persistirTotaisPlanilha(supabase, orcamentoId, [planilhaId]).catch(console.error)
+  }
+}
+
 export async function salvarNumeros(
   orcamentoId: string,
   updates: { id: string; numero: string; nivel: number }[]
