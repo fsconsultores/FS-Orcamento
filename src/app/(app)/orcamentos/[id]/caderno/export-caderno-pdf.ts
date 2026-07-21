@@ -175,7 +175,7 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
   const rightX = margin + leftW + gap
   const rightW = contentW - leftW - gap
 
-  const A = data.totalGeral
+  const A = data.totalGeralComBdi
   const B = data.totalServicosEstimados
   const C = A + B
   const { area_total, area_coberta, area_equivalente } = data.orcamento
@@ -195,7 +195,7 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
     startY: yLeft,
     margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
     head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-    body: data.arvore.map(n => [n.descricao, fmt(n.total), fmtPct(n.percentual)]),
+    body: data.arvore.map(n => [n.descricao, fmt(n.totalComBdi), fmtPct(n.percentualComBdi)]),
     foot: [['TOTAL GERAL', fmt(A), '100,00%']],
     showFoot: 'lastPage',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
@@ -301,7 +301,7 @@ async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number,
   addSectionBanner(doc, margin, contentW, numero, 'CUSTO / M²', subtitle)
 
   const { nome_obra, cliente, local, area_total, area_coberta, area_equivalente } = data.orcamento
-  const A = data.totalGeral
+  const A = data.totalGeralComBdi
   const B = data.totalServicosEstimados
   const C = A + B
 
@@ -389,7 +389,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   const body: RowInput[] = flat.map(({ node, depth }) => {
     const indent = '   '.repeat(depth)
     if (node.tipo === 'grupo') {
-      return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', '', fmt(node.total), fmtPct(node.percentual), '']
+      return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', '', fmt(node.totalComBdi), fmtPct(node.percentualComBdi), '']
     }
     return [
       node.numero,
@@ -397,12 +397,12 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       indent + node.descricao,
       node.unidade ?? '',
       fmtQtd(node.quantidade ?? 0),
-      fmt(node.custoMat),
-      fmt(node.custoMo),
-      fmt(node.custoTerceiros),
-      fmt(node.custoUnitario),
-      fmt(node.total),
-      fmtPct(node.percentual),
+      fmt(node.custoMatComBdi),
+      fmt(node.custoMoComBdi),
+      fmt(node.custoTerceirosComBdi),
+      fmt(node.custoUnitarioComBdi),
+      fmt(node.totalComBdi),
+      fmtPct(node.percentualComBdi),
       node.classeAbc ?? '',
     ]
   })
@@ -411,9 +411,9 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     startY: tableTop,
     willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
     margin: { left: margin, right: margin, bottom: margin, top: tableTop },
-    head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. (R$)', 'Total (R$)', '%', 'ABC']],
+    head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. c/ BDI (R$)', 'Total c/ BDI (R$)', '%', 'ABC']],
     body,
-    foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeral), '100,00%', '']],
+    foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeralComBdi), '100,00%', '']],
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },

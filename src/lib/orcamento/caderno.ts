@@ -20,7 +20,8 @@ export interface CadernoNode {
   unidade: string | null
   quantidade: number | null
   tipo: 'grupo' | 'item'
-  // custos unitários (apenas itens-folha)
+  // custos unitários (apenas itens-folha) — custo puro, sem BDI. Usado pela
+  // Planilha Analítica/Decomposta e Curva ABC, que continuam em custo puro.
   custoMat: number
   custoMo: number
   custoTerceiros: number
@@ -31,6 +32,16 @@ export interface CadernoNode {
   totalTerceiros: number
   total: number
   percentual: number
+  // Equivalentes COM BDI aplicado (bdi_especifico do item, com fallback para
+  // o bdi_global do orçamento) — usados só na Planilha de Preços Unitários,
+  // no Resumo Geral e na Distribuição de Custos, que são o que o cliente
+  // efetivamente paga. Ver getCadernoData().
+  custoMatComBdi: number
+  custoMoComBdi: number
+  custoTerceirosComBdi: number
+  custoUnitarioComBdi: number
+  totalComBdi: number
+  percentualComBdi: number
   // classificação Curva ABC (apenas itens-folha; null para grupos)
   classeAbc: AbcClasse | null
   filhos: CadernoNode[]
@@ -94,6 +105,8 @@ export interface CadernoData {
   }
   arvore: CadernoNode[]
   totalGeral: number
+  /** Total Orçado (A) com BDI aplicado — o que o cliente vê como preço final. */
+  totalGeralComBdi: number
   servicosEstimados: ServicoEstimado[]
   totalServicosEstimados: number
   abcInsumos: AbcItem[]
@@ -109,6 +122,7 @@ export interface CadernoData {
 interface EstruturaFullItem {
   id: string
   parent_id: string | null
+  planilha_id: string | null
   numero: string
   nivel: number
   codigo: string | null
@@ -152,14 +166,17 @@ export async function getCadernoData(
   const sb = supabase as any
 
   let estruturaQuery = sb.from('orcamento_estrutura')
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) estruturaQuery = estruturaQuery.in('planilha_id', planilhaIds)
   estruturaQuery = estruturaQuery
     .order('nivel', { ascending: true })
     .order('ordem', { ascending: true })
 
-  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, { insumos: todosInsumos, insumosDeComposicao }] = await Promise.all([
+  let planilhasQuery = sb.from('orcamento_planilhas').select('id, bdi_global').eq('orcamento_id', orcamentoId)
+  if (planilhaIds && planilhaIds.length > 0) planilhasQuery = planilhasQuery.in('id', planilhaIds)
+
+  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
       .eq('id', orcamentoId)
@@ -171,9 +188,20 @@ export async function getCadernoData(
       .order('ordem', { ascending: true }),
     getComposicoesByOrcamento(supabase, orcamentoId),
     getInsumosByOrcamentoDetalhado(supabase, orcamentoId),
+    planilhasQuery,
   ])
 
   const estItems: EstruturaFullItem[] = estrutura ?? []
+
+  // BDI de cada item: bdi_especifico do próprio item > bdi_global DA PLANILHA
+  // à qual ele pertence (orcamento_planilhas.bdi_global, que pode divergir do
+  // bdi_global do orçamento — mesma fonte usada por persistirTotaisPlanilha()
+  // em motor-calculo.ts, para o Caderno bater com o total já calculado pelo
+  // sistema) > bdi_global do orçamento como último fallback.
+  const planilhaBdiMap = new Map<string, number>(
+    ((planilhasBdi ?? []) as { id: string; bdi_global: number | null }[])
+      .map(p => [p.id, p.bdi_global ?? 0])
+  )
 
   // Insumos dentro de composições — já buscados por getInsumosByOrcamentoDetalhado
   // (composicao_id é sempre não-nulo aqui, pela própria query que os produziu).
@@ -277,6 +305,18 @@ export async function getCadernoData(
     return custoUnitario
   }
 
+  // Fator de BDI de um item-folha: bdi_especifico > bdi_global da planilha à
+  // qual pertence > bdi_global do orçamento. Mesma cadeia de fallback usada em
+  // buildNode() — compartilhada aqui para os Serviços Estimados (B) também
+  // saírem com BDI, batendo com o Total Orçado (A).
+  function fatorBdiDoItem(raw: EstruturaFullItem): number {
+    const bdiPct = raw.bdi_especifico
+      ?? (raw.planilha_id ? planilhaBdiMap.get(raw.planilha_id) : undefined)
+      ?? orc?.bdi_global
+      ?? 0
+    return 1 + bdiPct / 100
+  }
+
   // ── Itens "- Estimado" → Serviços Estimados (B) ──────────────────────────────
   // Grupos/itens cujo nome termina em "- Estimado" não compõem o Total Orçado
   // (A) nem as demais seções do caderno; seu custo entra como Serviço
@@ -285,7 +325,7 @@ export async function getCadernoData(
   const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
 
   function sumLeaves(raw: RawNode): number {
-    if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0)
+    if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0) * fatorBdiDoItem(raw)
     return raw.filhos.reduce((s, f) => s + sumLeaves(f), 0)
   }
 
@@ -352,12 +392,23 @@ export async function getCadernoData(
       }
 
       const total = custoUnitario * quantidade
+      const bdiPct = raw.bdi_especifico
+        ?? (raw.planilha_id ? planilhaBdiMap.get(raw.planilha_id) : undefined)
+        ?? orc?.bdi_global
+        ?? 0
+      const fatorBdi = 1 + bdiPct / 100
       return {
         id: raw.id, numero: raw.numero, nivel: raw.nivel, codigo: raw.codigo,
         descricao: raw.descricao, unidade: raw.unidade, quantidade: raw.quantidade, tipo: raw.tipo,
         custoMat, custoMo, custoTerceiros, custoUnitario,
         totalMat: custoMat * quantidade, totalMo: custoMo * quantidade, totalTerceiros: custoTerceiros * quantidade, total,
         percentual: 0,
+        custoMatComBdi: custoMat * fatorBdi,
+        custoMoComBdi: custoMo * fatorBdi,
+        custoTerceirosComBdi: custoTerceiros * fatorBdi,
+        custoUnitarioComBdi: custoUnitario * fatorBdi,
+        totalComBdi: total * fatorBdi,
+        percentualComBdi: 0,
         classeAbc: null,
         filhos: [],
       }
@@ -368,12 +419,16 @@ export async function getCadernoData(
     const totalMo = filhos.reduce((s, f) => s + f.totalMo, 0)
     const totalTerceiros = filhos.reduce((s, f) => s + f.totalTerceiros, 0)
     const total = filhos.reduce((s, f) => s + f.total, 0)
+    const totalComBdi = filhos.reduce((s, f) => s + f.totalComBdi, 0)
     return {
       id: raw.id, numero: raw.numero, nivel: raw.nivel, codigo: raw.codigo,
       descricao: raw.descricao, unidade: raw.unidade, quantidade: raw.quantidade, tipo: raw.tipo,
       custoMat: 0, custoMo: 0, custoTerceiros: 0, custoUnitario: 0,
       totalMat, totalMo, totalTerceiros, total,
       percentual: 0,
+      custoMatComBdi: 0, custoMoComBdi: 0, custoTerceirosComBdi: 0, custoUnitarioComBdi: 0,
+      totalComBdi,
+      percentualComBdi: 0,
       classeAbc: null,
       filhos,
     }
@@ -381,10 +436,12 @@ export async function getCadernoData(
 
   const arvore = arvoreRoots.map(buildNode)
   const totalGeral = arvore.reduce((s, n) => s + n.total, 0)
+  const totalGeralComBdi = arvore.reduce((s, n) => s + n.totalComBdi, 0)
 
   function aplicarPercentual(nodes: CadernoNode[]) {
     for (const n of nodes) {
       n.percentual = totalGeral > 0 ? (n.total / totalGeral) * 100 : 0
+      n.percentualComBdi = totalGeralComBdi > 0 ? (n.totalComBdi / totalGeralComBdi) * 100 : 0
       aplicarPercentual(n.filhos)
     }
   }
@@ -423,9 +480,11 @@ export async function getCadernoData(
   const categoriasMap: Record<string, string> = orc?.categorias_grafico ?? {}
   const totalPorCategoria = new Map<string, number>()
   for (const n of arvore) {
-    if (n.total <= 0) continue
+    // Com BDI — é o gráfico mostrado junto ao Resumo Geral/Total Orçado (A),
+    // que já reflete o preço com BDI; precisa bater com o total ali ao lado.
+    if (n.totalComBdi <= 0) continue
     const categoria = categoriasMap[n.numero] || sugerirCategoria(n.descricao)
-    totalPorCategoria.set(categoria, (totalPorCategoria.get(categoria) ?? 0) + n.total)
+    totalPorCategoria.set(categoria, (totalPorCategoria.get(categoria) ?? 0) + n.totalComBdi)
   }
   const distribuicaoCustos: DistribuicaoCustoItem[] = []
   CATEGORIAS_DISTRIBUICAO_CUSTOS.forEach((categoria, i) => {
@@ -435,7 +494,7 @@ export async function getCadernoData(
       numero: String(i + 1).padStart(2, '0'),
       label: categoria,
       value,
-      percentual: totalGeral > 0 ? (value / totalGeral) * 100 : 0,
+      percentual: totalGeralComBdi > 0 ? (value / totalGeralComBdi) * 100 : 0,
       color: CORES_DISTRIBUICAO_CUSTOS[categoria],
     })
   })
@@ -445,7 +504,7 @@ export async function getCadernoData(
       numero: '',
       label: CATEGORIA_OUTROS,
       value: totalOutros,
-      percentual: totalGeral > 0 ? (totalOutros / totalGeral) * 100 : 0,
+      percentual: totalGeralComBdi > 0 ? (totalOutros / totalGeralComBdi) * 100 : 0,
       color: CORES_DISTRIBUICAO_CUSTOS[CATEGORIA_OUTROS],
     })
   }
@@ -668,6 +727,7 @@ export async function getCadernoData(
     },
     arvore,
     totalGeral,
+    totalGeralComBdi,
     servicosEstimados,
     totalServicosEstimados,
     abcInsumos,
