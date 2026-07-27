@@ -62,6 +62,7 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   revalidatePath(`/orcamentos/${orcamentoId}/relatorios`)
+  revalidatePath(`/orcamentos/${orcamentoId}/relatorios/gerar`)
   revalidatePath(`/orcamentos/${orcamentoId}/editar`)
   revalidatePath('/orcamentos')
 

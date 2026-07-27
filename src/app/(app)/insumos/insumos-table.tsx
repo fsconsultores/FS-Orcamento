@@ -58,7 +58,18 @@ export function InsumosTable({
     setSavingId(id);
     try {
       const sb = createClient() as any;
-      await sb.from('tabela_insumos').update({ preco_base: parsed }).eq('id', id);
+      // .select('id') é necessário para saber se a RLS bloqueou o update —
+      // insumos de base externa (SINAPI/DNIT/SUDECAP/DER) são somente leitura
+      // por política do banco; sem o .select(), um update bloqueado retorna
+      // sucesso (0 linhas afetadas, sem erro) e a UI mentia que tinha salvo.
+      const { data: updated, error: dbError } = await sb
+        .from('tabela_insumos')
+        .update({ preco_base: parsed })
+        .eq('id', id)
+        .select('id');
+      if (dbError) throw dbError;
+      if (!updated?.length) throw new Error('RLS bloqueou o update.');
+
       const { data: { user } } = await sb.auth.getUser();
       await sb.from('tabela_historico_precos').insert({
         insumo_id:      id,
@@ -69,7 +80,7 @@ export function InsumosTable({
       });
     } catch {
       setInsumos(prev => prev.map(ins => ins.id === id && current ? { ...ins, preco_base: current.preco_base } : ins));
-      toast.show('Não foi possível salvar o novo custo. Tente novamente em alguns segundos.', 'error');
+      toast.show('Não foi possível salvar o novo custo. Se este insumo for de uma base externa (SINAPI/DNIT/SUDECAP/DER), o preço é somente leitura.', 'error');
     } finally {
       setSavingId(null);
     }

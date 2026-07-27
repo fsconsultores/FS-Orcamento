@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
 import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
+import { FilterBanner } from '@/components/ui/filter-banner';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { getFavoritoIds } from '@/lib/favoritos';
 import { InsumosTable } from './insumos-table';
@@ -22,19 +23,21 @@ const PAGE_SIZE = 100;
 export default async function InsumosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string; favoritos?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string; favoritos?: string; semPreco?: string }>;
 }) {
-  const { q, orgao, origem, page: pageParam, favoritos } = await searchParams;
+  const { q, orgao, origem, page: pageParam, favoritos, semPreco } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
   const favoritosAtivo = favoritos === '1';
+  const semPrecoAtivo = semPreco === '1';
 
   const qs = new URLSearchParams()
   if (q) qs.set('q', q)
   if (orgao) qs.set('orgao', orgao)
   if (origem) qs.set('origem', origem)
   if (favoritosAtivo) qs.set('favoritos', '1')
+  if (semPrecoAtivo) qs.set('semPreco', '1')
   const baseHref = `/insumos${qs.toString() ? '?' + qs.toString() : ''}`
 
   const supabase = await createClient();
@@ -64,6 +67,7 @@ export default async function InsumosPage({
     else if (baseIdFiltro) query = query.eq('base_id', baseIdFiltro)
     if (origem) query = query.eq('base_origem', origem)
     if (favoritoIds) query = query.in('id', favoritoIds)
+    if (semPrecoAtivo) query = query.or('preco_base.is.null,preco_base.eq.0')
     return query
   }
 
@@ -124,6 +128,13 @@ export default async function InsumosPage({
         }
       />
 
+      {semPrecoAtivo && (
+        <FilterBanner
+          label={`Mostrando ${total.toLocaleString('pt-BR')} ${total === 1 ? 'insumo sem preço' : 'insumos sem preço'}`}
+          clearHref={(() => { const p = new URLSearchParams(qs); p.delete('semPreco'); return `/insumos${p.toString() ? '?' + p.toString() : ''}` })()}
+        />
+      )}
+
       <Toolbar
         search={
           <Suspense>
@@ -152,7 +163,7 @@ export default async function InsumosPage({
       </StatRow>
 
       <InsumosTable
-        key={`${page}-${q}-${orgao}-${origem}-${favoritos}`}
+        key={`${page}-${q}-${orgao}-${origem}-${favoritos}-${semPreco}`}
         initialInsumos={(insumos ?? []) as InsumoComBase[]}
         favoritosAtivo={favoritosAtivo}
       />

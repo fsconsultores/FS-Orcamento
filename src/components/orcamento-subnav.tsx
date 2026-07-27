@@ -12,10 +12,10 @@ const TABS = [
   { suffix: 'planilha', label: 'Planilha' },
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
-  { suffix: 'relatorios', label: 'Relatórios' },
   { suffix: 'curva-abc', label: 'Curva ABC' },
-  { suffix: 'versoes', label: 'Versões' },
+  { suffix: 'relatorios', label: 'Relatórios' },
   { suffix: 'importar', label: 'Importar' },
+  { suffix: 'versoes', label: 'Versões' },
   { suffix: 'configuracoes', label: 'Configurações' },
   { suffix: 'logs', label: 'Logs' },
 ]

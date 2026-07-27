@@ -66,9 +66,11 @@ export function gerarAlertas(input: {
     alertas.push({
       key: 'sem-versao',
       titulo: `${orcamentosSemVersao.length} ${orcamentosSemVersao.length === 1 ? 'orçamento sem versão salva' : 'orçamentos sem versão salva'}`,
-      descricao: 'Salve uma versão para poder restaurar este ponto depois.',
+      descricao: orcamentosSemVersao.length === 1
+        ? orcamentosSemVersao[0].nome_obra
+        : 'Salve uma versão para poder restaurar este ponto depois.',
       variant: 'warning',
-      href: orcamentosSemVersao.length === 1 ? `/orcamentos/${orcamentosSemVersao[0].id}/versoes` : '/orcamentos',
+      href: orcamentosSemVersao.length === 1 ? `/orcamentos/${orcamentosSemVersao[0].id}/versoes` : '/orcamentos?semVersao=1',
     })
   }
 
@@ -96,7 +98,7 @@ export function gerarAlertas(input: {
       titulo: `${resumoSistema.total_insumos_sem_preco.toLocaleString('pt-BR')} insumos sem preço`,
       descricao: 'Itens da biblioteca global com preço zerado.',
       variant: 'warning',
-      href: '/insumos',
+      href: '/insumos?semPreco=1',
     })
   }
 
@@ -106,7 +108,7 @@ export function gerarAlertas(input: {
       titulo: `${resumoSistema.total_composicoes_incompletas.toLocaleString('pt-BR')} composições incompletas`,
       descricao: 'Composições da biblioteca global sem nenhum insumo vinculado.',
       variant: 'warning',
-      href: '/composicoes',
+      href: '/composicoes?incompletas=1',
     })
   }
 

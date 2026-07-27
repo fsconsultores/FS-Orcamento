@@ -21,3 +21,5 @@ create policy "authenticated select historico"
 
 create policy "authenticated insert historico"
   on public.tabela_historico_precos for insert to authenticated with check (true);
+
+NOTIFY pgrst, 'reload schema';

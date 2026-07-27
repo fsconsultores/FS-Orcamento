@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(cd /tmp/trace-extract && grep -o '\"method\":\"[a-zA-Z]*\"' 0-trace.trace | sort | uniq -c | sort -rn | head -20)",
+      "Read(//tmp/**)"
     ]
   }
 }

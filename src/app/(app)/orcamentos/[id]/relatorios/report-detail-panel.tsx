@@ -14,6 +14,8 @@ import { exportCurvaAbcXlsx } from './exporters/export-curva-abc-xlsx'
 import { CadernoInfoForm } from './caderno-info-form'
 import { Button } from '@/components/ui/button'
 import { Download } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { registrarHistorico } from '@/lib/log'
 
 const CADERNO_SECOES = [
   'Capa', 'Resumo executivo', 'Custo por m²', 'Planilha de preços',
@@ -83,6 +85,17 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
           await exportCurvaAbcPdf(items, report.kind.tab, data.orcamento.nome_obra)
         }
       }
+
+      // Fire-and-forget: alimenta a tela "Últimos relatórios gerados"
+      // (histórico, não guarda o arquivo em si — ver historico_alteracoes).
+      registrarHistorico(createClient(), {
+        orcamentoId,
+        entidade: 'relatorio',
+        acao: 'gerar_relatorio',
+        tipo: 'sucesso',
+        mensagem: `Relatório "${report.title}" exportado em ${formato.toUpperCase()}`,
+        detalhes: { reportId: report.id, formato, escopo, planilhaIds },
+      }).catch(console.error)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível gerar o arquivo. Tente novamente em alguns segundos.')
     } finally {

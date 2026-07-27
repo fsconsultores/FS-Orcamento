@@ -13,8 +13,12 @@ export async function deleteOrcamento(orcamentoId: string): Promise<void> {
   const sb = supabase as any
   await requireUser(supabase)
   const { data: orc } = await sb.from('tabela_orcamentos').select('nome_obra').eq('id', orcamentoId).single()
-  const { error } = await sb.from('tabela_orcamentos').delete().eq('id', orcamentoId)
+  // .select('id') é necessário pra saber se o delete realmente afetou
+  // alguma linha (ex.: orçamento já excluído por outro usuário em paralelo)
+  // — sem isso, um delete com 0 linhas retorna sucesso silencioso.
+  const { data: deleted, error } = await sb.from('tabela_orcamentos').delete().eq('id', orcamentoId).select('id')
   if (error) throw new Error(`Erro ao excluir orçamento: ${error.message}`)
+  if (!deleted?.length) throw new Error('Orçamento não encontrado — pode já ter sido excluído por outro usuário.')
   removerFavoritosDaEntidade(supabase, 'orcamento', orcamentoId).catch(console.error)
   revalidatePath('/orcamentos')
   // orcamento_id não é enviado aqui de propósito: o orçamento já foi excluído

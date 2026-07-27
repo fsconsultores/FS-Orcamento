@@ -26,12 +26,17 @@ type OrcRow = {
   ultimo_acesso: string | null;
   created_at: string | null;
   is_favorito?: boolean;
+  user_id: string;
 };
 
 interface Props {
   initialOrcamentos: OrcRow[];
   totaisMap: Record<string, number>;
   favoritosAtivo?: boolean;
+  /** Dono do orçamento duplicado passa a ser sempre quem clicou em
+   * "Duplicar" (não o dono do original) — usado só pra popular a linha
+   * otimista antes do servidor confirmar. */
+  currentUserId: string | null;
   children?: React.ReactNode;
 }
 
@@ -63,7 +68,7 @@ function formatDateTime(value: string | null | undefined): string {
   return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
+function resultToRow(r: DuplicateResult, itemCount: number, ownerId: string): OrcRow {
   return {
     id: r.id,
     nome_obra: r.nome_obra,
@@ -75,10 +80,11 @@ function resultToRow(r: DuplicateResult, itemCount: number): OrcRow {
     ultimo_acesso: r.ultimo_acesso,
     created_at: new Date().toISOString(),
     is_favorito: false,
+    user_id: ownerId,
   };
 }
 
-export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, children }: Props) {
+export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, currentUserId, children }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -155,7 +161,10 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, chil
     setSaving(true);
     try {
       const supabase = createClient() as any;
-      const { error: dbError } = await supabase
+      // .select('id') é necessário pra saber se a RLS bloqueou (orçamento
+      // agora é visível a todo o domínio, mas só o dono pode editar) — sem
+      // isso, um update bloqueado retorna sucesso com 0 linhas, sem erro.
+      const { data: updated, error: dbError } = await supabase
         .from('tabela_orcamentos')
         .update({
           nome_obra: editModal.nome_obra.trim(),
@@ -164,7 +173,8 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, chil
           data: editModal.data,
           bdi_global: bdi,
         })
-        .eq('id', editModal.id);
+        .eq('id', editModal.id)
+        .select('id');
 
       if (dbError) {
         const isUnique = dbError.message.toLowerCase().includes('unique') || dbError.message.toLowerCase().includes('duplicate key');
@@ -172,6 +182,10 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, chil
           ...prev,
           error: isUnique ? 'Este código já está em uso. Escolha outro.' : `Erro ao salvar: ${dbError.message}`,
         } : prev);
+        return;
+      }
+      if (!updated?.length) {
+        setEditModal(prev => prev ? { ...prev, error: 'Não foi possível salvar. O orçamento pode ter sido excluído por outro usuário — atualize a página.' } : prev);
         return;
       }
 
@@ -213,13 +227,14 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, chil
       tabela_itens_orcamento: orc.tabela_itens_orcamento,
       ultimo_acesso: null,
       created_at: new Date().toISOString(),
+      user_id: currentUserId ?? '',
     };
     setOrcamentos(prev => [optimisticRow, ...prev]);
     setPendingIds(prev => new Set([...prev, tempId]));
 
     try {
       const result = await duplicateOrcamento(orc.id, codigo);
-      const realRow = resultToRow(result, orc.tabela_itens_orcamento.length);
+      const realRow = resultToRow(result, orc.tabela_itens_orcamento.length, currentUserId ?? '');
       addToCache(realRow.id, realRow.created_at as string);
       setOrcamentos(prev => prev.map(o => o.id === tempId ? realRow : o));
       setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });

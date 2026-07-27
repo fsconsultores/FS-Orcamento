@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
 import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
+import { FilterBanner } from '@/components/ui/filter-banner';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { getFavoritoIds } from '@/lib/favoritos';
 import { ComposicoesTable } from './composicoes-table';
@@ -27,6 +28,7 @@ type ComposicaoView = {
   custo_unitario: number;
   base_origem: string | null;
   is_favorito?: boolean;
+  incompleta?: boolean;
 };
 
 const PAGE_SIZE = 100;
@@ -34,19 +36,21 @@ const PAGE_SIZE = 100;
 export default async function ComposicoesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string; favoritos?: string }>;
+  searchParams: Promise<{ q?: string; orgao?: string; origem?: string; page?: string; favoritos?: string; incompletas?: string }>;
 }) {
-  const { q, orgao, origem, page: pageParam, favoritos } = await searchParams;
+  const { q, orgao, origem, page: pageParam, favoritos, incompletas } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
   const favoritosAtivo = favoritos === '1';
+  const incompletasAtivo = incompletas === '1';
 
   const qs = new URLSearchParams()
   if (q) qs.set('q', q)
   if (orgao) qs.set('orgao', orgao)
   if (origem) qs.set('origem', origem)
   if (favoritosAtivo) qs.set('favoritos', '1')
+  if (incompletasAtivo) qs.set('incompletas', '1')
   const baseHref = `/composicoes${qs.toString() ? '?' + qs.toString() : ''}`
 
   const supabase = await createClient();
@@ -74,6 +78,7 @@ export default async function ComposicoesPage({
     else if (baseIdFiltro) query = query.eq('base_id', baseIdFiltro)
     if (origem) query = query.eq('base_origem', origem)
     if (favoritoIds) query = query.in('id', favoritoIds)
+    if (incompletasAtivo) query = query.eq('incompleta', true)
     return query
   }
 
@@ -85,7 +90,7 @@ export default async function ComposicoesPage({
         addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
         addFilters(
           sb.from('vw_custo_composicao')
-            .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem, is_favorito')
+            .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem, is_favorito, incompleta')
             .order('is_favorito', { ascending: false })
             .order('codigo')
             .range(from, to)
@@ -152,6 +157,13 @@ export default async function ComposicoesPage({
         }
       />
 
+      {incompletasAtivo && (
+        <FilterBanner
+          label={`Mostrando ${total.toLocaleString('pt-BR')} ${total === 1 ? 'composição incompleta' : 'composições incompletas'} (sem nenhum insumo vinculado)`}
+          clearHref={(() => { const p = new URLSearchParams(qs); p.delete('incompletas'); return `/composicoes${p.toString() ? '?' + p.toString() : ''}` })()}
+        />
+      )}
+
       <Toolbar
         search={
           <Suspense>
@@ -180,7 +192,7 @@ export default async function ComposicoesPage({
       </StatRow>
 
       <ComposicoesTable
-        key={`${page}-${q}-${orgao}-${origem}-${favoritos}`}
+        key={`${page}-${q}-${orgao}-${origem}-${favoritos}-${incompletas}`}
         initialComposicoes={(composicoes ?? []) as ComposicaoView[]}
         favoritosAtivo={favoritosAtivo}
       />
