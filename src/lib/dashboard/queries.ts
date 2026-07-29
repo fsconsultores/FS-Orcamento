@@ -78,11 +78,13 @@ export interface ResumoSistema {
 }
 
 /** Orçamentos do usuário logado (RLS já filtra) — alimenta KPI "Projetos ativos",
- * "Projetos Recentes" e a base de dados dos Alertas. */
+ * "Projetos Recentes" e a base de dados dos Alertas. Exclui modelos (`is_modelo`)
+ * — não são projetos reais, não devem entrar em KPIs/alertas/Curva ABC Geral. */
 export async function getOrcamentosResumo(sb: SB): Promise<OrcamentoResumo[]> {
   const { data } = await sb
     .from('tabela_orcamentos')
     .select('id, nome_obra, cliente, codigo, data, ultimo_acesso, created_at')
+    .eq('is_modelo', false)
     .order('ultimo_acesso', { ascending: false, nullsFirst: false })
   return data ?? []
 }

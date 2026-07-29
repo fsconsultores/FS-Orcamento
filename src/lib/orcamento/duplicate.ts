@@ -41,10 +41,40 @@ async function criarNovoOrcamento(
   return { id: data.id, nome_obra: nomeNovo }
 }
 
-async function clonarEstrutura(sb: any, fromId: string, toId: string): Promise<void> {
+async function clonarPlanilhas(sb: any, fromId: string, toId: string): Promise<Record<string, string>> {
+  const { data: planilhas } = await sb
+    .from('orcamento_planilhas')
+    .select('id, nome, bdi_global, ordem')
+    .eq('orcamento_id', fromId)
+    .order('ordem')
+
+  const map: Record<string, string> = {}
+  if (!planilhas?.length) return map
+
+  const { data: inserted, error } = await sb
+    .from('orcamento_planilhas')
+    .insert(planilhas.map((p: any) => ({
+      orcamento_id: toId,
+      nome: p.nome,
+      bdi_global: p.bdi_global,
+      ordem: p.ordem,
+    })))
+    .select('id')
+
+  if (error) { console.error('[dup] planilhas:', error); return map }
+  planilhas.forEach((p: any, i: number) => { if (inserted?.[i]) map[p.id] = inserted[i].id })
+  return map
+}
+
+async function clonarEstrutura(
+  sb: any,
+  fromId: string,
+  toId: string,
+  planilhaIdMap: Record<string, string>
+): Promise<void> {
   const { data: rows } = await sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .eq('orcamento_id', fromId)
     .order('nivel')
     .order('ordem')
@@ -64,6 +94,7 @@ async function clonarEstrutura(sb: any, fromId: string, toId: string): Promise<v
         nivelRows.map((r: any) => ({
           orcamento_id: toId,
           parent_id: r.parent_id ? (idMap[r.parent_id] ?? null) : null,
+          planilha_id: r.planilha_id ? (planilhaIdMap[r.planilha_id] ?? null) : null,
           numero: r.numero,
           nivel: r.nivel,
           codigo: r.codigo,
@@ -71,6 +102,7 @@ async function clonarEstrutura(sb: any, fromId: string, toId: string): Promise<v
           unidade: r.unidade,
           quantidade: r.quantidade,
           custo_unitario: r.custo_unitario,
+          bdi_especifico: r.bdi_especifico,
           tipo: r.tipo,
           ordem: r.ordem,
         }))
@@ -104,7 +136,7 @@ async function clonarItens(sb: any, fromId: string, toId: string): Promise<void>
 async function clonarComposicoes(sb: any, fromId: string, toId: string): Promise<Record<string, string>> {
   const { data: comps } = await sb
     .from('orcamento_composicoes')
-    .select('id, codigo, codigo_original, descricao, unidade, base')
+    .select('id, codigo, codigo_original, descricao, unidade, base, custo_unitario, calculado_em')
     .eq('orcamento_id', fromId)
 
   const map: Record<string, string> = {}
@@ -112,6 +144,9 @@ async function clonarComposicoes(sb: any, fromId: string, toId: string): Promise
 
   // Clona para um projeto novo com o código original (sem prefixo por projeto
   // — mecanismo removido, codigo_original só é mantido como metadado).
+  // custo_unitario/calculado_em vêm junto para não invalidar o cache do motor
+  // de cálculo (senão toda composição fica "suja" e força recálculo completo
+  // no próximo ciclo, mesmo com insumos idênticos aos da origem).
   const { data: inserted, error } = await sb
     .from('orcamento_composicoes')
     .insert(comps.map((c: any) => ({
@@ -120,6 +155,8 @@ async function clonarComposicoes(sb: any, fromId: string, toId: string): Promise
       descricao: c.descricao,
       unidade: c.unidade,
       base: c.base,
+      custo_unitario: c.custo_unitario,
+      calculado_em: c.calculado_em,
     })))
     .select('id')
 
@@ -171,6 +208,24 @@ export type DuplicateResult = {
   itemCount: number
 }
 
+/**
+ * Pipeline de clonagem de conteúdo (planilhas, estrutura, itens legados,
+ * composições e insumos) de um orçamento pra outro — compartilhado entre
+ * duplicarOrcamento e criarOrcamentoAPartirDeModelo. `toId` já precisa
+ * existir em tabela_orcamentos.
+ */
+async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<void> {
+  // Planilhas precisa vir antes da estrutura (a estrutura remapeia planilha_id).
+  // Itens e composições em paralelo com a estrutura — insumos depois (precisa do compIdMap)
+  const planilhaIdMap = await clonarPlanilhas(sb, fromId, toId)
+  const [, , compIdMap] = await Promise.all([
+    clonarEstrutura(sb, fromId, toId, planilhaIdMap),
+    clonarItens(sb, fromId, toId),
+    clonarComposicoes(sb, fromId, toId),
+  ])
+  await clonarInsumos(sb, fromId, toId, compIdMap)
+}
+
 export async function duplicarOrcamento(
   sb: any,
   userId: string,
@@ -186,14 +241,7 @@ export async function duplicarOrcamento(
   if (errOrig || !orig) throw new Error(`Orçamento não encontrado: ${errOrig?.message ?? ''}`)
 
   const { id: novoId, nome_obra: nomeNovo } = await criarNovoOrcamento(sb, userId, orig, novoCodigo)
-
-  // Estrutura, itens e composições em paralelo — insumos depois (precisa do compIdMap)
-  const [, , compIdMap] = await Promise.all([
-    clonarEstrutura(sb, orcamentoId, novoId),
-    clonarItens(sb, orcamentoId, novoId),
-    clonarComposicoes(sb, orcamentoId, novoId),
-  ])
-  await clonarInsumos(sb, orcamentoId, novoId, compIdMap)
+  await clonarConteudo(sb, orcamentoId, novoId)
 
   return {
     id: novoId,
@@ -204,5 +252,65 @@ export async function duplicarOrcamento(
     codigo: novoCodigo,
     ultimo_acesso: null,
     itemCount: (orig.tabela_itens_orcamento as any[])?.length ?? 0,
+  }
+}
+
+export type DadosNovoOrcamentoDeModelo = {
+  nome_obra: string
+  cliente: string | null
+  data: string
+  bdi_global: number
+  codigo: string
+}
+
+/**
+ * Cria um orçamento real a partir de um modelo (orçamento com is_modelo=true):
+ * metadados (nome/cliente/data/BDI/código) vêm do formulário de criação, só a
+ * estrutura (planilhas, itens, composições, insumos) é clonada do modelo —
+ * mesmo pipeline de duplicarOrcamento, mas sem herdar nome/cliente/data do
+ * modelo (que não fazem sentido pra um projeto real).
+ */
+export async function criarOrcamentoAPartirDeModelo(
+  sb: any,
+  userId: string,
+  modeloId: string,
+  dados: DadosNovoOrcamentoDeModelo
+): Promise<DuplicateResult> {
+  const { data: modelo, error: errModelo } = await sb
+    .from('tabela_orcamentos')
+    .select('id, is_modelo')
+    .eq('id', modeloId)
+    .single()
+
+  if (errModelo || !modelo) throw new Error(`Modelo não encontrado: ${errModelo?.message ?? ''}`)
+  if (!modelo.is_modelo) throw new Error('Este orçamento não é um modelo.')
+
+  const { data, error } = await sb
+    .from('tabela_orcamentos')
+    .insert({
+      user_id: userId,
+      nome_obra: dados.nome_obra,
+      cliente: dados.cliente,
+      data: dados.data,
+      bdi_global: dados.bdi_global,
+      codigo: dados.codigo,
+      is_modelo: false,
+    })
+    .select('id')
+    .single()
+  if (error) throw new Error(`Erro ao criar orçamento: ${error.message}`)
+
+  const novoId = data.id
+  await clonarConteudo(sb, modeloId, novoId)
+
+  return {
+    id: novoId,
+    nome_obra: dados.nome_obra,
+    cliente: dados.cliente,
+    data: dados.data,
+    bdi_global: dados.bdi_global,
+    codigo: dados.codigo,
+    ultimo_acesso: null,
+    itemCount: 0,
   }
 }

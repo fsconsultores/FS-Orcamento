@@ -32,6 +32,17 @@ export async function atualizarPrecoInsumoAction(
   await upsertAvulsoInsumo(sb, orcamentoId, codigo, novoCusto, extra)
   recalcularAutoAction(orcamentoId).catch(console.error)
 
+  if (atual?.custo !== novoCusto) {
+    const { data: { user } } = await supabase.auth.getUser()
+    sb.from('orcamento_insumo_historico_precos').insert({
+      orcamento_id: orcamentoId,
+      codigo,
+      preco_anterior: atual?.custo ?? null,
+      preco_novo: novoCusto,
+      usuario: user?.email ?? null,
+    }).then(({ error }: any) => { if (error) console.error('[historico-preco]', error) })
+  }
+
   registrarHistorico(supabase, {
     orcamentoId,
     entidade: 'insumo',

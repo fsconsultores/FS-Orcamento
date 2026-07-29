@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/supabase/auth'
 import { registrarHistorico } from '@/lib/log'
-import { duplicarOrcamento } from '@/lib/orcamento/duplicate'
+import { duplicarOrcamento, criarOrcamentoAPartirDeModelo, type DadosNovoOrcamentoDeModelo } from '@/lib/orcamento/duplicate'
 import { removerFavoritosDaEntidade } from '@/lib/favoritos'
 
 
@@ -45,6 +45,40 @@ export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string
     acao: 'duplicar_orcamento',
     mensagem: `Orçamento "${result.nome_obra}" criado como cópia`,
     detalhes: { orcamento_origem: orcamentoId, codigo: novoCodigo },
+  }).catch(console.error)
+  return result
+}
+
+export type ModeloInfo = { id: string; nome_obra: string; codigo: string; bdi_global: number }
+
+export async function listModelosAction(): Promise<ModeloInfo[]> {
+  const supabase = await createClient()
+  const sb = supabase as any
+  const { data, error } = await sb
+    .from('tabela_orcamentos')
+    .select('id, nome_obra, codigo, bdi_global')
+    .eq('is_modelo', true)
+    .order('nome_obra')
+  if (error) throw new Error(`Erro ao listar modelos: ${error.message}`)
+  return data ?? []
+}
+
+export async function criarOrcamentoDeModeloAction(
+  modeloId: string,
+  dados: DadosNovoOrcamentoDeModelo
+) {
+  const supabase = await createClient()
+  const sb = supabase as any
+  const user = await requireUser(supabase)
+  const result = await criarOrcamentoAPartirDeModelo(sb, user.id, modeloId, dados)
+  revalidatePath('/orcamentos')
+  registrarHistorico(supabase, {
+    orcamentoId: result.id,
+    entidade: 'orcamento',
+    tipo: 'sucesso',
+    acao: 'criar_orcamento',
+    mensagem: `Orçamento "${result.nome_obra}" criado a partir de modelo`,
+    detalhes: { modelo_id: modeloId },
   }).catch(console.error)
   return result
 }

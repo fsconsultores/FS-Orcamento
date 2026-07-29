@@ -8,6 +8,8 @@ import { registrarHistorico } from '@/lib/log';
 import { listBases, importarDaBase } from '../[id]/importar/import-action';
 import type { BaseInfo } from '../[id]/importar/import-action';
 import { createPlanilha } from '@/lib/orcamento/planilhas';
+import { listModelosAction, criarOrcamentoDeModeloAction } from '../actions';
+import type { ModeloInfo } from '../actions';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
@@ -26,9 +28,22 @@ export default function NovoOrcamentoPage() {
   const [bases, setBases] = useState<BaseInfo[]>([]);
   const [basesSelecionadas, setBasesSelecionadas] = useState<Set<string>>(new Set());
 
+  const [modelos, setModelos] = useState<ModeloInfo[]>([]);
+  const [modeloId, setModeloId] = useState<string | null>(null);
+
   useEffect(() => {
     listBases().then(setBases).catch(() => {});
+    listModelosAction().then(setModelos).catch(() => {});
   }, []);
+
+  function selecionarModelo(id: string | null) {
+    setModeloId(id);
+    if (id) {
+      const modelo = modelos.find((m) => m.id === id);
+      if (modelo) update('bdi_global', String(modelo.bdi_global));
+      setBasesSelecionadas(new Set());
+    }
+  }
 
   function toggleBase(id: string) {
     setBasesSelecionadas((prev) => {
@@ -62,6 +77,26 @@ export default function NovoOrcamentoPage() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/login'); return; }
+
+      // Criar a partir de um modelo: metadados vêm do formulário, a estrutura
+      // (planilhas, itens, composições, insumos) vem clonada do modelo — sem
+      // passar pelo insert direto/createPlanilha/importarDaBase abaixo, que são
+      // só pro fluxo "orçamento em branco".
+      if (modeloId) {
+        setProgresso('Criando a partir do modelo...');
+        const result = await criarOrcamentoDeModeloAction(modeloId, {
+          nome_obra: form.nome_obra.trim(),
+          cliente: form.cliente.trim() || null,
+          data: form.data,
+          bdi_global: bdi,
+          codigo: form.codigo,
+        });
+        startTransition(() => {
+          router.refresh();
+          router.push(`/orcamentos/${result.id}/planilha`);
+        });
+        return;
+      }
 
       const { data, error: dbError } = await supabase
         .from('tabela_orcamentos')
@@ -212,7 +247,54 @@ export default function NovoOrcamentoPage() {
           </div>
         </div>
 
-        {bases.length > 0 && (
+        {modelos.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">
+              Criar a partir de um modelo (opcional)
+            </label>
+            <p className="text-xs text-gray-400 -mt-1">
+              A estrutura (planilhas, itens, composições e insumos) do modelo será copiada para este orçamento.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {modelos.map((m) => {
+                const checked = modeloId === m.id;
+                return (
+                  <label
+                    key={m.id}
+                    className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
+                      checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="modelo"
+                      checked={checked}
+                      onChange={() => selecionarModelo(checked ? null : m.id)}
+                      className="mt-0.5 accent-blue-600"
+                    />
+                    <div className="min-w-0">
+                      <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {m.nome_obra}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">Código {m.codigo}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {modeloId && (
+              <button
+                type="button"
+                onClick={() => selecionarModelo(null)}
+                className="text-xs text-gray-500 hover:underline"
+              >
+                Não usar modelo
+              </button>
+            )}
+          </div>
+        )}
+
+        {!modeloId && bases.length > 0 && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">
               Bases padrão (opcional)

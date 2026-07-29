@@ -71,8 +71,15 @@ export default async function DashboardPage() {
 
   // --- Derivações em memória, sem I/O extra ---
 
+  // `orcamentos` já exclui modelos (getOrcamentosResumo filtra is_modelo=false)
+  // — planilhas/estruturaItens ainda não, então precisam ser filtrados aqui
+  // pra não vazar dados de modelo nos KPIs/Curva ABC Geral.
+  const orcamentoIdsValidos = new Set(orcamentos.map((o) => o.id))
+  const planilhasValidas = planilhas.filter((p) => orcamentoIdsValidos.has(p.orcamento_id))
+  const estruturaItensValidos = estruturaItens.filter((i) => orcamentoIdsValidos.has(i.orcamento_id))
+
   const planilhasPorOrcamento = new Map<string, PlanilhaResumo[]>()
-  for (const p of planilhas) {
+  for (const p of planilhasValidas) {
     const arr = planilhasPorOrcamento.get(p.orcamento_id) ?? []
     arr.push(p)
     planilhasPorOrcamento.set(p.orcamento_id, arr)
@@ -85,8 +92,8 @@ export default async function DashboardPage() {
     }
   }
 
-  const valorComBdiTotal = planilhas.reduce((s, p) => s + (p.total_com_bdi ?? 0), 0)
-  const valorSemBdiTotal = planilhas.reduce((s, p) => s + (p.total_custo ?? 0), 0)
+  const valorComBdiTotal = planilhasValidas.reduce((s, p) => s + (p.total_com_bdi ?? 0), 0)
+  const valorSemBdiTotal = planilhasValidas.reduce((s, p) => s + (p.total_custo ?? 0), 0)
 
   const bases: BaseResumo[] = [...basesExternas, ...(basePropria ? [basePropria] : [])]
   const qtdInsumosGlobais = resumoSistema?.total_insumos_globais ?? 0
@@ -114,12 +121,12 @@ export default async function DashboardPage() {
     .sort((a, b) => b.valor - a.valor)
     .slice(0, 6)
 
-  const curvaAbcGeral = computeCurvaAbcGeral(estruturaItens)
+  const curvaAbcGeral = computeCurvaAbcGeral(estruturaItensValidos)
   const resumoClasses = resumoPorClasse(curvaAbcGeral) // não precisa dos nomes de orçamento, só das classes
 
   const atividadeAgrupada = agruparAtividades(atividadesRaw, 8)
 
-  const alertas = gerarAlertas({ orcamentos, planilhas, versoes, bases, resumoSistema })
+  const alertas = gerarAlertas({ orcamentos, planilhas: planilhasValidas, versoes, bases, resumoSistema })
 
   const totalServicos = (resumoSistema?.total_servicos ?? 0) + (resumoSistema?.total_mao_de_obra ?? 0)
 
@@ -134,7 +141,7 @@ export default async function DashboardPage() {
 
       <KpiRow
         qtdOrcamentos={orcamentos.length}
-        qtdPlanilhas={planilhas.length}
+        qtdPlanilhas={planilhasValidas.length}
         valorComBdi={valorComBdiTotal}
         valorSemBdi={valorSemBdiTotal}
         qtdBases={bases.length}
@@ -187,7 +194,7 @@ export default async function DashboardPage() {
         <ResumoSistema
           totalInsumosGlobais={qtdInsumosGlobais}
           totalComposicoesGlobais={qtdComposicoesGlobais}
-          totalItensOrcados={estruturaItens.length}
+          totalItensOrcados={estruturaItensValidos.length}
           totalServicos={totalServicos}
           totalEquipamentos={resumoSistema?.total_equipamentos ?? 0}
           totalMateriais={resumoSistema?.total_materiais ?? 0}

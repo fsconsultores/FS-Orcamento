@@ -26,6 +26,7 @@ type OrcRow = {
   ultimo_acesso: string | null;
   created_at: string | null;
   is_favorito?: boolean;
+  is_modelo?: boolean;
   user_id: string;
 };
 
@@ -33,6 +34,7 @@ interface Props {
   initialOrcamentos: OrcRow[];
   totaisMap: Record<string, number>;
   favoritosAtivo?: boolean;
+  modelosAtivo?: boolean;
   /** Dono do orçamento duplicado passa a ser sempre quem clicou em
    * "Duplicar" (não o dono do original) — usado só pra popular a linha
    * otimista antes do servidor confirmar. */
@@ -58,6 +60,7 @@ interface EditModal {
   cliente: string;
   data: string;
   bdi_global: string;
+  is_modelo: boolean;
   error?: string;
 }
 
@@ -84,7 +87,7 @@ function resultToRow(r: DuplicateResult, itemCount: number, ownerId: string): Or
   };
 }
 
-export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, currentUserId, children }: Props) {
+export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, modelosAtivo = false, currentUserId, children }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -139,10 +142,11 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
       cliente: orc.cliente ?? '',
       data: orc.data,
       bdi_global: String(orc.bdi_global),
+      is_modelo: orc.is_modelo ?? false,
     });
   }
 
-  function updateEdit(field: keyof EditModal, value: string) {
+  function updateEdit(field: keyof EditModal, value: string | boolean) {
     setEditModal(prev => prev ? { ...prev, [field]: value, error: undefined } : prev);
   }
 
@@ -172,6 +176,7 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
           cliente: editModal.cliente.trim() || null,
           data: editModal.data,
           bdi_global: bdi,
+          is_modelo: editModal.is_modelo,
         })
         .eq('id', editModal.id)
         .select('id');
@@ -191,7 +196,7 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
 
       setOrcamentos(prev => prev.map(o =>
         o.id === editModal.id
-          ? { ...o, nome_obra: editModal.nome_obra.trim(), codigo: editModal.codigo, cliente: editModal.cliente.trim() || null, data: editModal.data, bdi_global: bdi }
+          ? { ...o, nome_obra: editModal.nome_obra.trim(), codigo: editModal.codigo, cliente: editModal.cliente.trim() || null, data: editModal.data, bdi_global: bdi, is_modelo: editModal.is_modelo }
           : o
       ));
       setEditModal(null);
@@ -283,8 +288,8 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
       {/* Cabeçalho com contagem e botão novo */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Orçamentos</h1>
-          <p className="mt-1 text-sm text-gray-500">{orcamentos.length} orçamento(s)</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{modelosAtivo ? 'Modelos' : 'Orçamentos'}</h1>
+          <p className="mt-1 text-sm text-gray-500">{orcamentos.length} {modelosAtivo ? 'modelo(s)' : 'orçamento(s)'}</p>
         </div>
         <Button onClick={() => router.push('/orcamentos/novo')} icon={<Plus size={15} />}>
           Novo orçamento
@@ -321,6 +326,15 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
             <Input label="Cliente" value={editModal.cliente} onChange={e => updateEdit('cliente', e.target.value)} />
             <Input type="date" label="Data" value={editModal.data} onChange={e => updateEdit('data', e.target.value)} />
             <Input type="number" min="0" step="0.01" label="BDI global (%)" value={editModal.bdi_global} onChange={e => updateEdit('bdi_global', e.target.value)} />
+            <label className="col-span-2 flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={editModal.is_modelo}
+                onChange={e => updateEdit('is_modelo', e.target.checked)}
+                className="accent-primary-600"
+              />
+              Usar como modelo (fica disponível para criar novos orçamentos a partir dele)
+            </label>
             {editModal.error && <p className="col-span-2 text-xs text-red-600">{editModal.error}</p>}
           </div>
         )}
@@ -374,7 +388,13 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, curr
 
       {orcamentos.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          {favoritosAtivo ? (
+          {modelosAtivo ? (
+            <EmptyState
+              icon={<FolderPlus size={20} />}
+              title="Nenhum modelo criado ainda"
+              description={'Marque "Usar como modelo" ao editar um orçamento para que ele apareça aqui e possa ser reaproveitado na criação de novos orçamentos.'}
+            />
+          ) : favoritosAtivo ? (
             <EmptyState
               icon={<FolderPlus size={20} />}
               title="Você ainda não favoritou nenhum orçamento"

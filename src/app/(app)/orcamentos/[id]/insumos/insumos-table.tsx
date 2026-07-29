@@ -8,6 +8,11 @@ import { recalcularAutoAction } from '../planilha/calcular-action'
 import type { OrcamentoInsumo } from '@/lib/orcamento'
 import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+
+// Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
+// única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
+const COR_LINHA = '#52276E'
 
 const PAGE_SIZE = 100
 
@@ -37,6 +42,102 @@ interface ComposicoesModal {
   insumo: OrcamentoInsumo
   loading: boolean
   composicoes: { id: string; codigo: string; descricao: string; unidade: string }[]
+}
+
+interface HistoricoPreco {
+  id: string
+  preco_anterior: number | null
+  preco_novo: number
+  usuario: string | null
+  created_at: string
+}
+
+interface HistoricoModal {
+  insumo: OrcamentoInsumo
+  loading: boolean
+  historico: HistoricoPreco[]
+}
+
+function fmtMoeda(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function fmtDataHora(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtDataCurta(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+// Formatação compacta pro eixo do gráfico — sem isso, um valor digitado errado
+// (ex.: dígitos a mais sem querer) vira uma string longa demais e quebra a
+// largura do eixo. A tabela abaixo continua mostrando o valor completo.
+function fmtMoedaCompacta(v: number): string {
+  const abs = Math.abs(v)
+  if (abs >= 1e15) return `R$ ${v.toExponential(1)}`
+  if (abs >= 1e12) return `R$ ${(v / 1e12).toFixed(1)}tri`
+  if (abs >= 1e9) return `R$ ${(v / 1e9).toFixed(1)}bi`
+  if (abs >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}mi`
+  if (abs >= 1e3) return `R$ ${(v / 1e3).toFixed(1)}mil`
+  return fmtMoeda(v)
+}
+
+/**
+ * Atualiza o custo do avulso e propaga pras cópias do mesmo código dentro de
+ * composições — mesmo padrão usado tanto pela edição inline (saveCusto)
+ * quanto pelo reset de preço quando todo o histórico de um insumo é apagado.
+ */
+async function sincronizarCustoInsumo(sb: any, orcamentoId: string, codigo: string, novoCusto: number) {
+  const { data: comps } = await sb
+    .from('orcamento_composicoes')
+    .select('id')
+    .eq('orcamento_id', orcamentoId)
+  const compIds: string[] = (comps ?? []).map((c: any) => c.id)
+
+  await sb
+    .from('orcamento_insumos')
+    .update({ custo: novoCusto })
+    .eq('codigo', codigo)
+    .eq('orcamento_id', orcamentoId)
+
+  for (let i = 0; i < compIds.length; i += 500) {
+    await sb
+      .from('orcamento_insumos')
+      .update({ custo: novoCusto })
+      .eq('codigo', codigo)
+      .in('composicao_id', compIds.slice(i, i + 500))
+  }
+}
+
+/**
+ * Monta os pontos do gráfico em ordem cronológica. `historico` só guarda
+ * pares (preco_anterior, preco_novo) por edição — sem isso, o gráfico começa
+ * no preço já alterado da primeira edição registrada, sem mostrar qual era o
+ * preço original antes dela. Se o primeiro registro tem preco_anterior, ele
+ * vira um ponto extra no início (mesma data, valor anterior).
+ */
+function construirDadosGrafico(historico: HistoricoPreco[]): { created_at: string; preco_novo: number }[] {
+  const asc = [...historico].reverse()
+  const primeiro = asc[0]
+  if (primeiro && primeiro.preco_anterior != null) {
+    return [{ created_at: primeiro.created_at, preco_novo: primeiro.preco_anterior }, ...asc]
+  }
+  return asc
+}
+
+function HistoricoChartTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload as { created_at: string; preco_novo: number }
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
+      <p className="font-medium text-gray-800">{fmtDataHora(p.created_at)}</p>
+      <p className="mt-0.5 tabular-nums text-gray-500">{fmtMoeda(p.preco_novo)}</p>
+    </div>
+  )
 }
 
 function InlineInput({
@@ -129,6 +230,7 @@ export function OrcamentoInsumosTable({
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
+  const [historicoModal, setHistoricoModal] = useState<HistoricoModal | null>(null)
 
   const q = query.trim().toLowerCase()
   // Memoizado: sem isso, o filter+toLowerCase rodava a cada render do
@@ -149,6 +251,11 @@ export function OrcamentoInsumosTable({
   useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  const chartData = useMemo(
+    () => historicoModal ? construirDadosGrafico(historicoModal.historico) : [],
+    [historicoModal]
+  )
 
   function startEdit(e: React.MouseEvent, id: string, field: EditableField, value: string) {
     e.preventDefault()
@@ -181,25 +288,7 @@ export function OrcamentoInsumosTable({
     setSavingId(id)
     try {
       const sb = createClient() as any
-      const { data: comps } = await sb
-        .from('orcamento_composicoes')
-        .select('id')
-        .eq('orcamento_id', orcamentoId)
-      const compIds: string[] = (comps ?? []).map((c: any) => c.id)
-
-      await sb
-        .from('orcamento_insumos')
-        .update({ custo: parsed })
-        .eq('codigo', alvo.codigo)
-        .eq('orcamento_id', orcamentoId)
-
-      for (let i = 0; i < compIds.length; i += 500) {
-        await sb
-          .from('orcamento_insumos')
-          .update({ custo: parsed })
-          .eq('codigo', alvo.codigo)
-          .in('composicao_id', compIds.slice(i, i + 500))
-      }
+      await sincronizarCustoInsumo(sb, orcamentoId, alvo.codigo, parsed)
 
       // Recalcula composições afetadas e propaga para a estrutura
       recalcularAutoAction(orcamentoId).catch(console.error)
@@ -212,6 +301,15 @@ export function OrcamentoInsumosTable({
         valorAnterior: { custo: custoAnterior },
         valorNovo: { custo: parsed },
       }).catch(console.error)
+
+      const { data: { user } } = await sb.auth.getUser()
+      sb.from('orcamento_insumo_historico_precos').insert({
+        orcamento_id: orcamentoId,
+        codigo: alvo.codigo,
+        preco_anterior: custoAnterior,
+        preco_novo: parsed,
+        usuario: user?.email ?? null,
+      }).then(({ error }: any) => { if (error) console.error('[historico-preco]', error) })
     } catch {
       setInsumos(prev => prev.map(ins =>
         ins.codigo === alvo.codigo
@@ -288,6 +386,92 @@ export function OrcamentoInsumosTable({
       .in('id', compIds)
       .order('codigo')
     setComposicoesModal(prev => prev ? { ...prev, loading: false, composicoes: comps ?? [] } : null)
+  }
+
+  async function openHistoricoModal(insumo: OrcamentoInsumo, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setHistoricoModal({ insumo, loading: true, historico: [] })
+    const sb = createClient() as any
+    const { data, error } = await sb
+      .from('orcamento_insumo_historico_precos')
+      .select('id, preco_anterior, preco_novo, usuario, created_at')
+      .eq('orcamento_id', orcamentoId)
+      .eq('codigo', insumo.codigo)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) console.error('[historico-preco] buscar:', error)
+    setHistoricoModal(prev => prev ? { ...prev, loading: false, historico: data ?? [] } : null)
+  }
+
+  /**
+   * Soft delete — pra corrigir um registro lançado sem querer (ex.: preço
+   * digitado errado). A linha some do gráfico/lista, mas nunca é apagada de
+   * verdade (deleted_at/deleted_by, mesmo padrão de orcamento_insumos) e a
+   * própria remoção fica registrada em historico_alteracoes.
+   */
+  async function excluirHistoricoPreco(item: HistoricoPreco) {
+    if (!historicoModal) return
+    if (!confirm('Remover este registro do histórico de preço? Ele some do gráfico e da lista, mas a remoção fica auditada.')) return
+
+    setHistoricoModal(prev => prev
+      ? { ...prev, historico: prev.historico.filter(h => h.id !== item.id) }
+      : null)
+
+    const sb = createClient() as any
+    const { data: { user } } = await sb.auth.getUser()
+    const { error } = await sb
+      .from('orcamento_insumo_historico_precos')
+      .update({ deleted_at: new Date().toISOString(), deleted_by: user?.id ?? null })
+      .eq('id', item.id)
+
+    if (error) {
+      console.error('[historico-preco] excluir:', error)
+      setHistoricoModal(prev => prev ? { ...prev, historico: [...prev.historico, item].sort((a, b) => b.created_at.localeCompare(a.created_at)) } : null)
+      alert('Erro ao remover o registro. Tente novamente.')
+      return
+    }
+
+    const codigo = historicoModal.insumo.codigo
+
+    registrarHistorico(sb, {
+      orcamentoId,
+      entidade: 'insumo',
+      tipo: 'sucesso',
+      acao: 'excluir_historico_preco',
+      mensagem: `Registro de histórico de preço removido do insumo "${codigo}" (${item.preco_anterior ?? '—'} → ${item.preco_novo}, de ${fmtDataHora(item.created_at)})`,
+      valorAnterior: item,
+    }).catch(console.error)
+
+    // Se não sobrou nenhum registro de histórico pra este insumo, o preço
+    // atual não tem mais nenhuma alteração que o sustente — zera, em vez de
+    // deixar um valor que não aparece em lugar nenhum do histórico.
+    const { count } = await sb
+      .from('orcamento_insumo_historico_precos')
+      .select('id', { count: 'exact', head: true })
+      .eq('orcamento_id', orcamentoId)
+      .eq('codigo', codigo)
+      .is('deleted_at', null)
+
+    if ((count ?? 0) > 0) return
+
+    const atual = insumos.find(ins => ins.codigo === codigo)
+    if (!atual || atual.custo === 0) return
+
+    const custoAnterior = atual.custo
+    setInsumos(prev => prev.map(ins => ins.codigo === codigo ? { ...ins, custo: 0 } : ins))
+    await sincronizarCustoInsumo(sb, orcamentoId, codigo, 0)
+    recalcularAutoAction(orcamentoId).catch(console.error)
+    registrarHistorico(sb, {
+      orcamentoId,
+      entidade: 'insumo',
+      tipo: 'info',
+      acao: 'zerar_preco_insumo',
+      mensagem: `Preço do insumo "${codigo}" resetado para R$ 0,00 — todo o histórico de preço foi removido`,
+      valorAnterior: { custo: custoAnterior },
+      valorNovo: { custo: 0 },
+    }).catch(console.error)
   }
 
   async function handleClear() {
@@ -536,6 +720,14 @@ export function OrcamentoInsumosTable({
                               d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                           </svg>
                         </button>
+                        <button onClick={e => openHistoricoModal(insumo, e)}
+                          title="Ver histórico de preço"
+                          className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-all">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
                         <button onClick={() => handleDelete(insumo.id, insumo.codigo)}
                           title="Excluir insumo"
                           className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all">
@@ -596,6 +788,129 @@ export function OrcamentoInsumosTable({
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      </div>
+    )}
+
+    {historicoModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={() => setHistoricoModal(null)}>
+        <div className="mx-4 w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Histórico de preço</h2>
+              <p className="text-xs text-gray-500 mt-0.5 font-mono">
+                {historicoModal.insumo.codigo} — {historicoModal.insumo.descricao}
+              </p>
+            </div>
+            <button onClick={() => setHistoricoModal(null)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {historicoModal.loading ? (
+            <p className="py-8 text-center text-sm text-gray-400">Carregando…</p>
+          ) : historicoModal.historico.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm text-gray-400">Nenhuma alteração de preço registrada.</p>
+              <p className="text-xs text-gray-300 mt-1">O histórico é gravado a partir de agora em cada edição manual.</p>
+            </div>
+          ) : (
+            <>
+              {chartData.length > 1 && (
+                <div className="mb-4">
+                  <p className="mb-1.5 text-xs font-medium text-gray-500">Variação de preço</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 8, right: 12, bottom: 0, left: 4 }}
+                    >
+                      <XAxis
+                        dataKey="created_at"
+                        tickFormatter={fmtDataCurta}
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fontSize: 11, fill: '#9ca3af' }}
+                        minTickGap={24}
+                      />
+                      <YAxis
+                        dataKey="preco_novo"
+                        tickFormatter={fmtMoedaCompacta}
+                        tickLine={false}
+                        axisLine={false}
+                        width={64}
+                        tick={{ fontSize: 11, fill: '#9ca3af' }}
+                        domain={['auto', 'auto']}
+                      />
+                      <Tooltip content={<HistoricoChartTooltip />} cursor={{ stroke: '#e5e7eb' }} />
+                      <Line
+                        type="monotone"
+                        dataKey="preco_novo"
+                        stroke={COR_LINHA}
+                        strokeWidth={2}
+                        dot={{ r: 4, fill: COR_LINHA, strokeWidth: 0 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="rounded-lg border border-gray-200 max-h-96 overflow-y-auto overflow-x-auto">
+              <table className="w-full min-w-[460px] text-sm">
+                <thead className="border-b bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-medium text-gray-600">Data</th>
+                    <th className="px-3 py-2.5 text-right font-medium text-gray-600">Anterior</th>
+                    <th className="px-3 py-2.5 text-right font-medium text-gray-600">Novo</th>
+                    <th className="px-3 py-2.5 text-right font-medium text-gray-600">Var.</th>
+                    <th className="px-3 py-2.5 text-left font-medium text-gray-600">Usuário</th>
+                    <th className="sticky right-0 top-0 w-8 bg-gray-50 px-1 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {historicoModal.historico.map(h => {
+                    const anterior = h.preco_anterior ?? 0
+                    const diff = h.preco_novo - anterior
+                    const pct = anterior > 0 ? (diff / anterior) * 100 : null
+                    return (
+                      <tr key={h.id} className="group hover:bg-gray-50">
+                        <td className="px-3 py-2.5 text-gray-600 tabular-nums text-xs whitespace-nowrap" title={fmtDataHora(h.created_at)}>{fmtDataCurta(h.created_at)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-500 text-xs">
+                          {h.preco_anterior != null ? fmtMoeda(h.preco_anterior) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900 text-xs">
+                          {fmtMoeda(h.preco_novo)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums text-xs font-medium ${
+                          diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-gray-400'
+                        }`}>
+                          {pct != null
+                            ? `${diff > 0 ? '+' : ''}${pct.toFixed(1)}%`
+                            : h.preco_anterior == null ? 'novo' : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-500 text-xs truncate max-w-[90px]" title={h.usuario ?? undefined}>
+                          {h.usuario ?? '—'}
+                        </td>
+                        <td className="sticky right-0 bg-white px-1 py-2.5 group-hover:bg-gray-50">
+                          <button onClick={() => excluirHistoricoPreco(h)}
+                            title="Remover este registro do histórico"
+                            className="opacity-0 group-hover:opacity-100 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              </div>
+            </>
           )}
         </div>
       </div>

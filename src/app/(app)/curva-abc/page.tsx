@@ -13,8 +13,14 @@ export default async function CurvaAbcGeralPage() {
     getEstruturaItens(sb),
   ])
 
+  // orcamentos já exclui modelos (getOrcamentosResumo filtra is_modelo=false)
+  // — estruturaItens ainda não, então precisa ser filtrado aqui pra não
+  // vazar itens de modelo na Curva ABC Geral.
+  const orcamentoIdsValidos = new Set(orcamentos.map(o => o.id))
+  const estruturaItensValidos = estruturaItens.filter(i => orcamentoIdsValidos.has(i.orcamento_id))
+
   const nomesPorOrcamento = new Map(orcamentos.map(o => [o.id, o.nome_obra]))
-  const items = computeCurvaAbcGeral(estruturaItens, nomesPorOrcamento)
+  const items = computeCurvaAbcGeral(estruturaItensValidos, nomesPorOrcamento)
 
   return (
     <div className="space-y-5">

@@ -5,6 +5,7 @@ import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
 import { FilterBanner } from '@/components/ui/filter-banner';
 import { getFavoritoIds } from '@/lib/favoritos';
 import { OrcamentosGrid } from './orcamentos-list';
+import { ModelosFilterToggle } from '@/components/modelos-filter-toggle';
 
 type OrcRow = {
   id: string;
@@ -17,16 +18,18 @@ type OrcRow = {
   created_at: string;
   tabela_itens_orcamento: { id: string }[];
   is_favorito?: boolean;
+  is_modelo?: boolean;
   user_id: string;
 };
 
 export default async function OrcamentosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; favoritos?: string; semVersao?: string }>;
+  searchParams: Promise<{ q?: string; favoritos?: string; semVersao?: string; modelos?: string }>;
 }) {
-  const { q, favoritos, semVersao } = await searchParams;
-  const favoritosAtivo = favoritos === '1';
+  const { q, favoritos, semVersao, modelos } = await searchParams;
+  const modelosAtivo = modelos === '1';
+  const favoritosAtivo = !modelosAtivo && favoritos === '1';
   const semVersaoAtivo = semVersao === '1';
   const sb = (await createClient()) as any;
 
@@ -41,7 +44,8 @@ export default async function OrcamentosPage({
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, user_id')
+    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, is_modelo, user_id')
+    .eq('is_modelo', modelosAtivo)
     .order('is_favorito', { ascending: false })
     .order('created_at', { ascending: false, nullsFirst: false })
     .order('id', { ascending: false });
@@ -88,16 +92,21 @@ export default async function OrcamentosPage({
           clearHref={clearSemVersaoHref}
         />
       )}
-      <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} favoritosAtivo={favoritosAtivo} currentUserId={currentUser?.id ?? null}>
+      <OrcamentosGrid initialOrcamentos={orcamentos} totaisMap={totaisMap} favoritosAtivo={favoritosAtivo} modelosAtivo={modelosAtivo} currentUserId={currentUser?.id ?? null}>
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="sm:max-w-xs sm:flex-1">
             <Suspense>
               <SearchInput placeholder="Buscar por obra, cliente ou código..." debounce={300} />
             </Suspense>
           </div>
-          <Suspense>
-            <FavoritosFilterToggle />
-          </Suspense>
+          <div className="flex items-center gap-2">
+            <Suspense>
+              <FavoritosFilterToggle />
+            </Suspense>
+            <Suspense>
+              <ModelosFilterToggle />
+            </Suspense>
+          </div>
         </div>
       </OrcamentosGrid>
     </div>
