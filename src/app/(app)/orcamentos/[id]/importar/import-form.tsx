@@ -44,12 +44,41 @@ const COL_ALIASES: Record<string, string[]> = {
   grupo:    ['grupo', 'grupois', 'grupoinsumo', 'grupodoinsumo', 'group', 'categoria', 'tipo'],
   base:     ['base', 'fonte', 'origem', 'cotacao', 'source'],
   data_ref: ['dataref', 'datareferencia', 'datadereferencia', 'ref'],
+  fornecedor:   ['fornecedor', 'supplier', 'vendedor', 'empresa', 'empresacotada'],
+  data_cotacao: ['datacotacao', 'datadacotacao', 'datacotação', 'datapesquisa', 'datadapesquisa', 'dataproposta', 'datadaproposta', 'dataorcamento'],
 }
 
 function parseNumber(val: unknown): number {
   if (typeof val === 'number') return val
   const s = String(val ?? '').replace(',', '.').replace(/[^\d.-]/g, '')
   return parseFloat(s) || 0
+}
+
+// Converte a célula de data da planilha para 'AAAA-MM-DD' (formato aceito
+// pela coluna DATE do banco) — aceita serial do Excel (célula formatada como
+// data, lida como número por XLSX.read sem cellDates), 'DD/MM/AAAA' e
+// 'AAAA-MM-DD'. Formato não reconhecido vira null (não trava a importação —
+// planilha de terceiros pode vir com data num formato inesperado).
+function parseDateCell(val: unknown): string | null {
+  if (val === '' || val == null) return null
+  if (typeof val === 'number') {
+    const epoch = Date.UTC(1899, 11, 30)
+    const d = new Date(epoch + val * 86400000)
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+  }
+  const s = String(val).trim()
+  if (!s) return null
+  const br = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  if (br) {
+    const [, d, m, y] = br
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  }
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (iso) {
+    const [, y, m, d] = iso
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  }
+  return null
 }
 
 function normCol(s: string): string {
@@ -235,6 +264,8 @@ function parseFlat(data: unknown[][], defaultBase?: string): { rows: ImportInsum
       grupo:    'grupo'    in cols ? String(row[cols.grupo]    ?? '').trim() || null : null,
       base:     defaultBase ?? null,
       data_ref: 'data_ref' in cols ? String(row[cols.data_ref] ?? '').trim() || null : null,
+      fornecedor:   'fornecedor'   in cols ? String(row[cols.fornecedor] ?? '').trim() || null : null,
+      data_cotacao: 'data_cotacao' in cols ? parseDateCell(row[cols.data_cotacao]) : null,
     })
   }
   return { rows, erros }
@@ -364,7 +395,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
       </div>
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center">
         <p className="text-sm text-gray-500 mb-2">Planilha <strong>.xlsx</strong> ou <strong>.csv</strong> — cada linha = um insumo</p>
-        <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, data_ref</em></p>
+        <p className="text-xs text-gray-400 mb-4">Colunas: <em>codigo, descricao, unidade, custo, grupo, data_ref</em> — opcional: <em>fornecedor, data cotação</em> (vira uma cotação registrada por insumo)</p>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv" onChange={handleFile}
           className="block mx-auto text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-primary-700 file:text-white file:text-sm file:font-medium hover:file:bg-primary-800 cursor-pointer" />
       </div>
@@ -398,7 +429,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
           <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-72 overflow-y-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
-                <tr>{['Código','Descrição','Unid.','Custo','Grupo','Base'].map(h => (
+                <tr>{['Código','Descrição','Unid.','Custo','Grupo','Base','Fornecedor','Data cotação'].map(h => (
                   <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 uppercase">{h}</th>
                 ))}</tr>
               </thead>
@@ -413,6 +444,8 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
                     </td>
                     <td className="px-3 py-2 text-gray-400">{ins.grupo ?? '—'}</td>
                     <td className="px-3 py-2 text-gray-400">{ins.base ?? '—'}</td>
+                    <td className="px-3 py-2 text-gray-400">{ins.fornecedor ?? '—'}</td>
+                    <td className="px-3 py-2 text-gray-400">{ins.data_cotacao ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

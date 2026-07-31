@@ -74,7 +74,7 @@ async function clonarEstrutura(
 ): Promise<void> {
   const { data: rows } = await sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
     .eq('orcamento_id', fromId)
     .order('nivel')
     .order('ordem')
@@ -105,8 +105,6 @@ async function clonarEstrutura(
           bdi_especifico: r.bdi_especifico,
           tipo: r.tipo,
           ordem: r.ordem,
-          estimado: r.estimado ?? false,
-          estimado_motivo: r.estimado_motivo ?? null,
         }))
       )
       .select('id')
@@ -175,7 +173,7 @@ async function clonarInsumos(
 ): Promise<void> {
   const { data: insumos, error } = await sb
     .from('orcamento_insumos')
-    .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id')
+    .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id, estimado, estimado_motivo')
     .eq('orcamento_id', fromId)
 
   if (error) console.error('[dup] insumos fetch:', error)
@@ -193,6 +191,8 @@ async function clonarInsumos(
     base: i.base,
     data_ref: i.data_ref,
     composicao_id: i.composicao_id ? (compIdMap[i.composicao_id] ?? null) : null,
+    estimado: i.estimado ?? false,
+    estimado_motivo: i.estimado_motivo ?? null,
   }))
 
   const erros = await Promise.all(chunk(rows, 500).map(l => sb.from('orcamento_insumos').insert(l)))

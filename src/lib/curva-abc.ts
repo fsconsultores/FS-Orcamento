@@ -77,6 +77,8 @@ export interface InsumoComposicaoBasico {
   indice: number
   composicao_id: string
   grupo: string | null
+  estimado?: boolean
+  estimadoMotivo?: string | null
 }
 
 export interface InsumoAvulsoBasico {

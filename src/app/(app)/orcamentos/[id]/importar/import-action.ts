@@ -12,6 +12,17 @@ export interface ImportInsumoRow {
   grupo: string | null
   base: string | null
   data_ref: string | null
+  /**
+   * Fornecedor/data da cotação, quando a planilha importada tiver essas
+   * colunas — só populados pelo parser de Insumos Avulsos (parseFlat em
+   * import-form.tsx); insumos embutidos em composição nunca carregam
+   * cotação própria, mesma regra de upsertAvulsoInsumo. Quando presentes,
+   * importarInsumos registra uma cotação em orcamento_insumo_cotacoes, em
+   * vez de só gravar o preço direto — preço vindo de importação também é
+   * uma cotação, não uma segunda fonte de verdade.
+   */
+  fornecedor?: string | null
+  data_cotacao?: string | null
 }
 
 export interface ImportComposicaoRow {
@@ -50,6 +61,41 @@ export async function importarInsumos(
       .in('codigo', allCodigos.slice(i, i + 500))
   }
 
+  // 1.1 Registrar cotação (fornecedor/data) para os códigos que trouxerem essa
+  //     informação da planilha — mesmo mecanismo do modal de cotação da aba
+  //     Insumos (orcamento_insumo_cotacoes), pra não criar uma segunda fonte
+  //     de verdade: preço vindo de importação também vira cotação.
+  const comCotacao = insumos.filter(ins => ins.fornecedor || ins.data_cotacao)
+  const cotacaoIdByCodigo = new Map<string, string>()
+  if (comCotacao.length > 0) {
+    const { data: { user } } = await supabase.auth.getUser()
+    const codigosComCotacao = comCotacao.map(ins => ins.codigo)
+    for (let i = 0; i < codigosComCotacao.length; i += 500) {
+      await sb.from('orcamento_insumo_cotacoes')
+        .update({ ativa: false })
+        .eq('orcamento_id', orcamentoId)
+        .in('codigo', codigosComCotacao.slice(i, i + 500))
+        .eq('ativa', true)
+    }
+    const cotacaoRows = comCotacao.map(ins => ({
+      orcamento_id: orcamentoId,
+      codigo: ins.codigo,
+      valor: ins.custo,
+      fornecedor: ins.fornecedor?.trim() || null,
+      data_cotacao: ins.data_cotacao || null,
+      ativa: true,
+      usuario: user?.email ?? null,
+      user_id: user?.id ?? null,
+    }))
+    for (let i = 0; i < cotacaoRows.length; i += 500) {
+      const { data, error } = await sb.from('orcamento_insumo_cotacoes')
+        .insert(cotacaoRows.slice(i, i + 500))
+        .select('id, codigo')
+      if (error) { result.erros.push(`Cotações lote ${i / 500 + 1}: ${error.message}`); continue }
+      for (const c of (data ?? []) as { id: string; codigo: string }[]) cotacaoIdByCodigo.set(c.codigo, c.id)
+    }
+  }
+
   // 2. Inserir todos os avulsos importados
   const rows = insumos.map(ins => ({
     orcamento_id: orcamentoId,
@@ -62,6 +108,9 @@ export async function importarInsumos(
     grupo: ins.grupo,
     base: ins.base,
     data_ref: ins.data_ref,
+    fornecedor: ins.fornecedor?.trim() || null,
+    data_cotacao: ins.data_cotacao || null,
+    cotacao_id: cotacaoIdByCodigo.get(ins.codigo) ?? null,
   }))
 
   for (let i = 0; i < rows.length; i += 500) {

@@ -162,6 +162,15 @@ export interface CotacaoInsumoInput {
   fornecedor?: string | null
   dataCotacao?: string | null
   observacoes?: string | null
+  /**
+   * Preço provisório, sujeito a alteração — nunca marcado direto num insumo;
+   * só existe como parte do registro de uma cotação (ver upsertAvulsoInsumo).
+   * O Caderno deriva "Serviços com Preços Estimados" varrendo os insumos de
+   * cada composição/item em busca deste flag — não há marcação manual no
+   * item da planilha.
+   */
+  estimado?: boolean
+  estimadoMotivo?: string | null
 }
 
 /**
@@ -195,11 +204,14 @@ export async function upsertAvulsoInsumo(
     const fornecedor = cotacao.fornecedor?.trim() || null
     const dataCotacao = cotacao.dataCotacao || null
     const observacoes = cotacao.observacoes?.trim() || null
+    const estimado = cotacao.estimado ?? false
+    const estimadoMotivo = estimado ? (cotacao.estimadoMotivo?.trim() || null) : null
     const { data: nova, error: cotErr } = await sb.from('orcamento_insumo_cotacoes')
       .insert({
         orcamento_id: orcamentoId, codigo, valor: novoCusto,
         fornecedor, data_cotacao: dataCotacao, observacoes,
         ativa: true, usuario: user?.email ?? null, user_id: user?.id ?? null,
+        estimado, estimado_motivo: estimadoMotivo,
       })
       .select('id').single()
     if (cotErr) throw new Error(`Erro ao registrar cotação: ${cotErr.message}`)
@@ -208,6 +220,8 @@ export async function upsertAvulsoInsumo(
     camposAvulso.data_cotacao = dataCotacao
     camposAvulso.cotacao_observacoes = observacoes
     camposAvulso.cotacao_id = nova.id
+    camposAvulso.estimado = estimado
+    camposAvulso.estimado_motivo = estimadoMotivo
   }
 
   const { data: atualizados, error: updErr } = await supabase
@@ -236,12 +250,19 @@ export async function upsertAvulsoInsumo(
   }
 
   // Sincroniza as cópias do mesmo código dentro de composições: o motor de
-  // cálculo já prioriza o avulso, mas outras telas (Planilha analítica) leem
-  // o `custo` da linha direto, sem passar pelo avulso. Cotação não se aplica
-  // a linhas embutidas em composição, só ao avulso.
+  // cálculo já prioriza o avulso, mas outras telas (Planilha analítica,
+  // detalhe da Composição) leem o `custo`/`estimado` da linha direto, sem
+  // passar pelo avulso. `estimado`/`estimado_motivo` só são sincronizados
+  // quando uma cotação foi informada (edição rápida de preço, sem `cotacao`,
+  // não deve apagar ou alterar a marcação de estimado já existente).
+  const syncFields: Record<string, unknown> = { custo: novoCusto }
+  if (cotacao) {
+    syncFields.estimado = camposAvulso.estimado
+    syncFields.estimado_motivo = camposAvulso.estimado_motivo
+  }
   const { error: syncErr } = await supabase
     .from(TABLE)
-    .update({ custo: novoCusto })
+    .update(syncFields)
     .eq('orcamento_id', orcamentoId)
     .eq('codigo', codigo)
     .not('composicao_id', 'is', null)

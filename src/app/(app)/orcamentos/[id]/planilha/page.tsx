@@ -26,7 +26,7 @@ export default async function PlanilhaPage({
 
   const [{ data }, { data: orc }, { data: config }] = await Promise.all([
     sb.from('orcamento_estrutura')
-      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
+      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
       .eq('orcamento_id', orcamentoId)
       .eq('planilha_id', activePlanilha.id)
       .order('nivel', { ascending: true })

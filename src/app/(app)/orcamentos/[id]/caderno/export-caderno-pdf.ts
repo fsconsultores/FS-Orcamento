@@ -24,6 +24,15 @@ import {
 
 const GROUP_FILL = '#ede9f3'
 
+// data_cotacao é DATE puro ('AAAA-MM-DD', sem hora) — new Date(string) trataria
+// como UTC meia-noite e poderia exibir o dia anterior em fusos negativos
+// (mesma lógica de fmtDataCotacao em insumos-table.tsx).
+function fmtDataCotacaoPdf(dataIso: string | null | undefined): string {
+  if (!dataIso) return '—'
+  const [ano, mes, dia] = dataIso.split('-')
+  return `${dia}/${mes}/${ano}`
+}
+
 // Classe ABC por item — mesmo mapeamento canônico da Curva ABC (ver
 // src/components/ui/badge.tsx): A = verde (maior prioridade de acompanhamento,
 // concentra ~80% do custo), C = vermelho. Estava invertido aqui (bug real,
@@ -558,13 +567,16 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const row = rows[cellData.row.index]
-      if (row.tipo !== 'item') return
-      if (destacarEstimados && row.estimado) {
-        cellData.cell.styles.fillColor = '#fef3c7'
-        cellData.cell.styles.textColor = '#92400e'
-      } else {
-        cellData.cell.styles.fillColor = '#e9d5ff'
+      if (row.tipo === 'insumo') {
+        if (destacarEstimados && row.estimado) {
+          cellData.cell.styles.fillColor = '#fef3c7'
+          cellData.cell.styles.textColor = '#92400e'
+          cellData.cell.styles.fontStyle = 'bold'
+        }
+        return
       }
+      if (row.tipo !== 'item') return
+      cellData.cell.styles.fillColor = '#e9d5ff'
       cellData.cell.styles.fontStyle = 'bold'
       if (cellData.column.index === 7 && row.classeAbc) {
         cellData.cell.styles.fillColor = ABC_BG[row.classeAbc]
@@ -635,40 +647,41 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
   }
 }
 
-// ─── Seção: Itens Estimados ───────────────────────────────────────────────────
+// ─── Seção: Serviços com Preços Estimados ─────────────────────────────────────
 //
-// Itens marcados manualmente com "Item estimado" (orcamento_estrutura.estimado),
-// agrupados por planilha, na ordem da estrutura (nunca alfabética — os grupos
-// vêm de data.itensEstimados, já ordenados por planilha e por travessia da
-// árvore em getCadernoData). Cada linha mostra o item pai imediato para não
-// ficar ambíguo quando existem itens com o mesmo nome em partes diferentes da
-// obra (ex.: "Armação" na Fundação e na Superestrutura).
+// Descoberta 100% automática: um serviço entra aqui quando pelo menos um dos
+// insumos que ele usa (via sua composição, ou o próprio insumo quando o item
+// referencia um avulso diretamente) tem preço estimado na cotação
+// (orcamento_insumo_cotacoes.estimado) — nunca por marcação manual no item.
+// Agrupados por planilha, na ordem da estrutura (nunca alfabética — os
+// grupos vêm de data.itensEstimados, já ordenados por planilha e por
+// travessia da árvore em getCadernoData). Cada linha mostra também o item
+// pai imediato para não ficar ambíguo quando existem serviços com o mesmo
+// nome em partes diferentes da obra (ex.: "Armação" na Fundação e na
+// Superestrutura). Com a opção "exibirMotivo" ligada, cada serviço ganha,
+// logo abaixo, uma linha por insumo estimado com fornecedor/preço/data/motivo.
 
 async function drawItensEstimadosSection(
   doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number, subtitle: string, numero: string,
-  exibirMotivo: boolean, exibirCaminhoCompleto: boolean
+  exibirDetalheInsumos: boolean, exibirCaminhoCompleto: boolean
 ) {
   const { autoTable } = await import('jspdf-autotable')
 
   doc.addPage()
-  addSectionBanner(doc, margin, contentW, numero, 'ITENS ESTIMADOS', subtitle)
+  addSectionBanner(doc, margin, contentW, numero, 'SERVIÇOS COM PREÇOS ESTIMADOS', subtitle)
 
   let y = margin + 16 + 6
 
-  // Colunas montadas dinamicamente conforme as opções — "Item pai" vira
-  // "Caminho completo" (breadcrumb) quando a opção está ligada, e "Motivo"
-  // só entra se pedido. O rodapé (TOTAL DA PLANILHA) sempre se posiciona nas
-  // duas últimas colunas, então acompanha o número de colunas automaticamente.
   const head = [
     exibirCaminhoCompleto ? 'Caminho completo' : 'Item pai',
-    'Item estimado',
-    ...(exibirMotivo ? ['Motivo'] : []),
+    'Serviço',
+    'Insumos estim.',
     'Valor (R$)',
   ]
-  const larguras = exibirMotivo ? [0.22, 0.28, 0.30, 0.20] : [0.35, 0.45, 0.20]
-  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' }> = {}
+  const larguras = [0.22, 0.40, 0.16, 0.22]
+  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = {}
   larguras.forEach((w, i) => {
-    columnStyles[i] = { cellWidth: contentW * w, ...(i === larguras.length - 1 ? { halign: 'right' as const } : {}) }
+    columnStyles[i] = { cellWidth: contentW * w, ...(i === 2 ? { halign: 'center' as const } : {}), ...(i === larguras.length - 1 ? { halign: 'right' as const } : {}) }
   })
 
   for (const grupo of data.itensEstimados) {
@@ -683,33 +696,55 @@ async function drawItensEstimadosSection(
     doc.setTextColor('#ffffff')
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
-    doc.text(`PLANILHA: ${grupo.planilhaNome.toUpperCase()} (${grupo.itens.length} item(ns))`, margin + 2, y + 5.5)
+    doc.text(`PLANILHA: ${grupo.planilhaNome.toUpperCase()} (${grupo.itens.length} serviço(s))`, margin + 2, y + 5.5)
 
     y += headerH
 
-    const footRow = head.map(() => '')
-    footRow[footRow.length - 2] = 'TOTAL DA PLANILHA'
-    footRow[footRow.length - 1] = fmt(grupo.total)
+    const footRow = ['', '', 'TOTAL DA PLANILHA', fmt(grupo.total)]
+
+    // Linhas de detalhe (uma por insumo estimado, opcional) são intercaladas
+    // logo após a linha do serviço — mesmo padrão de item+insumo já usado na
+    // Planilha Analítica. `rowKinds` (paralelo a `body`) diz ao didParseCell
+    // qual estilo aplicar a cada linha.
+    const body: RowInput[] = []
+    const rowKinds: ('servico' | 'detalhe')[] = []
+    for (const it of grupo.itens) {
+      const caminho = exibirCaminhoCompleto
+        ? (it.caminhoCompleto.length > 0 ? it.caminhoCompleto.join(' > ') : '—')
+        : (it.itemPaiDescricao ?? '—')
+      body.push([caminho, it.descricao, String(it.qtdInsumosEstimados), fmt(it.valor)])
+      rowKinds.push('servico')
+
+      if (exibirDetalheInsumos) {
+        for (const ins of it.insumosEstimados) {
+          const texto = `•  ${ins.descricao}   —   Fornecedor: ${ins.fornecedor ?? '—'}   —   Preço utilizado: ${fmt(ins.precoUtilizado)}   —   Data: ${fmtDataCotacaoPdf(ins.dataCotacao)}   —   Motivo: ${ins.motivo ?? '—'}`
+          body.push([{ content: texto, colSpan: 4 }] as unknown as RowInput)
+          rowKinds.push('detalhe')
+        }
+      }
+    }
 
     autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin, bottom: margin },
       head: [head],
-      body: grupo.itens.map(it => {
-        const caminho = exibirCaminhoCompleto
-          ? (it.caminhoCompleto.length > 0 ? it.caminhoCompleto.join(' > ') : '—')
-          : (it.itemPaiDescricao ?? '—')
-        const linha = [caminho, it.descricao]
-        if (exibirMotivo) linha.push(it.estimadoMotivo ?? '—')
-        linha.push(fmt(it.valor))
-        return linha
-      }),
+      body,
       foot: [footRow],
       showFoot: 'lastPage',
       styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
       headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', halign: 'right', lineWidth: 0.1 },
       columnStyles,
+      didParseCell: (cellData) => {
+        if (cellData.section !== 'body') return
+        if (rowKinds[cellData.row.index] === 'detalhe') {
+          cellData.cell.styles.fillColor = '#fffbeb'
+          cellData.cell.styles.textColor = '#92400e'
+          cellData.cell.styles.fontStyle = 'italic'
+          cellData.cell.styles.fontSize = 6.5
+          cellData.cell.styles.halign = 'left'
+        }
+      },
     })
 
     // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
@@ -720,20 +755,20 @@ async function drawItensEstimadosSection(
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(PDF_COLORS.textGray)
-    doc.text('Nenhum item marcado como estimado neste orçamento.', margin, y + 4)
+    doc.text('Nenhum serviço com preço estimado neste orçamento.', margin, y + 4)
   }
 }
 
 // ─── PDF principal ────────────────────────────────────────────────────────────
 
 export interface ExportCadernoOptions {
-  /** Default true — seção "Itens Estimados" logo após o Resumo Geral (3.0). */
+  /** Default true — seção "Serviços com Preços Estimados" logo após o Resumo Geral (3.0). */
   incluirItensEstimados?: boolean
-  /** Default true — colore de âmbar as linhas de item estimado na Planilha Analítica (8.0). Independente da seção acima. */
+  /** Default true — colore de âmbar as linhas de insumo estimado na Planilha Analítica (8.0). Independente da seção acima. */
   destacarNaAnalitica?: boolean
-  /** Default true — coluna "Motivo" na seção Itens Estimados (só tem efeito se incluirItensEstimados). */
+  /** Default true — abaixo de cada serviço, uma linha por insumo estimado com fornecedor/preço utilizado/data/motivo (só tem efeito se incluirItensEstimados). */
   exibirMotivo?: boolean
-  /** Default false — troca "Item pai" pelo breadcrumb completo (Planilha > ... > Item pai) na seção Itens Estimados. */
+  /** Default false — troca "Item pai" pelo breadcrumb completo (Planilha > ... > Item pai) na seção Serviços com Preços Estimados. */
   exibirCaminhoCompleto?: boolean
 }
 
@@ -772,9 +807,9 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
   await drawResumoGeralSection(doc, data, margin, contentW, subtitle, '3.0')
 
-  // 3.1 Itens Estimados (opcional — ver ExportCadernoOptions.incluirItensEstimados)
+  // 3.1 Serviços com Preços Estimados (opcional — ver ExportCadernoOptions.incluirItensEstimados)
   if (options.incluirItensEstimados ?? true) {
-    divider('3.1', 'ITENS ESTIMADOS', 'Itens que dependem de validação, negociação ou detalhamento')
+    divider('3.1', 'SERVIÇOS COM PREÇOS ESTIMADOS', 'Serviços que usam ao menos um insumo com preço provisório')
     await drawItensEstimadosSection(
       doc, data, margin, contentW, pageH, subtitle, '3.1',
       options.exibirMotivo ?? true,

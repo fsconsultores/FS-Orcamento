@@ -39,9 +39,6 @@ export interface VersaoSnapshotV1 {
     bdi_especifico: number | null
     tipo: 'grupo' | 'item'
     ordem: number
-    /** Opcional: snapshots gerados antes desse campo existir não o têm — restaura como `false`. */
-    estimado?: boolean
-    estimado_motivo?: string | null
   }[]
   composicoes: {
     id: string
@@ -65,6 +62,9 @@ export interface VersaoSnapshotV1 {
     base: string | null
     data_ref: string | null
     indice: number
+    /** Opcionais: snapshots gerados antes desse campo existir não o têm — restaura como `false`/`null`. */
+    estimado?: boolean
+    estimado_motivo?: string | null
   }[]
   servicosEstimados: {
     descricao: string
@@ -129,7 +129,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
   const [estrutura, composicoes, insumos, servicosEstimadosRows] = await Promise.all([
     fetchPaginado<VersaoSnapshotV1['estrutura'][number]>(
       sb, 'orcamento_estrutura',
-      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo',
+      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem',
       orcamentoId
     ),
     fetchPaginado<VersaoSnapshotV1['composicoes'][number]>(
@@ -140,7 +140,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
     ),
     fetchPaginado<VersaoSnapshotV1['insumos'][number]>(
       sb, 'orcamento_insumos',
-      'id, composicao_id, codigo, codigo_original, descricao, unidade, custo, grupo, base, data_ref, indice',
+      'id, composicao_id, codigo, codigo_original, descricao, unidade, custo, grupo, base, data_ref, indice, estimado, estimado_motivo',
       orcamentoId,
       (q: any) => q.is('deleted_at', null)
     ),
@@ -293,6 +293,8 @@ async function restaurarInsumos(
         data_ref: i.data_ref,
         indice: i.indice,
         custo_atualizado_em: null, // força recálculo completo no próximo "Calcular"
+        estimado: i.estimado ?? false,
+        estimado_motivo: i.estimado_motivo ?? null,
       })))
     if (error) throw new Error(`Erro ao restaurar insumos: ${error.message}`)
   }
@@ -332,8 +334,6 @@ async function restaurarEstrutura(
       bdi_especifico: it.bdi_especifico,
       tipo: it.tipo,
       ordem: it.ordem,
-      estimado: it.estimado ?? false,
-      estimado_motivo: it.estimado_motivo ?? null,
     }))
     const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
     if (error) throw new Error(`Erro ao restaurar estrutura (nível ${nivel}): ${error.message}`)

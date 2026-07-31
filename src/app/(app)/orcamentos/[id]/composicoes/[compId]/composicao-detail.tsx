@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { recalcularComposicaoAction } from '../../planilha/calcular-action'
 import { atualizarPrecoInsumoAction } from '../../atualizar-preco-insumo-action'
+import { EstimadoBadge } from '@/components/estimado-badge'
 
 type InsumoRow = {
   id: string
@@ -15,6 +16,8 @@ type InsumoRow = {
   custo: number
   indice: number
   grupo: string | null
+  estimado: boolean
+  estimado_motivo: string | null
 }
 
 type Composicao = {
@@ -246,7 +249,7 @@ export function ComposicaoDetail({
       grupo: addTipo === 'composicao' ? 'COMPOSIÇÃO AUXILIAR' : null,
       custo_atualizado_em: new Date().toISOString(),
     }
-    const { data, error } = await sb.from('orcamento_insumos').insert(row).select('id, codigo, descricao, unidade, custo, indice, grupo').single()
+    const { data, error } = await sb.from('orcamento_insumos').insert(row).select('id, codigo, descricao, unidade, custo, indice, grupo, estimado, estimado_motivo').single()
     if (error) { alert(`Erro: ${error.message}`); setSaving(false); return }
     setInsumos(prev => [...prev, data as InsumoRow])
     setSelected(null)
@@ -396,6 +399,7 @@ export function ComposicaoDetail({
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Preço unit.</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Índice</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Custo</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Preço estimado — definido na cotação do insumo, na aba Insumos">Estim.</th>
                 <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
@@ -461,6 +465,9 @@ export function ComposicaoDetail({
                   <td className="px-4 py-2.5 text-right font-medium text-gray-900 tabular-nums">
                     {BRL((ins.custo ?? 0) * (ins.indice ?? 1))}
                   </td>
+                  <td className="px-2 py-2.5 text-center">
+                    <EstimadoBadge estimado={ins.estimado} estimadoMotivo={ins.estimado_motivo} />
+                  </td>
                   <td className="px-2 py-2.5">
                     <button
                       onClick={() => handleDelete(ins.id)}
@@ -479,6 +486,7 @@ export function ComposicaoDetail({
               <tr>
                 <td colSpan={5} className="px-4 py-3 text-right font-semibold text-gray-700">Total</td>
                 <td className="px-4 py-3 text-right font-bold text-gray-900 tabular-nums">{BRL(custoTotal)}</td>
+                <td />
                 <td />
               </tr>
             </tfoot>

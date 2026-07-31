@@ -59,7 +59,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [analitica, setAnalitica] = useState(defaultAnaliticaFilterState())
-  // Opções da seção "Itens Estimados" no Caderno — cada uma independente,
+  // Opções da seção "Serviços com Preços Estimados" no Caderno — cada uma independente,
   // default true (exceto caminho completo, que troca o formato hoje usado).
   const [incluirItensEstimados, setIncluirItensEstimados] = useState(true)
   const [destacarNaAnalitica, setDestacarNaAnalitica] = useState(true)
@@ -168,22 +168,22 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
                 <p className="text-xs font-semibold text-gray-700 mb-2">Seções incluídas</p>
                 <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                   {CADERNO_SECOES.map(s => <li key={s}>{s}</li>)}
-                  <li className={incluirItensEstimados ? '' : 'text-gray-400 line-through'}>Itens Estimados</li>
+                  <li className={incluirItensEstimados ? '' : 'text-gray-400 line-through'}>Serviços com Preços Estimados</li>
                 </ul>
 
-                <p className="text-xs font-semibold text-gray-700 mt-3 mb-1.5">Opções — Itens Estimados</p>
+                <p className="text-xs font-semibold text-gray-700 mt-3 mb-1.5">Opções — Serviços com Preços Estimados</p>
                 <div className="space-y-1.5">
                   <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
                     <input type="checkbox" checked={incluirItensEstimados} onChange={e => setIncluirItensEstimados(e.target.checked)} className="accent-primary-600" />
-                    Criar seção &quot;Itens Estimados&quot;
+                    Criar seção &quot;Serviços com Preços Estimados&quot;
                   </label>
                   <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
                     <input type="checkbox" checked={destacarNaAnalitica} onChange={e => setDestacarNaAnalitica(e.target.checked)} className="accent-primary-600" />
-                    Destacar itens estimados na Planilha Analítica
+                    Destacar insumos estimados na Planilha Analítica
                   </label>
                   <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
                     <input type="checkbox" checked={exibirMotivoEstimado} onChange={e => setExibirMotivoEstimado(e.target.checked)} className="accent-primary-600" />
-                    Exibir motivo do item estimado
+                    Exibir detalhe dos insumos estimados (fornecedor, preço, data, motivo)
                   </label>
                   <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
                     <input type="checkbox" checked={exibirCaminhoCompleto} onChange={e => setExibirCaminhoCompleto(e.target.checked)} className="accent-primary-600" />
@@ -191,7 +191,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
                   </label>
                 </div>
                 {incluirItensEstimados && data.itensEstimados.length === 0 && (
-                  <p className="mt-1.5 text-xs text-gray-400">Nenhum item marcado como estimado neste orçamento.</p>
+                  <p className="mt-1.5 text-xs text-gray-400">Nenhum serviço com preço estimado neste orçamento.</p>
                 )}
               </div>
             </>

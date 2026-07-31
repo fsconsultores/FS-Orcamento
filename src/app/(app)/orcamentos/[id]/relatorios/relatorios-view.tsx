@@ -91,10 +91,10 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
       {resumoEstimados.qtd > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
           <p className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
-            <AlertTriangle size={13} /> Resumo da revisão — Itens Estimados
+            <AlertTriangle size={13} /> Resumo da revisão — Serviços com Preços Estimados
           </p>
           <StatRow>
-            <StatCard label="Itens estimados" value={resumoEstimados.qtd} />
+            <StatCard label="Serviços com preço estimado" value={resumoEstimados.qtd} />
             <StatCard label="Valor total estimado" value={fmt(resumoEstimados.valor)} />
             <StatCard label="% do orçamento" value={`${resumoEstimados.percentual.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`} />
             <StatCard label="Planilhas afetadas" value={resumoEstimados.planilhas} />

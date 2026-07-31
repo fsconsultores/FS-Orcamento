@@ -26,10 +26,19 @@ function escopoLabel(detalhes: HistoricoRow['detalhes']): string {
 
 export default async function RelatoriosHistoricoPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ planilha?: string }>
 }) {
   const { id: orcamentoId } = await params
+  const { planilha: planilhaId } = await searchParams
+  // Repassa a planilha ativa (chegou aqui via aba/subnav, que já propaga
+  // ?planilha=) pros links de "Gerar relatório" — sem isso, /relatorios/gerar
+  // não sabe qual é "a planilha atual" e desabilita essa opção no seletor de
+  // escopo, sobrando só "Selecionar planilhas" manualmente.
+  const qs = planilhaId ? `?planilha=${planilhaId}` : ''
+  const qsReport = (reportId: string) => planilhaId ? `?report=${reportId}&planilha=${planilhaId}` : `?report=${reportId}`
   const sb = (await createClient()) as any
 
   const { data: historico } = await sb
@@ -49,7 +58,7 @@ export default async function RelatoriosHistoricoPage({
         title="Relatórios"
         description="Últimos relatórios gerados neste orçamento."
         actions={
-          <Link href={`/orcamentos/${orcamentoId}/relatorios/gerar`}>
+          <Link href={`/orcamentos/${orcamentoId}/relatorios/gerar${qs}` as any}>
             <Button icon={<FileBarChart size={15} />}>Gerar relatório</Button>
           </Link>
         }
@@ -62,7 +71,7 @@ export default async function RelatoriosHistoricoPage({
             title="Nenhum relatório gerado ainda"
             description="Gere um relatório (planilha, curva ABC ou caderno completo) e ele aparece aqui."
             action={
-              <Link href={`/orcamentos/${orcamentoId}/relatorios/gerar`}>
+              <Link href={`/orcamentos/${orcamentoId}/relatorios/gerar${qs}` as any}>
                 <Button icon={<FileBarChart size={15} />}>Gerar relatório</Button>
               </Link>
             }
@@ -98,7 +107,7 @@ export default async function RelatoriosHistoricoPage({
                   <p className="mt-0.5 text-sm text-gray-800">{r.mensagem}</p>
                   {report && (
                     <Link
-                      href={`/orcamentos/${orcamentoId}/relatorios/gerar?report=${report.id}`}
+                      href={`/orcamentos/${orcamentoId}/relatorios/gerar${qsReport(report.id)}` as any}
                       className="mt-1 inline-block text-xs font-medium text-primary-700 hover:underline"
                     >
                       Gerar novamente

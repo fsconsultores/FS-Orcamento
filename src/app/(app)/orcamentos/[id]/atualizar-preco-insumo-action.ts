@@ -28,7 +28,7 @@ export async function atualizarPrecoInsumoAction(
   const sb = supabase as any
   const { data: atual } = await sb
     .from('orcamento_insumos')
-    .select('custo, fornecedor, data_cotacao')
+    .select('custo, fornecedor, data_cotacao, estimado')
     .eq('orcamento_id', orcamentoId)
     .eq('codigo', codigo)
     .is('composicao_id', null)
@@ -53,14 +53,15 @@ export async function atualizarPrecoInsumoAction(
   // orçamento, só com o payload mais rico.
   const fornecedorNovo = cotacao?.fornecedor?.trim() || null
   const dataCotacaoNovo = cotacao?.dataCotacao || null
+  const estimadoNovo = cotacao?.estimado ?? atual?.estimado ?? false
   registrarHistorico(supabase, {
     orcamentoId,
     entidade: 'insumo',
     tipo: 'sucesso',
     acao: 'atualizar_preco_insumo',
     mensagem: `Preço do insumo "${codigo}" alterado de ${atual?.custo ?? '—'} para ${novoCusto}`,
-    valorAnterior: atual ? { custo: atual.custo, fornecedor: atual.fornecedor ?? null, data_cotacao: atual.data_cotacao ?? null } : undefined,
-    valorNovo: { custo: novoCusto, fornecedor: fornecedorNovo, data_cotacao: dataCotacaoNovo },
+    valorAnterior: atual ? { custo: atual.custo, fornecedor: atual.fornecedor ?? null, data_cotacao: atual.data_cotacao ?? null, estimado: atual.estimado ?? false } : undefined,
+    valorNovo: { custo: novoCusto, fornecedor: fornecedorNovo, data_cotacao: dataCotacaoNovo, estimado: estimadoNovo },
   }).catch(console.error)
 
   return { ok: true }

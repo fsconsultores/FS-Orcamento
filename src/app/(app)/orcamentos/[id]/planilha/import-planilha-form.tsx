@@ -101,21 +101,34 @@ function parseCsv(text: string): EstruturaRow[] {
   return parseMatrix(matrix)
 }
 
-async function parseXlsx(ab: ArrayBuffer): Promise<{ rows: EstruturaRow[]; sheets: string[] }> {
+interface AbaParseada {
+  nome: string
+  rows: EstruturaRow[]
+}
+
+/**
+ * Faz o parse de TODAS as abas do workbook (não só a primeira que tiver
+ * dados) — permite trocar de aba depois sem reler o arquivo, e o
+ * auto-detect passa a ser "a aba com mais itens válidos" em vez de
+ * "a primeira aba com pelo menos 1 item", que era frágil (uma aba de
+ * capa/resumo com 1-2 linhas parecidas com item ganhava da aba de verdade).
+ */
+async function parseXlsxTodasAbas(ab: ArrayBuffer): Promise<{ abas: AbaParseada[]; melhorIndice: number }> {
   const XLSX = await import('xlsx')
   const wb = XLSX.read(ab, { type: 'array', cellDates: false })
-  const sheets = wb.SheetNames
 
-  // Tenta cada aba até encontrar dados válidos
-  for (const sheetName of sheets) {
-    const ws = wb.Sheets[sheetName]
-    if (!ws) continue
-    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][]
-    const rows = parseMatrix(matrix)
-    if (rows.length > 0) return { rows, sheets }
+  const abas: AbaParseada[] = wb.SheetNames.map(nome => {
+    const ws = wb.Sheets[nome]
+    const matrix = ws ? (XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][]) : []
+    return { nome, rows: parseMatrix(matrix) }
+  })
+
+  let melhorIndice = 0
+  for (let i = 1; i < abas.length; i++) {
+    if (abas[i].rows.length > abas[melhorIndice].rows.length) melhorIndice = i
   }
 
-  return { rows: [], sheets }
+  return { abas, melhorIndice }
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -129,11 +142,17 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
   const [result, setResult] = useState<ImportResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [errosParse, setErrosParse] = useState<string[]>([])
+  // Abas do XLSX (null pra CSV/TXT, que não têm esse conceito) — guarda todas
+  // já parseadas em memória, então trocar de aba no <select> é instantâneo,
+  // sem reler o arquivo.
+  const [abas, setAbas] = useState<AbaParseada[] | null>(null)
+  const [abaSelecionada, setAbaSelecionada] = useState<string>('')
+  const [abaAutoDetectada, setAbaAutoDetectada] = useState<string>('')
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setResult(null); setErrosParse([])
+    setResult(null); setErrosParse([]); setAbas(null); setAbaSelecionada(''); setAbaAutoDetectada('')
 
     const ab = await file.arrayBuffer()
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
@@ -141,8 +160,13 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
     let rows: EstruturaRow[] = []
 
     if (ext === 'xlsx' || ext === 'xls' || ext === 'ods') {
-      const parsed = await parseXlsx(ab)
-      rows = parsed.rows
+      const { abas: todasAbas, melhorIndice } = await parseXlsxTodasAbas(ab)
+      if (todasAbas.length > 1) {
+        setAbas(todasAbas)
+        setAbaSelecionada(todasAbas[melhorIndice].nome)
+        setAbaAutoDetectada(todasAbas[melhorIndice].nome)
+      }
+      rows = todasAbas[melhorIndice]?.rows ?? []
     } else {
       const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(ab)
       const text = utf8.includes('�')
@@ -152,10 +176,23 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
     }
 
     if (rows.length === 0) {
-      setErrosParse(['Nenhum item encontrado. Verifique o formato do arquivo.'])
+      setErrosParse(['Nenhum item encontrado. Verifique o formato do arquivo (ou troque de aba, se o XLSX tiver mais de uma).'])
       setPreview(null)
     } else {
       setPreview(rows)
+    }
+  }
+
+  function trocarAba(nome: string) {
+    setAbaSelecionada(nome)
+    const aba = abas?.find(a => a.nome === nome)
+    if (!aba) return
+    if (aba.rows.length === 0) {
+      setErrosParse(['Nenhum item encontrado nesta aba. Verifique o formato ou escolha outra aba.'])
+      setPreview(null)
+    } else {
+      setErrosParse([])
+      setPreview(aba.rows)
     }
   }
 
@@ -166,6 +203,7 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
       const res = await importarEstrutura(orcamentoId, preview, planilhaId)
       setPreview(null)
       setOpen(false)
+      setAbas(null); setAbaSelecionada(''); setAbaAutoDetectada('')
       if (inputRef.current) inputRef.current.value = ''
       startTransition(() => router.refresh())
       setResult(res)
@@ -196,7 +234,7 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-800">Importar Planilha Orçamentária</h3>
         <button
-          onClick={() => { setOpen(false); setPreview(null); setResult(null); setErrosParse([]) }}
+          onClick={() => { setOpen(false); setPreview(null); setResult(null); setErrosParse([]); setAbas(null); setAbaSelecionada('') }}
           className="text-gray-400 hover:text-gray-600"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -213,7 +251,7 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
           <li>Linhas sem código = capítulos/grupos</li>
           <li>Numeração hierárquica: <span className="font-mono">1, 1.1, 1.1.1</span> etc.</li>
           <li>Suporta formato BR (R$ 1.800,00) e números diretos</li>
-          <li>Para XLSX com múltiplas abas, usa a primeira aba com dados válidos</li>
+          <li>Para XLSX com múltiplas abas, detecta automaticamente a aba com mais itens — mas dá pra trocar depois de escolher o arquivo</li>
         </ul>
       </div>
 
@@ -224,6 +262,36 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
         onChange={handleFile}
         className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:font-medium hover:file:bg-blue-700 cursor-pointer"
       />
+
+      {abas && abas.length > 1 && (
+        <div className="rounded-md border border-blue-200 bg-white px-3 py-2 space-y-1">
+          <div className="flex items-center gap-3">
+            <label htmlFor="aba-planilha" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+              Aba do arquivo:
+            </label>
+            <select
+              id="aba-planilha"
+              value={abaSelecionada}
+              onChange={e => trocarAba(e.target.value)}
+              className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            >
+              {abas.map(a => (
+                <option key={a.nome} value={a.nome}>
+                  {a.nome} ({a.rows.length} {a.rows.length === 1 ? 'item' : 'itens'}){a.nome === abaAutoDetectada ? ' — detectada automaticamente' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {abaSelecionada !== abaAutoDetectada && (
+            <p className="text-xs text-gray-500">
+              Detecção automática sugeriu <span className="font-medium">{abaAutoDetectada}</span>.{' '}
+              <button type="button" onClick={() => trocarAba(abaAutoDetectada)} className="text-blue-600 hover:underline">
+                Usar a sugerida
+              </button>
+            </p>
+          )}
+        </div>
+      )}
 
       {errosParse.length > 0 && (
         <div className="rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
@@ -243,7 +311,7 @@ export function ImportPlanilhaForm({ orcamentoId, planilhaId }: { orcamentoId: s
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => { setPreview(null); if (inputRef.current) inputRef.current.value = '' }}
+                onClick={() => { setPreview(null); setAbas(null); setAbaSelecionada(''); setAbaAutoDetectada(''); if (inputRef.current) inputRef.current.value = '' }}
                 className="rounded border px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
               >
                 Limpar

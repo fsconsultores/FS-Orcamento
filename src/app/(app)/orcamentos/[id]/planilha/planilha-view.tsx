@@ -16,10 +16,10 @@ import {
 } from '@dnd-kit/core'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Trash2, Save, Check, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Save, Check } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
-import { MOTIVOS_ESTIMADO_PRESET, OUTRO_ESTIMADO_SENTINEL } from '@/lib/orcamento/estimado-motivos'
+import { EstimadoBadge } from '@/components/estimado-badge'
 
 export type { EstruturaItem }
 
@@ -61,6 +61,25 @@ interface Nodo extends EstruturaItem {
   filhos: Nodo[]
   total: number
   totalComBdi: number
+}
+
+/**
+ * Insumo mostrado na sub-linha do modo Analítica. `id`/`estimado`/
+ * `estimadoMotivo` só existem pra origem 'orcamento' (linha real em
+ * orcamento_insumos) — origem 'base' vem da base global (fallback quando o
+ * item não tem composição própria neste orçamento) e não tem uma linha
+ * própria pra marcar como estimada.
+ */
+interface AnaliticaInsumoRow {
+  id: string | null
+  codigo: string
+  descricao: string
+  unidade: string | null
+  custo: number
+  indice: number
+  origem: 'orcamento' | 'base'
+  estimado: boolean
+  estimadoMotivo: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -399,12 +418,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [exportAnaliticaLoading, setExportAnaliticaLoading] = useState(false)
   const [exportAnaliticaError, setExportAnaliticaError]     = useState<string | null>(null)
   const [viewMode, setViewMode]         = useState<'sintetica' | 'analitica'>('sintetica')
-  // Filtro rápido "Itens estimados" — só afeta quais linhas são renderizadas
-  // (deriva de `items`/`tree`, nunca os altera): ver `visible` abaixo.
-  const [filtroEstimado, setFiltroEstimado] = useState<'todos' | 'estimados' | 'nao_estimados'>('todos')
-  const [motivoEditNodo, setMotivoEditNodo] = useState<Nodo | null>(null)
-  const [motivoSelecionado, setMotivoSelecionado] = useState<string>(MOTIVOS_ESTIMADO_PRESET[0])
-  const [motivoTextoLivre, setMotivoTextoLivre] = useState('')
   // Códigos de composição do orçamento — usado para bloquear a edição manual
   // do Custo Unitário quando o item é uma composição (valor sempre calculado
   // a partir dos insumos, nunca editável diretamente).
@@ -421,8 +434,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       })
     return () => { cancelado = true }
   }, [orcamentoId])
-  const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>>(new Map())
+  const [analiticaInsumos, setAnaliticaInsumos] = useState<Map<string, AnaliticaInsumoRow[]>>(new Map())
   const [analiticaLoading, setAnaliticaLoading] = useState(false)
+  const [analiticaError, setAnaliticaError] = useState<string | null>(null)
   const [editingInsumoCodigo, setEditingInsumoCodigo] = useState<string | null>(null)
   const [salvandoInsumoCodigo, setSalvandoInsumoCodigo] = useState<string | null>(null)
   const skipBlur                        = useRef(false)
@@ -695,14 +709,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     return { tree: t, flat: f, grandTotal: gTotal, grandTotalComBdi: gTotalBdi }
   }, [items, bdiGlobal, numeracaoDigitos])
 
-  // Contador "Itens estimados" — sobre `items` (já em memória, sem consulta
-  // nova), independente do filtro rápido ativo (mostra o total real da
-  // planilha, não só o que está sendo exibido no momento).
-  const totalItensEstimados = useMemo(
-    () => items.reduce((n, it) => n + (it.tipo === 'item' && it.estimado ? 1 : 0), 0),
-    [items]
-  )
-
   // Persiste números no DB com debounce após mudanças estruturais
   function agendarSincronizacaoComItems(nextItems: EstruturaItem[]) {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
@@ -715,7 +721,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   // O(n) — uma passagem em DFS. Para cada nó: se seu pai está em hiddenBelow,
   // o nó está oculto (e propaga a ocultação para seus filhos).
-  const visibleColapso = useMemo(() => {
+  const visible = useMemo(() => {
     if (collapsed.size === 0) return flat
     const hiddenBelow = new Set<string>()
     const result: typeof flat = []
@@ -730,28 +736,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }
     return result
   }, [flat, collapsed])
-
-  // Filtro rápido "Itens estimados": puramente de exibição, sobre a lista já
-  // filtrada por colapso — nunca toca `items`/`tree`/`flat`. Um grupo some só
-  // se NENHUM descendente dele bater com o filtro; um item que bate mantém
-  // toda a cadeia de pais visível, senão a linha do item fica "solta" sem
-  // contexto de EAP.
-  const visible = useMemo(() => {
-    if (filtroEstimado === 'todos') return visibleColapso
-    const querEstimados = filtroEstimado === 'estimados'
-    const keep = new Set<string>()
-    const entryPorId = new Map(visibleColapso.map(e => [e.nodo.id, e]))
-    for (const { nodo } of visibleColapso) {
-      if (nodo.filhos.length > 0) continue // grupo — decidido por herança abaixo
-      if (nodo.estimado !== querEstimados) continue
-      let atual: typeof visibleColapso[number] | undefined = entryPorId.get(nodo.id)
-      while (atual && !keep.has(atual.nodo.id)) {
-        keep.add(atual.nodo.id)
-        atual = atual.nodo.parent_id ? entryPorId.get(atual.nodo.parent_id) : undefined
-      }
-    }
-    return visibleColapso.filter(e => keep.has(e.nodo.id))
-  }, [visibleColapso, filtroEstimado])
 
   // Lookups O(1) por id — usados na navegação de célula (clique, Tab/Enter)
   // e no overlay de drag, em vez de flat.find()/visible.findIndex() a cada
@@ -992,49 +976,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     ])
   }
 
-  async function handleToggleEstimado(nodo: Nodo) {
-    const novoValor = !nodo.estimado
-    // Desmarcar limpa o motivo junto — evita motivo "fantasma" reaparecendo
-    // se o item for marcado de novo mais tarde por engano.
-    const novoMotivo = novoValor ? nodo.estimado_motivo : null
-    setIsDirty(true)
-    structuralDirtyRef.current = true
-    setItems(prev => {
-      const next = prev.map(it => it.id === nodo.id ? { ...it, estimado: novoValor, estimado_motivo: novoMotivo } : it)
-      agendarSincronizacaoComItems(next)
-      return next
-    })
-    // Marcar já abre o popup de motivo na hora — é opcional (dá pra fechar
-    // sem preencher), mas precisa aparecer imediatamente, não depender do
-    // usuário notar um ícone separado depois. Desmarcar não abre nada.
-    if (novoValor) abrirMotivo({ ...nodo, estimado: novoValor, estimado_motivo: novoMotivo })
-    await atualizarItemEstrutura(nodo.id, orcamentoId, { estimado: novoValor, estimado_motivo: novoMotivo })
-  }
-
-  function abrirMotivo(nodo: Nodo) {
-    const atual = nodo.estimado_motivo
-    if (atual && (MOTIVOS_ESTIMADO_PRESET as readonly string[]).includes(atual)) {
-      setMotivoSelecionado(atual)
-      setMotivoTextoLivre('')
-    } else if (atual) {
-      setMotivoSelecionado(OUTRO_ESTIMADO_SENTINEL)
-      setMotivoTextoLivre(atual)
-    } else {
-      setMotivoSelecionado(MOTIVOS_ESTIMADO_PRESET[0])
-      setMotivoTextoLivre('')
-    }
-    setMotivoEditNodo(nodo)
-  }
-
-  async function handleSalvarMotivo() {
-    if (!motivoEditNodo) return
-    const nodo = motivoEditNodo
-    const motivoFinal = (motivoSelecionado === OUTRO_ESTIMADO_SENTINEL ? motivoTextoLivre.trim() : motivoSelecionado) || null
-    setMotivoEditNodo(null)
-    setItems(prev => prev.map(it => it.id === nodo.id ? { ...it, estimado_motivo: motivoFinal } : it))
-    await atualizarItemEstrutura(nodo.id, orcamentoId, { estimado_motivo: motivoFinal })
-  }
-
   async function addSheetHeader(wb: any, ws: any, titulo: string) {
     const hFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
     const hBdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
@@ -1185,9 +1126,31 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     }
   }
 
-  async function fetchInsumosByCodigo(): Promise<Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>> {
+  async function fetchInsumosByCodigo(): Promise<Map<string, AnaliticaInsumoRow[]>> {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), 30_000)
+
+    // Orçamentos com muitas composições (visto em produção: 647) geram um
+    // `.in('composicao_id', [...])` com centenas de UUIDs na querystring —
+    // a API rejeita com HTTP 400 (URL grande demais) e, sem isso, o erro
+    // ficava só no console: a Analítica renderizava vazia sem avisar nada
+    // (bug real: "importo a planilha mas ela não aparece analítica").
+    // Divide em lotes e junta os resultados, mesmo princípio de paginação já
+    // usado em outras buscas grandes deste app.
+    const BATCH = 150
+    async function emLotes<T>(ids: string[], montar: (lote: string[]) => any): Promise<T[]> {
+      if (ids.length === 0) return []
+      const lotes: string[][] = []
+      for (let i = 0; i < ids.length; i += BATCH) lotes.push(ids.slice(i, i + BATCH))
+      const respostas = await Promise.all(lotes.map(lote => montar(lote)))
+      const out: T[] = []
+      for (const { data, error } of respostas) {
+        if (error) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : error
+        out.push(...((data ?? []) as T[]))
+      }
+      return out
+    }
+
     try {
       const sb = createClient() as any
       const { data: composicoes, error: compError } = await sb
@@ -1199,42 +1162,47 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
       const idToCodigo = new Map<string, string>()
       for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
       const compIds = (composicoes ?? []).map((c: any) => c.id)
-      const result = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>()
+      const result = new Map<string, AnaliticaInsumoRow[]>()
       if (compIds.length > 0) {
-        const { data: insumos, error: insError } = await sb
-          .from('orcamento_insumos')
-          .select('composicao_id, codigo, descricao, unidade, custo, indice')
-          .in('composicao_id', compIds)
-          .abortSignal(ac.signal)
-        if (insError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : insError
+        const insumos = await emLotes<{ id: string; composicao_id: string; codigo: string | null; descricao: string | null; unidade: string | null; custo: number | null; indice: number | null; estimado: boolean | null; estimado_motivo: string | null }>(
+          compIds,
+          lote => sb.from('orcamento_insumos')
+            .select('id, composicao_id, codigo, descricao, unidade, custo, indice, estimado, estimado_motivo')
+            .in('composicao_id', lote)
+            .abortSignal(ac.signal)
+        )
 
         // Preço avulso (canônico, composicao_id IS NULL) tem prioridade sobre o
         // custo gravado na cópia dentro da composição — mesma regra do motor de
         // cálculo e da tela de detalhe da composição. Sem isso, um insumo cuja
         // cópia nunca foi sincronizada aparece zerado mesmo com preço cadastrado.
-        const codigosUnicos = [...new Set((insumos ?? []).map((i: any) => i.codigo).filter(Boolean))]
+        const codigosUnicos = [...new Set(insumos.map(i => i.codigo).filter((c): c is string => !!c))]
         const avulsoPrecoMap = new Map<string, number>()
         if (codigosUnicos.length > 0) {
-          const { data: avulsos } = await sb
-            .from('orcamento_insumos')
-            .select('codigo, custo')
-            .eq('orcamento_id', orcamentoId)
-            .is('composicao_id', null)
-            .in('codigo', codigosUnicos)
-            .abortSignal(ac.signal)
-          for (const av of (avulsos ?? []) as { codigo: string; custo: number }[]) {
+          const avulsos = await emLotes<{ codigo: string; custo: number }>(
+            codigosUnicos,
+            lote => sb.from('orcamento_insumos')
+              .select('codigo, custo')
+              .eq('orcamento_id', orcamentoId)
+              .is('composicao_id', null)
+              .in('codigo', lote)
+              .abortSignal(ac.signal)
+          )
+          for (const av of avulsos) {
             if (av.custo) avulsoPrecoMap.set(av.codigo, av.custo)
           }
         }
 
-        for (const ins of insumos ?? []) {
+        for (const ins of insumos) {
           const cod = idToCodigo.get(ins.composicao_id)
           if (!cod) continue
           if (!result.has(cod)) result.set(cod, [])
           result.get(cod)!.push({
+            id: ins.id,
             codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', unidade: ins.unidade,
-            custo: avulsoPrecoMap.get(ins.codigo) ?? ins.custo ?? 0,
+            custo: avulsoPrecoMap.get(ins.codigo ?? '') ?? ins.custo ?? 0,
             indice: ins.indice ?? 0, origem: 'orcamento',
+            estimado: ins.estimado ?? false, estimadoMotivo: ins.estimado_motivo,
           })
         }
       }
@@ -1247,34 +1215,36 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           .map(i => i.codigo as string)
       )]
       if (codigosFaltantes.length > 0) {
-        const { data: composicoesBase, error: compBaseError } = await sb
-          .from('tabela_composicoes')
-          .select('id, codigo')
-          .in('codigo', codigosFaltantes)
-          .abortSignal(ac.signal)
-        if (compBaseError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : compBaseError
+        const composicoesBase = await emLotes<{ id: string; codigo: string }>(
+          codigosFaltantes,
+          lote => sb.from('tabela_composicoes').select('id, codigo').in('codigo', lote).abortSignal(ac.signal)
+        )
         const idToCodigoBase = new Map<string, string>()
-        for (const c of composicoesBase ?? []) idToCodigoBase.set(c.id, c.codigo)
-        const compIdsBase = (composicoesBase ?? []).map((c: any) => c.id)
+        for (const c of composicoesBase) idToCodigoBase.set(c.id, c.codigo)
+        const compIdsBase = composicoesBase.map(c => c.id)
         if (compIdsBase.length > 0) {
-          const { data: itensBase, error: itensBaseError } = await sb
-            .from('tabela_itens_composicao')
-            .select('composicao_id, indice, tabela_insumos(codigo, descricao, unidade, preco_base)')
-            .in('composicao_id', compIdsBase)
-            .abortSignal(ac.signal)
-          if (itensBaseError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : itensBaseError
-          for (const it of itensBase ?? []) {
+          const itensBase = await emLotes<{ composicao_id: string; indice: number | null; tabela_insumos: { codigo: string | null; descricao: string | null; unidade: string | null; preco_base: number | null } | null }>(
+            compIdsBase,
+            lote => sb.from('tabela_itens_composicao')
+              .select('composicao_id, indice, tabela_insumos(codigo, descricao, unidade, preco_base)')
+              .in('composicao_id', lote)
+              .abortSignal(ac.signal)
+          )
+          for (const it of itensBase) {
             const cod = idToCodigoBase.get(it.composicao_id)
             const insumo = it.tabela_insumos
             if (!cod || !insumo) continue
             if (!result.has(cod)) result.set(cod, [])
             result.get(cod)!.push({
+              id: null,
               codigo: insumo.codigo ?? '',
               descricao: insumo.descricao ?? '',
               unidade: insumo.unidade ?? null,
               custo: insumo.preco_base ?? 0,
               indice: it.indice ?? 0,
               origem: 'base',
+              estimado: false,
+              estimadoMotivo: null,
             })
           }
         }
@@ -1412,11 +1382,15 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   async function loadAnaliticaData() {
     if (analiticaInsumos.size > 0) return
     setAnaliticaLoading(true)
+    setAnaliticaError(null)
     try {
       const data = await fetchInsumosByCodigo()
       setAnaliticaInsumos(data)
-    } catch {
-      // silently ignore — analítica view shows empty insumos on failure
+    } catch (e) {
+      // Nunca mais silencioso: sem isso, uma falha de rede/API vira "Analítica
+      // sem nenhum insumo" sem explicação nenhuma pro usuário (bug real que já
+      // aconteceu — ver fetchInsumosByCodigo).
+      setAnaliticaError(e instanceof Error ? e.message : 'Não foi possível carregar os insumos da Analítica.')
     } finally {
       setAnaliticaLoading(false)
     }
@@ -1435,7 +1409,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     try {
       await atualizarPrecoInsumoAction(orcamentoId, codigo, parsed, { descricao, unidade: unidade ?? undefined })
       setAnaliticaInsumos(prev => {
-        const next = new Map<string, { codigo: string; descricao: string; unidade: string | null; custo: number; indice: number; origem: 'orcamento' | 'base' }[]>()
+        const next = new Map<string, AnaliticaInsumoRow[]>()
         for (const [comp, lista] of prev) {
           next.set(comp, lista.map(ins => (ins.codigo === codigo ? { ...ins, custo: parsed } : ins)))
         }
@@ -1651,34 +1625,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
           </div>
         </div>
 
-        {/* Linha 2: filtro de itens estimados + ferramentas/exportação */}
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            {totalItensEstimados > 0 && (
-              <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50/60 px-1.5 py-1 shadow-sm">
-                <span className="flex items-center gap-1 pl-1 pr-1.5 text-xs font-semibold text-amber-700 tabular-nums">
-                  <AlertTriangle size={12} />
-                  {totalItensEstimados}
-                </span>
-                <div className="flex overflow-hidden rounded-md border border-amber-200 text-xs">
-                  {([
-                    ['todos', 'Todos'],
-                    ['estimados', 'Estimados'],
-                    ['nao_estimados', 'Não estimados'],
-                  ] as const).map(([valor, label]) => (
-                    <button
-                      key={valor}
-                      onClick={() => setFiltroEstimado(valor)}
-                      className={`px-2.5 py-1 font-medium transition-colors ${filtroEstimado === valor ? 'bg-amber-500 text-white' : 'bg-white text-amber-700 hover:bg-amber-100'} ${valor !== 'todos' ? 'border-l border-amber-200' : ''}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
+        {/* Linha 2: ferramentas/exportação */}
+        <div className="flex items-center justify-end flex-wrap gap-2">
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-2">
               {/* Legenda de atalhos — sempre visível, não só em tooltip */}
@@ -2089,59 +2037,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         </div>
       )}
 
-      {/* Modal: Motivo do item estimado — leve, 1 select + textarea opcional,
-          nunca bloqueia o toggle do checkbox (que já salva sozinho) */}
-      {motivoEditNodo && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={() => setMotivoEditNodo(null)}
-          onKeyDown={e => { if (e.key === 'Escape') setMotivoEditNodo(null) }}
-        >
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="bg-amber-500 px-6 py-4">
-              <h2 className="text-base font-bold text-white">Motivo do item estimado</h2>
-              <p className="mt-0.5 text-xs text-amber-50">Opcional — feche a qualquer momento sem preencher.</p>
-            </div>
-            <div className="px-6 py-5 space-y-3">
-              <p className="text-sm text-gray-500 truncate" title={motivoEditNodo.descricao}>{motivoEditNodo.descricao}</p>
-              <select
-                autoFocus
-                value={motivoSelecionado}
-                onChange={e => setMotivoSelecionado(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
-              >
-                {MOTIVOS_ESTIMADO_PRESET.map(m => <option key={m} value={m}>{m}</option>)}
-                <option value={OUTRO_ESTIMADO_SENTINEL}>Outro…</option>
-              </select>
-              {motivoSelecionado === OUTRO_ESTIMADO_SENTINEL && (
-                <textarea
-                  autoFocus
-                  value={motivoTextoLivre}
-                  onChange={e => setMotivoTextoLivre(e.target.value)}
-                  rows={3}
-                  placeholder="Descreva o motivo"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
-                />
-              )}
-            </div>
-            <div className="px-6 pb-5 flex gap-3 justify-end">
-              <button
-                onClick={() => setMotivoEditNodo(null)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSalvarMotivo}
-                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 transition-colors"
-              >
-                Salvar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Menu de contexto (botão direito) */}
       {contextMenu && (
         <>
@@ -2230,6 +2125,18 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         </button>
       )}
 
+      {analiticaError && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span><strong className="font-semibold">Não foi possível carregar a Analítica:</strong> {analiticaError}</span>
+          <button
+            onClick={() => { setAnaliticaError(null); loadAnaliticaData() }}
+            className="shrink-0 rounded-md border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      )}
+
       {/* Tabela */}
       {items.length > 0 && (
       <DndContext
@@ -2257,14 +2164,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% BDI</th>
               <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% Custo</th>
               <th className="px-2 py-2 w-10 text-center border border-primary-800 font-semibold">ABC</th>
-              <th className="px-2 py-2 w-14 text-center border border-primary-800 font-semibold" title="Item estimado — aparece destacado no Resumo do Orçamento">Estim.</th>
               <th className="px-2 py-2 w-8 border border-primary-800" />
             </tr>
           </thead>
           <tbody>
             {useVirtualRender && virtualPaddingTop > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={14} style={{ height: virtualPaddingTop, padding: 0, border: 'none' }} />
+                <td colSpan={13} style={{ height: virtualPaddingTop, padding: 0, border: 'none' }} />
               </tr>
             )}
             {rowsToRender.map(({ nodo, depth, rowIdx }) => {
@@ -2278,7 +2184,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                 <Fragment key={nodo.id}>
                   <SortableRow
                     id={nodo.id}
-                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''} ${nodo.codigo && invalidCodigos.has(nodo.codigo) ? 'outline outline-2 outline-red-400 bg-red-50' : ''} ${!isGroup && nodo.estimado ? '!bg-amber-50/70' : ''}`}
+                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''} ${nodo.codigo && invalidCodigos.has(nodo.codigo) ? 'outline outline-2 outline-red-400 bg-red-50' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
 
@@ -2288,7 +2194,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     </td>
 
                     {/* EAP / número (somente leitura — gerado automaticamente) */}
-                    <td className={`px-2 py-0.5 font-mono border border-gray-200 ${!isGroup && nodo.estimado ? 'border-l-[3px] border-l-amber-400' : ''}`}>
+                    <td className="px-2 py-0.5 font-mono border border-gray-200">
                       <div className="flex items-center gap-1">
                         {isGroup ? (
                           <button onClick={() => toggleCollapse(nodo.id)}
@@ -2364,19 +2270,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                             className={INP} />
                         )
                         return (
-                          <div onClick={() => openCell(nodo.id, 'descricao')} className={`${CELL_HOVER} flex items-center gap-1.5 truncate max-w-xs`} title={nodo.descricao}>
-                            {!isGroup && nodo.estimado && (
-                              <button
-                                onClick={e => { e.stopPropagation(); abrirMotivo(nodo) }}
-                                title={nodo.estimado_motivo ? `Motivo: ${nodo.estimado_motivo} — clique para editar` : 'Clique para adicionar um motivo'}
-                                className="shrink-0"
-                              >
-                                <Badge variant="warning" className="cursor-pointer px-1 py-0 text-[9px] leading-tight hover:bg-amber-100">
-                                  Estimado{nodo.estimado_motivo ? '' : ' ⋯'}
-                                </Badge>
-                              </button>
-                            )}
-                            <span className="truncate">{nodo.descricao}</span>
+                          <div onClick={() => openCell(nodo.id, 'descricao')} className={`${CELL_HOVER} truncate max-w-xs`} title={nodo.descricao}>
+                            {nodo.descricao}
                           </div>
                         )
                       })()}
@@ -2475,24 +2370,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       )
                     })()}
 
-                    {/* Item estimado — só folhas; marca o item para a seção "Itens
-                        Estimados" do Resumo do Orçamento, sem afetar nenhum total.
-                        Um clique já marca/desmarca (e abre o popup de motivo, ver
-                        handleToggleEstimado); editar o motivo depois é feito pelo
-                        badge "Estimado" na descrição — coluna fica só com o
-                        checkbox, sem ícone extra apertado. */}
-                    <td className="px-1 py-0.5 text-center border border-gray-200">
-                      {!isGroup && (
-                        <input
-                          type="checkbox"
-                          checked={nodo.estimado}
-                          onChange={() => handleToggleEstimado(nodo)}
-                          title="Item estimado — aparece destacado no Resumo do Orçamento"
-                          className="h-3.5 w-3.5 accent-amber-500 cursor-pointer"
-                        />
-                      )}
-                    </td>
-
                     {/* Ações — visíveis só no hover */}
                     <td className="px-1 py-0.5 border border-gray-200">
                       <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2563,14 +2440,19 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                           )}
                         </td>
                         <td className="px-2 py-px border border-gray-100 text-[10px] text-right tabular-nums">{BRL(ins.indice * ins.custo)}</td>
-                        <td colSpan={5} className="border border-gray-100" />
+                        <td className="px-1 py-px border border-gray-100 text-center">
+                          {ins.origem === 'orcamento' && ins.id && (
+                            <EstimadoBadge estimado={ins.estimado} estimadoMotivo={ins.estimadoMotivo} />
+                          )}
+                        </td>
+                        <td colSpan={3} className="border border-gray-100" />
                       </tr>
                     ))
                   )}
 
                   {showFormAfter && addingParentGroup && (
                     <tr>
-                      <td colSpan={13} className="px-2 py-1.5">
+                      <td colSpan={12} className="px-2 py-1.5">
                         <AddItemForm orcamentoId={orcamentoId}
                           parentId={addingParentGroup.id} parentNivel={addingParentGroup.nivel}
                           parentNumero={addingParentGroup.numero} parentDescricao={addingParentGroup.descricao}
@@ -2585,7 +2467,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             })}
             {useVirtualRender && virtualPaddingBottom > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={14} style={{ height: virtualPaddingBottom, padding: 0, border: 'none' }} />
+                <td colSpan={13} style={{ height: virtualPaddingBottom, padding: 0, border: 'none' }} />
               </tr>
             )}
 
@@ -2596,7 +2478,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               <td className="px-3 py-2 text-right text-sm font-bold tabular-nums border border-primary-800">
                 {BRL(grandTotal)}
               </td>
-              <td colSpan={5} className="border border-primary-800" />
+              <td colSpan={4} className="border border-primary-800" />
             </tr>
           </tbody>
         </table>

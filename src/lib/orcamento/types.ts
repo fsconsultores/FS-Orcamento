@@ -31,6 +31,12 @@ export interface OrcamentoInsumo {
   data_cotacao?: string | null
   cotacao_observacoes?: string | null
   cotacao_id?: string | null
+  // Snapshot de orcamento_insumo_cotacoes.estimado (cotação ativa) — nunca
+  // escrito diretamente por um checkbox: é copiado aqui (avulso e cópias
+  // embutidas em composição com o mesmo código) sempre que uma cotação é
+  // registrada com "preço estimado" marcado. Ver upsertAvulsoInsumo.
+  estimado?: boolean
+  estimado_motivo?: string | null
   created_at: string
 }
 
@@ -51,6 +57,10 @@ export interface OrcamentoInsumoCotacao {
   ativa: boolean
   usuario: string | null
   created_at: string
+  /** Preço provisório/sujeito a alteração — insumo com estimado=true não tem preço definitivo ainda. */
+  estimado: boolean
+  /** Motivo do preço estimado (texto livre) — null quando estimado=false ou não informado. */
+  estimado_motivo: string | null
 }
 
 export interface OrcamentoComposicao {

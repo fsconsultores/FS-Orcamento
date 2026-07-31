@@ -12,6 +12,8 @@ import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Truck, CalendarDays } from 'lucide-react'
+import { EstimadoBadge } from '@/components/estimado-badge'
+import { MOTIVOS_ESTIMADO_PRESET, OUTRO_ESTIMADO_SENTINEL } from '@/lib/orcamento/estimado-motivos'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
@@ -47,6 +49,9 @@ interface CotacaoModalState {
   fornecedor: string
   dataCotacao: string
   observacoes: string
+  estimado: boolean
+  motivoSelecionado: string
+  motivoTextoLivre: string
 }
 
 type SortField = 'fornecedor' | 'data_cotacao' | 'custo'
@@ -317,12 +322,17 @@ export function OrcamentoInsumosTable({
       alert('Este insumo não tem código cadastrado, então não é possível editar o preço/cotação por aqui. Exclua esta linha e recadastre o insumo com um código válido.')
       return
     }
+    const motivoAtual = insumo.estimado_motivo ?? null
+    const motivoEhPreset = motivoAtual && (MOTIVOS_ESTIMADO_PRESET as readonly string[]).includes(motivoAtual)
     setCotacaoModal({
       insumo,
       preco: String(insumo.custo || ''),
       fornecedor: insumo.fornecedor ?? '',
       dataCotacao: insumo.data_cotacao ?? hojeISO(),
       observacoes: insumo.cotacao_observacoes ?? '',
+      estimado: insumo.estimado ?? false,
+      motivoSelecionado: motivoEhPreset ? motivoAtual! : (motivoAtual ? OUTRO_ESTIMADO_SENTINEL : MOTIVOS_ESTIMADO_PRESET[0]),
+      motivoTextoLivre: motivoEhPreset ? '' : (motivoAtual ?? ''),
     })
   }
 
@@ -336,23 +346,28 @@ export function OrcamentoInsumosTable({
     const fornecedor = cotacaoModal.fornecedor.trim() || null
     const dataCotacao = cotacaoModal.dataCotacao || null
     const observacoes = cotacaoModal.observacoes.trim() || null
+    const estimado = cotacaoModal.estimado
+    const estimadoMotivo = estimado
+      ? ((cotacaoModal.motivoSelecionado === OUTRO_ESTIMADO_SENTINEL ? cotacaoModal.motivoTextoLivre : cotacaoModal.motivoSelecionado).trim() || null)
+      : null
 
     // Nada mudou — evita gravar uma cotação idêntica só porque o usuário
     // clicou Salvar sem editar nada.
     if (preco === insumo.custo && fornecedor === (insumo.fornecedor ?? null)
-      && dataCotacao === (insumo.data_cotacao ?? null) && observacoes === (insumo.cotacao_observacoes ?? null)) {
+      && dataCotacao === (insumo.data_cotacao ?? null) && observacoes === (insumo.cotacao_observacoes ?? null)
+      && estimado === (insumo.estimado ?? false) && estimadoMotivo === (insumo.estimado_motivo ?? null)) {
       setCotacaoModal(null)
       return
     }
 
-    const estadoAnterior = { custo: insumo.custo, fornecedor: insumo.fornecedor, data_cotacao: insumo.data_cotacao, cotacao_observacoes: insumo.cotacao_observacoes }
+    const estadoAnterior = { custo: insumo.custo, fornecedor: insumo.fornecedor, data_cotacao: insumo.data_cotacao, cotacao_observacoes: insumo.cotacao_observacoes, estimado: insumo.estimado, estimado_motivo: insumo.estimado_motivo }
     setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo
-      ? { ...ins, custo: preco, fornecedor, data_cotacao: dataCotacao, cotacao_observacoes: observacoes, custo_atualizado_em: new Date().toISOString() }
+      ? { ...ins, custo: preco, fornecedor, data_cotacao: dataCotacao, cotacao_observacoes: observacoes, estimado, estimado_motivo: estimadoMotivo, custo_atualizado_em: new Date().toISOString() }
       : ins))
     setSalvandoCotacao(true)
     setSavingId(insumo.id)
     try {
-      await atualizarPrecoInsumoAction(orcamentoId, insumo.codigo, preco, undefined, { fornecedor, dataCotacao, observacoes })
+      await atualizarPrecoInsumoAction(orcamentoId, insumo.codigo, preco, undefined, { fornecedor, dataCotacao, observacoes, estimado, estimadoMotivo })
       setCotacaoModal(null)
     } catch (e) {
       setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo ? { ...ins, ...estadoAnterior } : ins))
@@ -446,7 +461,7 @@ export function OrcamentoInsumosTable({
       // só populada a partir de edições feitas pelo modal de cotação; entradas
       // de preço anteriores a essa funcionalidade só aparecem na lista acima.
       sb.from('orcamento_insumo_cotacoes')
-        .select('id, orcamento_id, codigo, valor, fornecedor, data_cotacao, observacoes, ativa, usuario, created_at')
+        .select('id, orcamento_id, codigo, valor, fornecedor, data_cotacao, observacoes, ativa, usuario, created_at, estimado, estimado_motivo')
         .eq('orcamento_id', orcamentoId)
         .eq('codigo', insumo.codigo)
         .is('deleted_at', null)
@@ -691,6 +706,7 @@ export function OrcamentoInsumosTable({
               <th className="px-4 py-3 cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('data_cotacao')}>
                 Data cotação <SortIcon field="data_cotacao" sortField={sortField} sortDir={sortDir} />
               </th>
+              <th className="px-4 py-3 text-center" title="Insumo estimado — aparece destacado no Resumo do Orçamento">Estim.</th>
               <th className="px-4 py-3">Grupo</th>
               <th className="px-4 py-3">Base</th>
               <th className="px-4 py-3">Data Ref.</th>
@@ -700,7 +716,7 @@ export function OrcamentoInsumosTable({
           <tbody className="divide-y divide-gray-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
                   {q ? 'Nenhum insumo encontrado para essa busca.' : 'Nenhum insumo cadastrado neste orçamento.'}
                 </td>
               </tr>
@@ -752,6 +768,15 @@ export function OrcamentoInsumosTable({
                       >
                         {insumo.data_cotacao && <CalendarDays size={12} className="shrink-0 text-gray-400" />}
                         {insumo.data_cotacao ? fmtDataCotacao(insumo.data_cotacao) : <span className="text-gray-300">—</span>}
+                      </span>
+                    </td>
+
+                    {/* Estimado — reflete a cotação ativa deste insumo; marcar/
+                        desmarcar acontece no modal de cotação (clique aqui
+                        abre o mesmo modal que Custo/Fornecedor/Data). */}
+                    <td className="px-2 py-3 text-center">
+                      <span onClick={() => !savingId && abrirCotacaoModal(insumo)} className={cellClass()}>
+                        <EstimadoBadge estimado={insumo.estimado ?? false} estimadoMotivo={insumo.estimado_motivo} />
                       </span>
                     </td>
 
@@ -928,6 +953,37 @@ export function OrcamentoInsumosTable({
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-amber-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cotacaoModal.estimado}
+                  onChange={e => setCotacaoModal(prev => prev ? { ...prev, estimado: e.target.checked } : null)}
+                  className="h-4 w-4 accent-amber-500 cursor-pointer"
+                />
+                Este é um preço estimado (provisório)
+              </label>
+              {cotacaoModal.estimado && (
+                <div className="mt-2 space-y-2">
+                  <select
+                    value={cotacaoModal.motivoSelecionado}
+                    onChange={e => setCotacaoModal(prev => prev ? { ...prev, motivoSelecionado: e.target.value } : null)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                  >
+                    {MOTIVOS_ESTIMADO_PRESET.map(m => <option key={m} value={m}>{m}</option>)}
+                    <option value={OUTRO_ESTIMADO_SENTINEL}>Outro…</option>
+                  </select>
+                  {cotacaoModal.motivoSelecionado === OUTRO_ESTIMADO_SENTINEL && (
+                    <textarea
+                      rows={2} placeholder="Descreva o motivo"
+                      value={cotacaoModal.motivoTextoLivre}
+                      onChange={e => setCotacaoModal(prev => prev ? { ...prev, motivoTextoLivre: e.target.value } : null)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="mt-5 flex justify-end gap-3">
             <button onClick={() => setCotacaoModal(null)} disabled={salvandoCotacao}
@@ -976,6 +1032,7 @@ export function OrcamentoInsumosTable({
                     <span className="w-24 shrink-0 truncate font-medium text-gray-700" title={c.fornecedor ?? undefined}>{c.fornecedor ?? <span className="font-normal text-gray-300">sem fornecedor</span>}</span>
                     <span className="w-24 shrink-0 text-right tabular-nums text-gray-900">{fmtMoeda(c.valor)}</span>
                     <span className="flex-1 min-w-0 truncate text-gray-400" title={c.observacoes ?? undefined}>{c.observacoes}</span>
+                    {c.estimado && <EstimadoBadge estimado estimadoMotivo={c.estimado_motivo} />}
                     {c.ativa && <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">em uso</span>}
                   </li>
                 ))}
