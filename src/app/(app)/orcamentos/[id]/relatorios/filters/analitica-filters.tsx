@@ -78,6 +78,29 @@ export function AnaliticaFilters({ value, onChange }: Props) {
           onChange={() => onChange({ ...value, mostrarPrecos: !value.mostrarPrecos })} />
         Mostrar preços (unitário e total)
       </label>
+
+      {value.modo !== 'agrupada' && (
+        <div>
+          <p className="text-xs font-semibold text-gray-700 mb-2">Cotação dos insumos</p>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <Checkbox checked={value.exibirFornecedor}
+                onChange={() => onChange({ ...value, exibirFornecedor: !value.exibirFornecedor })} />
+              Exibir fornecedor
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <Checkbox checked={value.exibirDataCotacao}
+                onChange={() => onChange({ ...value, exibirDataCotacao: !value.exibirDataCotacao })} />
+              Exibir data da cotação
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <Checkbox checked={value.exibirObservacoesCotacao}
+                onChange={() => onChange({ ...value, exibirObservacoesCotacao: !value.exibirObservacoesCotacao })} />
+              Exibir observações
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -2,16 +2,16 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Eye, RotateCcw, History, GitCommit } from 'lucide-react'
+import { Plus, Eye, RotateCcw, History, GitCommit, GitBranchPlus } from 'lucide-react'
 import type { OrcamentoVersaoResumo, VersaoSnapshotV1 } from '@/lib/orcamento/versoes'
-import { criarVersao, restaurarVersao, buscarSnapshotVersao } from './versoes-action'
+import { criarVersao, restaurarVersao, buscarSnapshotVersao, criarOrcamentoDeVersao } from './versoes-action'
 import { PageHeader } from '@/components/ui/toolbar'
 import { Timeline, TimelineItem } from '@/components/ui/timeline'
 import { Badge } from '@/components/ui/badge'
 import { Button, IconButton } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Modal, ConfirmDialog } from '@/components/ui/modal'
-import { Textarea } from '@/components/ui/input'
+import { Input, Textarea } from '@/components/ui/input'
 import { StatRow, StatCard } from '@/components/ui/stat-row'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useToast } from '@/components/ui/toast'
@@ -64,11 +64,13 @@ type FiltroOrigem = 'todas' | 'manual' | 'backup_automatico'
 
 export function VersoesView({
   orcamentoId,
+  orcamentoNome,
   versoesIniciais,
   fetchError,
   usuarioAtualEmail,
 }: {
   orcamentoId: string
+  orcamentoNome: string
   versoesIniciais: OrcamentoVersaoResumo[]
   fetchError?: string
   usuarioAtualEmail?: string | null
@@ -99,6 +101,11 @@ export function VersoesView({
 
   const [restaurando, setRestaurando] = useState<OrcamentoVersaoResumo | null>(null)
   const [executandoRestore, setExecutandoRestore] = useState(false)
+
+  const [criandoOrcamentoDe, setCriandoOrcamentoDe] = useState<OrcamentoVersaoResumo | null>(null)
+  const [formNovoOrcamento, setFormNovoOrcamento] = useState({ nome_obra: '', codigo: '', cliente: '', descricao: '', mensagemInicial: '' })
+  const [executandoNovoOrcamento, setExecutandoNovoOrcamento] = useState(false)
+  const [erroNovoOrcamento, setErroNovoOrcamento] = useState<string | null>(null)
 
   const arvorePreview = useMemo(
     () => (snapshotVisualizado ? montarArvorePreview(snapshotVisualizado.estrutura) : []),
@@ -131,6 +138,48 @@ export function VersoesView({
       setSnapshotVisualizado(snap)
     } finally {
       setCarregandoSnapshot(false)
+    }
+  }
+
+  function handleAbrirCriarOrcamento(v: OrcamentoVersaoResumo) {
+    setCriandoOrcamentoDe(v)
+    setErroNovoOrcamento(null)
+    setFormNovoOrcamento({
+      nome_obra: `${orcamentoNome} (cópia)`,
+      codigo: '',
+      cliente: '',
+      descricao: '',
+      mensagemInicial: `Orçamento criado a partir da versão "${v.mensagem}" do orçamento "${orcamentoNome}".`,
+    })
+    // Preenche o Cliente com o valor congelado naquela versão — melhor
+    // esforço, não bloqueia a abertura do modal (o campo já nasce editável).
+    buscarSnapshotVersao(v.id)
+      .then(snap => setFormNovoOrcamento(prev => ({ ...prev, cliente: snap.orcamento.cliente ?? '' })))
+      .catch(() => {})
+  }
+
+  async function handleConfirmarCriarOrcamento() {
+    if (!criandoOrcamentoDe || executandoNovoOrcamento) return
+    if (!formNovoOrcamento.nome_obra.trim()) { setErroNovoOrcamento('Informe o nome do novo orçamento.'); return }
+    if (!formNovoOrcamento.mensagemInicial.trim()) { setErroNovoOrcamento('Informe a mensagem inicial.'); return }
+    setExecutandoNovoOrcamento(true)
+    setErroNovoOrcamento(null)
+    try {
+      const result = await criarOrcamentoDeVersao(orcamentoId, criandoOrcamentoDe.id, {
+        nome_obra: formNovoOrcamento.nome_obra,
+        codigo: formNovoOrcamento.codigo || null,
+        cliente: formNovoOrcamento.cliente || null,
+        descricao: formNovoOrcamento.descricao || null,
+        mensagemInicial: formNovoOrcamento.mensagemInicial,
+      })
+      toast.show(`Orçamento "${result.nome_obra}" criado.`)
+      startTransition(() => {
+        router.push(`/orcamentos/${result.id}/planilha`)
+        router.refresh()
+      })
+    } catch (e) {
+      setErroNovoOrcamento(e instanceof Error ? e.message : 'Não foi possível criar o orçamento. Tente novamente.')
+      setExecutandoNovoOrcamento(false)
     }
   }
 
@@ -254,6 +303,9 @@ export function VersoesView({
                     <Button variant="outline" size="sm" icon={<RotateCcw size={13} />} onClick={() => setRestaurando(v)}>
                       Restaurar
                     </Button>
+                    <Button variant="outline" size="sm" icon={<GitBranchPlus size={13} />} onClick={() => handleAbrirCriarOrcamento(v)}>
+                      Criar orçamento
+                    </Button>
                   </div>
                 </div>
               </TimelineItem>
@@ -349,6 +401,69 @@ export function VersoesView({
           ) : ''
         }
       />
+
+      {/* Modal: Criar novo orçamento a partir desta versão */}
+      <Modal
+        open={!!criandoOrcamentoDe}
+        onClose={() => { if (!executandoNovoOrcamento) setCriandoOrcamentoDe(null) }}
+        title="Criar novo orçamento desta versão"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setCriandoOrcamentoDe(null)} disabled={executandoNovoOrcamento}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleConfirmarCriarOrcamento} loading={executandoNovoOrcamento} disabled={!formNovoOrcamento.nome_obra.trim()}>
+              Criar orçamento
+            </Button>
+          </>
+        }
+      >
+        {criandoOrcamentoDe && (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">
+              Cria um orçamento novo e completamente independente com o estado salvo em
+              &quot;{criandoOrcamentoDe.mensagem}&quot;. O orçamento e as versões de &quot;{orcamentoNome}&quot; não são alterados.
+            </p>
+            <Input
+              label="Nome do novo orçamento"
+              required
+              value={formNovoOrcamento.nome_obra}
+              onChange={e => setFormNovoOrcamento(prev => ({ ...prev, nome_obra: e.target.value }))}
+              autoFocus
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Código"
+                help="Opcional"
+                value={formNovoOrcamento.codigo}
+                onChange={e => setFormNovoOrcamento(prev => ({ ...prev, codigo: e.target.value }))}
+              />
+              <Input
+                label="Cliente"
+                value={formNovoOrcamento.cliente}
+                onChange={e => setFormNovoOrcamento(prev => ({ ...prev, cliente: e.target.value }))}
+              />
+            </div>
+            <Textarea
+              label="Descrição"
+              help="Opcional — fica registrada na auditoria deste orçamento"
+              rows={2}
+              value={formNovoOrcamento.descricao}
+              onChange={e => setFormNovoOrcamento(prev => ({ ...prev, descricao: e.target.value }))}
+            />
+            <Textarea
+              label="Mensagem inicial"
+              required
+              help="Mensagem da primeira versão do orçamento novo"
+              rows={2}
+              value={formNovoOrcamento.mensagemInicial}
+              onChange={e => setFormNovoOrcamento(prev => ({ ...prev, mensagemInicial: e.target.value }))}
+              error={erroNovoOrcamento ?? undefined}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

@@ -158,21 +158,61 @@ export async function deleteInsumo(
   if (error) throw new Error(`Erro ao excluir insumo: ${error.message}`)
 }
 
+export interface CotacaoInsumoInput {
+  fornecedor?: string | null
+  dataCotacao?: string | null
+  observacoes?: string | null
+}
+
 /**
  * Atualiza (ou cria, se não existir) o preço "avulso" (canônico) de um código
  * de insumo no orçamento inteiro, e sincroniza as cópias do mesmo código
  * dentro de composições — mesmo padrão já usado em insumos-table.tsx.
+ *
+ * Quando `cotacao` é informado, registra também uma linha nova em
+ * orcamento_insumo_cotacoes (nunca sobrescreve uma cotação existente — a
+ * anterior só é desativada) e copia fornecedor/data/observações pro avulso,
+ * pra a aba Insumos não precisar de join nenhum pra exibir isso. Chamadores
+ * que não passam `cotacao` mantêm o comportamento de sempre (só o preço).
  */
 export async function upsertAvulsoInsumo(
   supabase: SupabaseClient,
   orcamentoId: string,
   codigo: string,
   novoCusto: number,
-  extra?: { descricao?: string; unidade?: string; grupo?: string | null }
+  extra?: { descricao?: string; unidade?: string; grupo?: string | null },
+  cotacao?: CotacaoInsumoInput
 ): Promise<void> {
+  const camposAvulso: Record<string, unknown> = { custo: novoCusto }
+
+  if (cotacao) {
+    const sb = supabase as any
+    await sb.from('orcamento_insumo_cotacoes')
+      .update({ ativa: false })
+      .eq('orcamento_id', orcamentoId).eq('codigo', codigo).eq('ativa', true)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    const fornecedor = cotacao.fornecedor?.trim() || null
+    const dataCotacao = cotacao.dataCotacao || null
+    const observacoes = cotacao.observacoes?.trim() || null
+    const { data: nova, error: cotErr } = await sb.from('orcamento_insumo_cotacoes')
+      .insert({
+        orcamento_id: orcamentoId, codigo, valor: novoCusto,
+        fornecedor, data_cotacao: dataCotacao, observacoes,
+        ativa: true, usuario: user?.email ?? null, user_id: user?.id ?? null,
+      })
+      .select('id').single()
+    if (cotErr) throw new Error(`Erro ao registrar cotação: ${cotErr.message}`)
+
+    camposAvulso.fornecedor = fornecedor
+    camposAvulso.data_cotacao = dataCotacao
+    camposAvulso.cotacao_observacoes = observacoes
+    camposAvulso.cotacao_id = nova.id
+  }
+
   const { data: atualizados, error: updErr } = await supabase
     .from(TABLE)
-    .update({ custo: novoCusto })
+    .update(camposAvulso)
     .eq('orcamento_id', orcamentoId)
     .eq('codigo', codigo)
     .is('composicao_id', null)
@@ -186,18 +226,19 @@ export async function upsertAvulsoInsumo(
       codigo,
       descricao: extra?.descricao ?? codigo,
       unidade: extra?.unidade ?? '',
-      custo: novoCusto,
       indice: 1,
       grupo: extra?.grupo ?? null,
       base: null,
       data_ref: null,
+      ...camposAvulso,
     })
     if (insErr) throw new Error(`Erro ao criar preço do insumo: ${insErr.message}`)
   }
 
   // Sincroniza as cópias do mesmo código dentro de composições: o motor de
   // cálculo já prioriza o avulso, mas outras telas (Planilha analítica) leem
-  // o `custo` da linha direto, sem passar pelo avulso.
+  // o `custo` da linha direto, sem passar pelo avulso. Cotação não se aplica
+  // a linhas embutidas em composição, só ao avulso.
   const { error: syncErr } = await supabase
     .from(TABLE)
     .update({ custo: novoCusto })

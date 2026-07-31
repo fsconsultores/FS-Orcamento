@@ -19,6 +19,8 @@ export interface EstruturaItem {
   bdi_especifico: number | null
   tipo: 'grupo' | 'item'
   ordem: number
+  estimado: boolean
+  estimado_motivo: string | null
 }
 
 export interface EstruturaRow {
@@ -74,7 +76,7 @@ export async function buscarItensEstrutura(
   const sb = supabase as any
   let q = sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
     .eq('orcamento_id', orcamentoId)
     .order('nivel', { ascending: true })
     .order('ordem', { ascending: true })
@@ -187,6 +189,8 @@ export async function atualizarItemEstrutura(
     custo_unitario?: number | null
     bdi_especifico?: number | null
     ordem?: number
+    estimado?: boolean
+    estimado_motivo?: string | null
   }
 ): Promise<void> {
   const supabase = await createClient()
@@ -263,6 +267,8 @@ export async function restaurarEstruturaSnapshot(
         bdi_especifico: it.bdi_especifico,
         tipo: it.tipo,
         ordem: it.ordem,
+        estimado: it.estimado,
+        estimado_motivo: it.estimado_motivo,
       }))
       const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
       if (error) throw new Error(`Erro ao descartar alterações (nível ${nivel}): ${error.message}`)
@@ -533,8 +539,10 @@ export async function adicionarItemNaPosicao(
       bdi_especifico: null,
       tipo:          'item',
       ordem:         insertOrdem,
+      estimado:      false,
+      estimado_motivo: null,
     })
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
     .single()
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
@@ -579,8 +587,10 @@ export async function adicionarItemEstrutura(
       bdi_especifico: null,
       tipo:          row.tipo,
       ordem:         nextOrdem,
+      estimado:      false,
+      estimado_motivo: null,
     })
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
 
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   if (data?.[0]?.planilha_id) {

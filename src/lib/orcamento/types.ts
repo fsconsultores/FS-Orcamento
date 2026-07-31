@@ -24,6 +24,32 @@ export interface OrcamentoInsumo {
   data_ref: string | null
   custo_atualizado_em?: string | null
   codigo_original?: string | null
+  // Snapshot da cotação ativa (ver orcamento_insumo_cotacoes) — só
+  // preenchido em avulsos (composicao_id null); cópias embutidas em
+  // composições não carregam cotação própria.
+  fornecedor?: string | null
+  data_cotacao?: string | null
+  cotacao_observacoes?: string | null
+  cotacao_id?: string | null
+  created_at: string
+}
+
+/**
+ * Uma cotação registrada para um insumo avulso do orçamento — histórico
+ * completo (nunca apagado de verdade, só soft delete), não apenas a mudança
+ * de preço. `ativa` indica se é a cotação em vigor (a que está copiada em
+ * orcamento_insumos hoje).
+ */
+export interface OrcamentoInsumoCotacao {
+  id: string
+  orcamento_id: string
+  codigo: string
+  valor: number
+  fornecedor: string | null
+  data_cotacao: string | null
+  observacoes: string | null
+  ativa: boolean
+  usuario: string | null
   created_at: string
 }
 

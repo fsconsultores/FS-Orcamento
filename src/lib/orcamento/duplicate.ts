@@ -74,7 +74,7 @@ async function clonarEstrutura(
 ): Promise<void> {
   const { data: rows } = await sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
     .eq('orcamento_id', fromId)
     .order('nivel')
     .order('ordem')
@@ -105,6 +105,8 @@ async function clonarEstrutura(
           bdi_especifico: r.bdi_especifico,
           tipo: r.tipo,
           ordem: r.ordem,
+          estimado: r.estimado ?? false,
+          estimado_motivo: r.estimado_motivo ?? null,
         }))
       )
       .select('id')

@@ -4,11 +4,14 @@ import { useState, useEffect, useRef, useMemo, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { upsertAvulsoInsumo } from '@/lib/orcamento/insumos'
 import { recalcularAutoAction } from '../planilha/calcular-action'
-import type { OrcamentoInsumo } from '@/lib/orcamento'
+import { atualizarPrecoInsumoAction } from '../atualizar-preco-insumo-action'
+import type { OrcamentoInsumo, OrcamentoInsumoCotacao } from '@/lib/orcamento'
 import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Truck, CalendarDays } from 'lucide-react'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
@@ -30,13 +33,26 @@ const GRUPOS = [
   { value: 'T',  label: 'T — Transporte' },
 ]
 
-type EditableField = 'custo' | 'grupo' | 'base'
+type EditableField = 'grupo' | 'base'
 
 interface Editing {
   id: string
   field: EditableField
   value: string
 }
+
+interface CotacaoModalState {
+  insumo: OrcamentoInsumo
+  preco: string
+  fornecedor: string
+  dataCotacao: string
+  observacoes: string
+}
+
+type SortField = 'fornecedor' | 'data_cotacao' | 'custo'
+type SortDir = 'asc' | 'desc'
+
+type FiltroCotacao = 'todos' | 'sem_fornecedor' | 'sem_data' | 'hoje' | 'ultimos_30' | string /* fornecedor específico */
 
 interface ComposicoesModal {
   insumo: OrcamentoInsumo
@@ -56,6 +72,7 @@ interface HistoricoModal {
   insumo: OrcamentoInsumo
   loading: boolean
   historico: HistoricoPreco[]
+  cotacoes: OrcamentoInsumoCotacao[]
 }
 
 function fmtMoeda(value: number | null | undefined): string {
@@ -73,6 +90,24 @@ function fmtDataCurta(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
+// data_cotacao é DATE puro ('AAAA-MM-DD', sem hora) — new Date(string) trataria
+// como UTC meia-noite e poderia exibir o dia anterior em fusos negativos.
+function fmtDataCotacao(dataIso: string | null | undefined): string {
+  if (!dataIso) return '—'
+  const [ano, mes, dia] = dataIso.split('-')
+  return `${dia}/${mes}/${ano}`
+}
+
+function hojeISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function SortIcon({ field, sortField, sortDir }: { field: 'fornecedor' | 'data_cotacao' | 'custo'; sortField: 'fornecedor' | 'data_cotacao' | 'custo' | null; sortDir: 'asc' | 'desc' }) {
+  if (sortField !== field) return <span className="inline-block w-2.5 text-gray-300">↕</span>
+  return <span className="inline-block w-2.5 text-gray-600">{sortDir === 'asc' ? '↑' : '↓'}</span>
+}
+
 // Formatação compacta pro eixo do gráfico — sem isso, um valor digitado errado
 // (ex.: dígitos a mais sem querer) vira uma string longa demais e quebra a
 // largura do eixo. A tabela abaixo continua mostrando o valor completo.
@@ -84,33 +119,6 @@ function fmtMoedaCompacta(v: number): string {
   if (abs >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}mi`
   if (abs >= 1e3) return `R$ ${(v / 1e3).toFixed(1)}mil`
   return fmtMoeda(v)
-}
-
-/**
- * Atualiza o custo do avulso e propaga pras cópias do mesmo código dentro de
- * composições — mesmo padrão usado tanto pela edição inline (saveCusto)
- * quanto pelo reset de preço quando todo o histórico de um insumo é apagado.
- */
-async function sincronizarCustoInsumo(sb: any, orcamentoId: string, codigo: string, novoCusto: number) {
-  const { data: comps } = await sb
-    .from('orcamento_composicoes')
-    .select('id')
-    .eq('orcamento_id', orcamentoId)
-  const compIds: string[] = (comps ?? []).map((c: any) => c.id)
-
-  await sb
-    .from('orcamento_insumos')
-    .update({ custo: novoCusto })
-    .eq('codigo', codigo)
-    .eq('orcamento_id', orcamentoId)
-
-  for (let i = 0; i < compIds.length; i += 500) {
-    await sb
-      .from('orcamento_insumos')
-      .update({ custo: novoCusto })
-      .eq('codigo', codigo)
-      .in('composicao_id', compIds.slice(i, i + 500))
-  }
 }
 
 /**
@@ -226,13 +234,22 @@ export function OrcamentoInsumosTable({
   useEffect(() => { setInsumos(initialInsumos) }, [initialInsumos])
   const [currentPage, setCurrentPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null)
-  const [editingCustoValue, setEditingCustoValue] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
   const [historicoModal, setHistoricoModal] = useState<HistoricoModal | null>(null)
+  const [cotacaoModal, setCotacaoModal] = useState<CotacaoModalState | null>(null)
+  const [salvandoCotacao, setSalvandoCotacao] = useState(false)
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [filtroCotacao, setFiltroCotacao] = useState<FiltroCotacao>('todos')
 
   const q = query.trim().toLowerCase()
+  const fornecedoresDisponiveis = useMemo(
+    () => [...new Set(insumos.map(i => i.fornecedor).filter((f): f is string => !!f))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [insumos]
+  )
+
   // Memoizado: sem isso, o filter+toLowerCase rodava a cada render do
   // componente inteiro — inclusive a cada keystroke ao editar uma célula
   // inline (savingId/editing mudando não tem nada a ver com a busca).
@@ -243,12 +260,30 @@ export function OrcamentoInsumosTable({
           ins.descricao.toLowerCase().includes(q)
         )
       : insumos
-    return filtroUso === 'todos'
+    const porUso = filtroUso === 'todos'
       ? porTexto
       : porTexto.filter(ins => usadosSet.has(ins.codigo) === (filtroUso === 'usados'))
-  }, [insumos, q, filtroUso, usadosSet])
 
-  useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
+    const hoje = hojeISO()
+    const ha30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const porCotacao = filtroCotacao === 'todos' ? porUso
+      : filtroCotacao === 'sem_fornecedor' ? porUso.filter(i => !i.fornecedor)
+      : filtroCotacao === 'sem_data' ? porUso.filter(i => !i.data_cotacao)
+      : filtroCotacao === 'hoje' ? porUso.filter(i => i.data_cotacao === hoje)
+      : filtroCotacao === 'ultimos_30' ? porUso.filter(i => i.data_cotacao && i.data_cotacao >= ha30dias)
+      : porUso.filter(i => i.fornecedor === filtroCotacao) // fornecedor específico
+
+    if (!sortField) return porCotacao
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...porCotacao].sort((a, b) => {
+      if (sortField === 'custo') return (a.custo - b.custo) * dir
+      const av = a[sortField] ?? ''
+      const bv = b[sortField] ?? ''
+      return av.localeCompare(bv, 'pt-BR') * dir
+    })
+  }, [insumos, q, filtroUso, filtroCotacao, sortField, sortDir, usadosSet])
+
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroCotacao, sortField, sortDir])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -257,11 +292,15 @@ export function OrcamentoInsumosTable({
     [historicoModal]
   )
 
+  function toggleSort(field: SortField) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
+  }
+
   function startEdit(e: React.MouseEvent, id: string, field: EditableField, value: string) {
     e.preventDefault()
     e.stopPropagation()
     if (savingId) return
-    if (field === 'custo') setEditingCustoValue(value)
     setEditing({ id, field, value })
   }
 
@@ -269,55 +308,57 @@ export function OrcamentoInsumosTable({
     setEditing(null)
   }
 
-  async function saveCusto(id: string, rawValue: string) {
-    const alvo = insumos.find(ins => ins.id === id)
-    if (!alvo) return
-    const str = rawValue.trim().replace(',', '.')
-    const parsed = str === '' ? 0 : parseFloat(str)
-    if (isNaN(parsed) || parsed < 0) return
-    if (parsed === alvo.custo) return
+  function abrirCotacaoModal(insumo: OrcamentoInsumo) {
+    // Mesma guarda que Curva ABC/Planilha/Composição já usam antes de chamar
+    // atualizarPrecoInsumoAction — sem ela, uma linha com código vazio (dado
+    // legado de importação) deixa a action lançar sem nenhuma edição possível
+    // pra corrigir (código não é editável nesta tabela).
+    if (!insumo.codigo) {
+      alert('Este insumo não tem código cadastrado, então não é possível editar o preço/cotação por aqui. Exclua esta linha e recadastre o insumo com um código válido.')
+      return
+    }
+    setCotacaoModal({
+      insumo,
+      preco: String(insumo.custo || ''),
+      fornecedor: insumo.fornecedor ?? '',
+      dataCotacao: insumo.data_cotacao ?? hojeISO(),
+      observacoes: insumo.cotacao_observacoes ?? '',
+    })
+  }
 
-    const agora = new Date().toISOString()
-    const custoAnterior = alvo.custo
-    setInsumos(prev => prev.map(ins =>
-      ins.codigo === alvo.codigo
-        ? { ...ins, custo: parsed, custo_atualizado_em: agora }
-        : ins
-    ))
+  async function handleSalvarCotacao() {
+    if (!cotacaoModal || salvandoCotacao) return
+    const { insumo } = cotacaoModal
+    const str = cotacaoModal.preco.trim().replace(',', '.')
+    const preco = str === '' ? 0 : parseFloat(str)
+    if (isNaN(preco) || preco < 0) { alert('Preço inválido.'); return }
 
-    setSavingId(id)
+    const fornecedor = cotacaoModal.fornecedor.trim() || null
+    const dataCotacao = cotacaoModal.dataCotacao || null
+    const observacoes = cotacaoModal.observacoes.trim() || null
+
+    // Nada mudou — evita gravar uma cotação idêntica só porque o usuário
+    // clicou Salvar sem editar nada.
+    if (preco === insumo.custo && fornecedor === (insumo.fornecedor ?? null)
+      && dataCotacao === (insumo.data_cotacao ?? null) && observacoes === (insumo.cotacao_observacoes ?? null)) {
+      setCotacaoModal(null)
+      return
+    }
+
+    const estadoAnterior = { custo: insumo.custo, fornecedor: insumo.fornecedor, data_cotacao: insumo.data_cotacao, cotacao_observacoes: insumo.cotacao_observacoes }
+    setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo
+      ? { ...ins, custo: preco, fornecedor, data_cotacao: dataCotacao, cotacao_observacoes: observacoes, custo_atualizado_em: new Date().toISOString() }
+      : ins))
+    setSalvandoCotacao(true)
+    setSavingId(insumo.id)
     try {
-      const sb = createClient() as any
-      await sincronizarCustoInsumo(sb, orcamentoId, alvo.codigo, parsed)
-
-      // Recalcula composições afetadas e propaga para a estrutura
-      recalcularAutoAction(orcamentoId).catch(console.error)
-      registrarHistorico(sb, {
-        orcamentoId,
-        entidade: 'insumo',
-        tipo: 'sucesso',
-        acao: 'atualizar_preco_insumo',
-        mensagem: `Preço do insumo "${alvo.codigo}" alterado de ${custoAnterior} para ${parsed}`,
-        valorAnterior: { custo: custoAnterior },
-        valorNovo: { custo: parsed },
-      }).catch(console.error)
-
-      const { data: { user } } = await sb.auth.getUser()
-      sb.from('orcamento_insumo_historico_precos').insert({
-        orcamento_id: orcamentoId,
-        codigo: alvo.codigo,
-        preco_anterior: custoAnterior,
-        preco_novo: parsed,
-        usuario: user?.email ?? null,
-      }).then(({ error }: any) => { if (error) console.error('[historico-preco]', error) })
-    } catch {
-      setInsumos(prev => prev.map(ins =>
-        ins.codigo === alvo.codigo
-          ? { ...ins, custo: custoAnterior, custo_atualizado_em: alvo.custo_atualizado_em ?? null }
-          : ins
-      ))
-      alert('Erro ao salvar custo. Verifique a conexão e tente novamente.')
+      await atualizarPrecoInsumoAction(orcamentoId, insumo.codigo, preco, undefined, { fornecedor, dataCotacao, observacoes })
+      setCotacaoModal(null)
+    } catch (e) {
+      setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo ? { ...ins, ...estadoAnterior } : ins))
+      alert(e instanceof Error ? e.message : 'Erro ao salvar a cotação. Tente novamente.')
     } finally {
+      setSalvandoCotacao(false)
       setSavingId(null)
     }
   }
@@ -391,18 +432,30 @@ export function OrcamentoInsumosTable({
   async function openHistoricoModal(insumo: OrcamentoInsumo, e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
-    setHistoricoModal({ insumo, loading: true, historico: [] })
+    setHistoricoModal({ insumo, loading: true, historico: [], cotacoes: [] })
     const sb = createClient() as any
-    const { data, error } = await sb
-      .from('orcamento_insumo_historico_precos')
-      .select('id, preco_anterior, preco_novo, usuario, created_at')
-      .eq('orcamento_id', orcamentoId)
-      .eq('codigo', insumo.codigo)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(50)
+    const [{ data, error }, { data: cotacoesData, error: cotacoesErr }] = await Promise.all([
+      sb.from('orcamento_insumo_historico_precos')
+        .select('id, preco_anterior, preco_novo, usuario, created_at')
+        .eq('orcamento_id', orcamentoId)
+        .eq('codigo', insumo.codigo)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(50),
+      // Cotações completas (fornecedor/data/observações) — tabela nova,
+      // só populada a partir de edições feitas pelo modal de cotação; entradas
+      // de preço anteriores a essa funcionalidade só aparecem na lista acima.
+      sb.from('orcamento_insumo_cotacoes')
+        .select('id, orcamento_id, codigo, valor, fornecedor, data_cotacao, observacoes, ativa, usuario, created_at')
+        .eq('orcamento_id', orcamentoId)
+        .eq('codigo', insumo.codigo)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(50),
+    ])
     if (error) console.error('[historico-preco] buscar:', error)
-    setHistoricoModal(prev => prev ? { ...prev, loading: false, historico: data ?? [] } : null)
+    if (cotacoesErr) console.error('[cotacoes] buscar:', cotacoesErr)
+    setHistoricoModal(prev => prev ? { ...prev, loading: false, historico: data ?? [], cotacoes: cotacoesData ?? [] } : null)
   }
 
   /**
@@ -461,7 +514,7 @@ export function OrcamentoInsumosTable({
 
     const custoAnterior = atual.custo
     setInsumos(prev => prev.map(ins => ins.codigo === codigo ? { ...ins, custo: 0 } : ins))
-    await sincronizarCustoInsumo(sb, orcamentoId, codigo, 0)
+    await upsertAvulsoInsumo(sb, orcamentoId, codigo, 0)
     recalcularAutoAction(orcamentoId).catch(console.error)
     registrarHistorico(sb, {
       orcamentoId,
@@ -531,6 +584,9 @@ export function OrcamentoInsumosTable({
       'Descrição': ins.descricao,
       'Unidade': ins.unidade,
       'Custo': ins.custo,
+      'Fornecedor': ins.fornecedor ?? '',
+      'Data Cotação': ins.data_cotacao ? fmtDataCotacao(ins.data_cotacao) : '',
+      'Observações': ins.cotacao_observacoes ?? '',
       'Grupo': ins.grupo ?? '',
       'Base': ins.base ?? '',
       'Data Ref.': ins.custo_atualizado_em
@@ -583,6 +639,23 @@ export function OrcamentoInsumosTable({
             </button>
           ))}
         </div>
+        <select
+          value={filtroCotacao}
+          onChange={e => setFiltroCotacao(e.target.value)}
+          className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500"
+          title="Filtrar por cotação"
+        >
+          <option value="todos">Cotação: todos</option>
+          <option value="sem_fornecedor">Sem fornecedor</option>
+          <option value="sem_data">Sem data</option>
+          <option value="hoje">Cotados hoje</option>
+          <option value="ultimos_30">Últimos 30 dias</option>
+          {fornecedoresDisponiveis.length > 0 && (
+            <optgroup label="Fornecedor específico">
+              {fornecedoresDisponiveis.map(f => <option key={f} value={f}>{f}</option>)}
+            </optgroup>
+          )}
+        </select>
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >
@@ -609,7 +682,15 @@ export function OrcamentoInsumosTable({
               <th className="px-4 py-3">Código</th>
               <th className="px-4 py-3">Descrição</th>
               <th className="px-4 py-3">Unidade</th>
-              <th className="px-4 py-3 text-right">Custo</th>
+              <th className="px-4 py-3 text-right cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('custo')}>
+                Custo <SortIcon field="custo" sortField={sortField} sortDir={sortDir} />
+              </th>
+              <th className="px-4 py-3 cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('fornecedor')}>
+                Fornecedor <SortIcon field="fornecedor" sortField={sortField} sortDir={sortDir} />
+              </th>
+              <th className="px-4 py-3 cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('data_cotacao')}>
+                Data cotação <SortIcon field="data_cotacao" sortField={sortField} sortDir={sortDir} />
+              </th>
               <th className="px-4 py-3">Grupo</th>
               <th className="px-4 py-3">Base</th>
               <th className="px-4 py-3">Data Ref.</th>
@@ -619,7 +700,7 @@ export function OrcamentoInsumosTable({
           <tbody className="divide-y divide-gray-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                   {q ? 'Nenhum insumo encontrado para essa busca.' : 'Nenhum insumo cadastrado neste orçamento.'}
                 </td>
               </tr>
@@ -640,43 +721,38 @@ export function OrcamentoInsumosTable({
                     <td className="px-4 py-3">{insumo.descricao}</td>
                     <td className="px-4 py-3 text-gray-500">{insumo.unidade}</td>
 
-                    {/* Custo */}
+                    {/* Custo — clique abre o modal de cotação (preço + fornecedor + data + observações) */}
                     <td className="px-4 py-3 text-right w-36">
-                      {isEditing(insumo.id, 'custo') ? (
-                        <input
-                          autoFocus
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={editingCustoValue}
-                          onChange={e => setEditingCustoValue(e.target.value)}
-                          onBlur={e => { setEditing(null); saveCusto(insumo.id, e.target.value) }}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              const val = (e.target as HTMLInputElement).value
-                              setEditing(null)
-                              saveCusto(insumo.id, val)
-                              const idx = paged.findIndex(i => i.id === insumo.id)
-                              if (idx !== -1 && idx < paged.length - 1) {
-                                const next = paged[idx + 1]
-                                setEditingCustoValue(String(next.custo))
-                                setEditing({ id: next.id, field: 'custo', value: String(next.custo) })
-                              }
-                            }
-                            if (e.key === 'Escape') { e.preventDefault(); cancelEdit() }
-                          }}
-                          className="block w-full text-right rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 tabular-nums"
-                        />
-                      ) : (
-                        <span
-                          onClick={e => startEdit(e, insumo.id, 'custo', String(insumo.custo))}
-                          className={`block text-right tabular-nums ${cellClass()} ${isSaving ? 'text-gray-400' : 'text-gray-900'}`}
-                          title="Clique para editar"
-                        >
-                          {isSaving ? '…' : insumo.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      )}
+                      <span
+                        onClick={() => !savingId && abrirCotacaoModal(insumo)}
+                        className={`block text-right tabular-nums ${cellClass()} ${isSaving ? 'text-gray-400' : 'text-gray-900'}`}
+                        title="Clique para editar preço e cotação"
+                      >
+                        {isSaving ? '…' : insumo.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                    </td>
+
+                    {/* Fornecedor — indicador discreto, detalhe completo (+ observação) no hover */}
+                    <td className="px-4 py-3 text-gray-500">
+                      <span
+                        onClick={() => !savingId && abrirCotacaoModal(insumo)}
+                        className={`flex items-center gap-1.5 ${cellClass()}`}
+                        title={insumo.cotacao_observacoes ? `${insumo.fornecedor ?? 'Sem fornecedor'} — ${insumo.cotacao_observacoes}` : (insumo.fornecedor ?? 'Clique para informar o fornecedor')}
+                      >
+                        {insumo.fornecedor && <Truck size={12} className="shrink-0 text-gray-400" />}
+                        <span className="truncate max-w-[140px]">{insumo.fornecedor || <span className="text-gray-300">—</span>}</span>
+                      </span>
+                    </td>
+
+                    {/* Data da cotação (informada pelo usuário — distinta de Data Ref., que é automática) */}
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                      <span
+                        onClick={() => !savingId && abrirCotacaoModal(insumo)}
+                        className={`flex items-center gap-1.5 ${cellClass()}`}
+                      >
+                        {insumo.data_cotacao && <CalendarDays size={12} className="shrink-0 text-gray-400" />}
+                        {insumo.data_cotacao ? fmtDataCotacao(insumo.data_cotacao) : <span className="text-gray-300">—</span>}
+                      </span>
                     </td>
 
                     {/* Grupo */}
@@ -793,6 +869,80 @@ export function OrcamentoInsumosTable({
       </div>
     )}
 
+    {/* Modal: Cotação — preço + fornecedor + data + observações, 1 painel só,
+        salva tudo de uma vez (Funcionalidade "Interface" do épico de cotações) */}
+    {cotacaoModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={() => !salvandoCotacao && setCotacaoModal(null)}>
+        <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Preço e cotação</h2>
+              <p className="text-xs text-gray-500 mt-0.5 font-mono">
+                {cotacaoModal.insumo.codigo} — {cotacaoModal.insumo.descricao}
+              </p>
+            </div>
+            <button onClick={() => setCotacaoModal(null)} disabled={salvandoCotacao}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Preço</label>
+              <input
+                autoFocus type="number" min="0" step="any"
+                value={cotacaoModal.preco}
+                onChange={e => setCotacaoModal(prev => prev ? { ...prev, preco: e.target.value } : null)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSalvarCotacao() } }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Fornecedor</label>
+              <input
+                type="text" placeholder="Ex.: Construmax"
+                value={cotacaoModal.fornecedor}
+                onChange={e => setCotacaoModal(prev => prev ? { ...prev, fornecedor: e.target.value } : null)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSalvarCotacao() } }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Data da cotação</label>
+              <input
+                type="date"
+                value={cotacaoModal.dataCotacao}
+                onChange={e => setCotacaoModal(prev => prev ? { ...prev, dataCotacao: e.target.value } : null)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Observações <span className="font-normal text-gray-400">(opcional)</span></label>
+              <textarea
+                rows={2} placeholder="Ex.: Preço negociado para compra acima de 500 unidades."
+                value={cotacaoModal.observacoes}
+                onChange={e => setCotacaoModal(prev => prev ? { ...prev, observacoes: e.target.value } : null)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end gap-3">
+            <button onClick={() => setCotacaoModal(null)} disabled={salvandoCotacao}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
+              Cancelar
+            </button>
+            <button onClick={handleSalvarCotacao} disabled={salvandoCotacao}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50">
+              {salvandoCotacao ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {historicoModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
         onClick={() => setHistoricoModal(null)}>
@@ -811,6 +961,28 @@ export function OrcamentoInsumosTable({
               </svg>
             </button>
           </div>
+
+          {/* Cotações — fornecedor/data/observações de cada edição feita pelo
+              modal de cotação. Entradas de preço anteriores a essa
+              funcionalidade não aparecem aqui (só na tabela "Anterior/Novo"
+              abaixo) — não há migração retroativa. */}
+          {!historicoModal.loading && historicoModal.cotacoes.length > 0 && (
+            <div className="mb-4">
+              <p className="mb-1.5 text-xs font-medium text-gray-500">Cotações registradas</p>
+              <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 max-h-40 overflow-y-auto">
+                {historicoModal.cotacoes.map(c => (
+                  <li key={c.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+                    <span className="w-20 shrink-0 tabular-nums text-gray-400">{fmtDataCotacao(c.data_cotacao) !== '—' ? fmtDataCotacao(c.data_cotacao) : fmtDataCurta(c.created_at)}</span>
+                    <span className="w-24 shrink-0 truncate font-medium text-gray-700" title={c.fornecedor ?? undefined}>{c.fornecedor ?? <span className="font-normal text-gray-300">sem fornecedor</span>}</span>
+                    <span className="w-24 shrink-0 text-right tabular-nums text-gray-900">{fmtMoeda(c.valor)}</span>
+                    <span className="flex-1 min-w-0 truncate text-gray-400" title={c.observacoes ?? undefined}>{c.observacoes}</span>
+                    {c.ativa && <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">em uso</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {historicoModal.loading ? (
             <p className="py-8 text-center text-sm text-gray-400">Carregando…</p>
           ) : historicoModal.historico.length === 0 ? (

@@ -498,7 +498,7 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
 
 // ─── Seção: Planilha Analítica ────────────────────────────────────────────────
 
-async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
+async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string, destacarEstimados: boolean) {
   const { autoTable } = await import('jspdf-autotable')
 
   doc.addPage()
@@ -559,7 +559,12 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
       if (cellData.section !== 'body') return
       const row = rows[cellData.row.index]
       if (row.tipo !== 'item') return
-      cellData.cell.styles.fillColor = '#e9d5ff'
+      if (destacarEstimados && row.estimado) {
+        cellData.cell.styles.fillColor = '#fef3c7'
+        cellData.cell.styles.textColor = '#92400e'
+      } else {
+        cellData.cell.styles.fillColor = '#e9d5ff'
+      }
       cellData.cell.styles.fontStyle = 'bold'
       if (cellData.column.index === 7 && row.classeAbc) {
         cellData.cell.styles.fillColor = ABC_BG[row.classeAbc]
@@ -630,9 +635,109 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
   }
 }
 
+// ─── Seção: Itens Estimados ───────────────────────────────────────────────────
+//
+// Itens marcados manualmente com "Item estimado" (orcamento_estrutura.estimado),
+// agrupados por planilha, na ordem da estrutura (nunca alfabética — os grupos
+// vêm de data.itensEstimados, já ordenados por planilha e por travessia da
+// árvore em getCadernoData). Cada linha mostra o item pai imediato para não
+// ficar ambíguo quando existem itens com o mesmo nome em partes diferentes da
+// obra (ex.: "Armação" na Fundação e na Superestrutura).
+
+async function drawItensEstimadosSection(
+  doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number, subtitle: string, numero: string,
+  exibirMotivo: boolean, exibirCaminhoCompleto: boolean
+) {
+  const { autoTable } = await import('jspdf-autotable')
+
+  doc.addPage()
+  addSectionBanner(doc, margin, contentW, numero, 'ITENS ESTIMADOS', subtitle)
+
+  let y = margin + 16 + 6
+
+  // Colunas montadas dinamicamente conforme as opções — "Item pai" vira
+  // "Caminho completo" (breadcrumb) quando a opção está ligada, e "Motivo"
+  // só entra se pedido. O rodapé (TOTAL DA PLANILHA) sempre se posiciona nas
+  // duas últimas colunas, então acompanha o número de colunas automaticamente.
+  const head = [
+    exibirCaminhoCompleto ? 'Caminho completo' : 'Item pai',
+    'Item estimado',
+    ...(exibirMotivo ? ['Motivo'] : []),
+    'Valor (R$)',
+  ]
+  const larguras = exibirMotivo ? [0.22, 0.28, 0.30, 0.20] : [0.35, 0.45, 0.20]
+  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' }> = {}
+  larguras.forEach((w, i) => {
+    columnStyles[i] = { cellWidth: contentW * w, ...(i === larguras.length - 1 ? { halign: 'right' as const } : {}) }
+  })
+
+  for (const grupo of data.itensEstimados) {
+    const headerH = 8
+    if (y + headerH + 10 > pageH - margin && y > margin + 30) {
+      doc.addPage()
+      y = margin
+    }
+
+    doc.setFillColor(PDF_COLORS.totalBg)
+    doc.rect(margin, y, contentW, headerH, 'F')
+    doc.setTextColor('#ffffff')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(`PLANILHA: ${grupo.planilhaNome.toUpperCase()} (${grupo.itens.length} item(ns))`, margin + 2, y + 5.5)
+
+    y += headerH
+
+    const footRow = head.map(() => '')
+    footRow[footRow.length - 2] = 'TOTAL DA PLANILHA'
+    footRow[footRow.length - 1] = fmt(grupo.total)
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin, bottom: margin },
+      head: [head],
+      body: grupo.itens.map(it => {
+        const caminho = exibirCaminhoCompleto
+          ? (it.caminhoCompleto.length > 0 ? it.caminhoCompleto.join(' > ') : '—')
+          : (it.itemPaiDescricao ?? '—')
+        const linha = [caminho, it.descricao]
+        if (exibirMotivo) linha.push(it.estimadoMotivo ?? '—')
+        linha.push(fmt(it.valor))
+        return linha
+      }),
+      foot: [footRow],
+      showFoot: 'lastPage',
+      styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
+      headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', halign: 'right', lineWidth: 0.1 },
+      columnStyles,
+    })
+
+    // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
+    y = doc.lastAutoTable.finalY + 4
+  }
+
+  if (data.itensEstimados.length === 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(PDF_COLORS.textGray)
+    doc.text('Nenhum item marcado como estimado neste orçamento.', margin, y + 4)
+  }
+}
+
 // ─── PDF principal ────────────────────────────────────────────────────────────
 
-export async function exportCadernoPdf(data: CadernoData) {
+export interface ExportCadernoOptions {
+  /** Default true — seção "Itens Estimados" logo após o Resumo Geral (3.0). */
+  incluirItensEstimados?: boolean
+  /** Default true — colore de âmbar as linhas de item estimado na Planilha Analítica (8.0). Independente da seção acima. */
+  destacarNaAnalitica?: boolean
+  /** Default true — coluna "Motivo" na seção Itens Estimados (só tem efeito se incluirItensEstimados). */
+  exibirMotivo?: boolean
+  /** Default false — troca "Item pai" pelo breadcrumb completo (Planilha > ... > Item pai) na seção Itens Estimados. */
+  exibirCaminhoCompleto?: boolean
+}
+
+export async function exportCadernoPdf(data: CadernoData, options: ExportCadernoOptions = {}) {
   const { jsPDF } = await import('jspdf')
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
@@ -667,6 +772,16 @@ export async function exportCadernoPdf(data: CadernoData) {
   divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
   await drawResumoGeralSection(doc, data, margin, contentW, subtitle, '3.0')
 
+  // 3.1 Itens Estimados (opcional — ver ExportCadernoOptions.incluirItensEstimados)
+  if (options.incluirItensEstimados ?? true) {
+    divider('3.1', 'ITENS ESTIMADOS', 'Itens que dependem de validação, negociação ou detalhamento')
+    await drawItensEstimadosSection(
+      doc, data, margin, contentW, pageH, subtitle, '3.1',
+      options.exibirMotivo ?? true,
+      options.exibirCaminhoCompleto ?? false,
+    )
+  }
+
   // 4.0 Custo / m²
   divider('4.0', 'CUSTO / M²', 'Áreas e Indicadores de Custo')
   await drawCustoM2Section(doc, data, margin, contentW, subtitle, '4.0')
@@ -685,7 +800,7 @@ export async function exportCadernoPdf(data: CadernoData) {
 
   // 8.0 Planilha Analítica de Preços Unitários
   divider('8.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
-  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, subtitle, '8.0')
+  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, subtitle, '8.0', options.destacarNaAnalitica ?? true)
 
   // 9.0 Lista de Insumos
   divider('9.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')

@@ -1,4 +1,4 @@
-import { Activity, CircleDollarSign, UploadCloud, GitCommitHorizontal, RotateCcw, Copy, PlusCircle } from 'lucide-react'
+import { Activity, CircleDollarSign, UploadCloud, GitCommitHorizontal, RotateCcw, Copy, PlusCircle, GitBranchPlus } from 'lucide-react'
 import { Timeline, TimelineItem, type TimelineTone } from '@/components/ui/timeline'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatRelative } from '@/lib/dashboard/format-relative'
@@ -15,6 +15,7 @@ const ICONE_POR_ACAO: Record<string, typeof Activity> = {
   versao_restaurada: RotateCcw,
   duplicar_orcamento: Copy,
   criar_orcamento: PlusCircle,
+  criar_orcamento_de_versao: GitBranchPlus,
 }
 
 const TOM_POR_ACAO: Record<string, TimelineTone> = {
@@ -28,6 +29,7 @@ const TOM_POR_ACAO: Record<string, TimelineTone> = {
   versao_restaurada: 'warning',
   duplicar_orcamento: 'neutral',
   criar_orcamento: 'success',
+  criar_orcamento_de_versao: 'success',
 }
 
 export function AtividadeRecente({ items }: { items: AtividadeAgrupada[] }) {

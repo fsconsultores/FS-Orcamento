@@ -59,6 +59,12 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [analitica, setAnalitica] = useState(defaultAnaliticaFilterState())
+  // Opções da seção "Itens Estimados" no Caderno — cada uma independente,
+  // default true (exceto caminho completo, que troca o formato hoje usado).
+  const [incluirItensEstimados, setIncluirItensEstimados] = useState(true)
+  const [destacarNaAnalitica, setDestacarNaAnalitica] = useState(true)
+  const [exibirMotivoEstimado, setExibirMotivoEstimado] = useState(true)
+  const [exibirCaminhoCompleto, setExibirCaminhoCompleto] = useState(false)
 
   const analiticaRows = useMemo(
     () => (report.kind.type === 'planilha-analitica' ? buildAnaliticaRows(data, analitica) : null),
@@ -75,7 +81,12 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
         await exportPlanilhaAnaliticaXlsx(data, analitica)
       } else if (report.kind.type === 'caderno') {
         const { exportCadernoPdf } = await import('../caderno/export-caderno-pdf')
-        await exportCadernoPdf(data)
+        await exportCadernoPdf(data, {
+          incluirItensEstimados,
+          destacarNaAnalitica,
+          exibirMotivo: exibirMotivoEstimado,
+          exibirCaminhoCompleto,
+        })
       } else if (report.kind.type === 'curva-abc') {
         const items = getAbcItems(data, report.kind.tab)
         if (formato === 'xlsx') {
@@ -157,7 +168,31 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
                 <p className="text-xs font-semibold text-gray-700 mb-2">Seções incluídas</p>
                 <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                   {CADERNO_SECOES.map(s => <li key={s}>{s}</li>)}
+                  <li className={incluirItensEstimados ? '' : 'text-gray-400 line-through'}>Itens Estimados</li>
                 </ul>
+
+                <p className="text-xs font-semibold text-gray-700 mt-3 mb-1.5">Opções — Itens Estimados</p>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={incluirItensEstimados} onChange={e => setIncluirItensEstimados(e.target.checked)} className="accent-primary-600" />
+                    Criar seção &quot;Itens Estimados&quot;
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={destacarNaAnalitica} onChange={e => setDestacarNaAnalitica(e.target.checked)} className="accent-primary-600" />
+                    Destacar itens estimados na Planilha Analítica
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={exibirMotivoEstimado} onChange={e => setExibirMotivoEstimado(e.target.checked)} className="accent-primary-600" />
+                    Exibir motivo do item estimado
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" checked={exibirCaminhoCompleto} onChange={e => setExibirCaminhoCompleto(e.target.checked)} className="accent-primary-600" />
+                    Exibir caminho completo do item
+                  </label>
+                </div>
+                {incluirItensEstimados && data.itensEstimados.length === 0 && (
+                  <p className="mt-1.5 text-xs text-gray-400">Nenhum item marcado como estimado neste orçamento.</p>
+                )}
               </div>
             </>
           )}
