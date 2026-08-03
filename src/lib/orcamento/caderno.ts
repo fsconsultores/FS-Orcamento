@@ -108,48 +108,6 @@ export interface DistribuicaoCustoItem {
   color: string
 }
 
-/** Um insumo com preço estimado dentro de um serviço — detalhe opcional exibido na seção "Serviços com Preços Estimados". */
-export interface InsumoEstimadoDetalhe {
-  descricao: string
-  fornecedor: string | null
-  /** Preço efetivamente usado no cálculo do serviço (o mesmo que alimenta a Planilha Analítica). */
-  precoUtilizado: number
-  dataCotacao: string | null
-  /** Motivo do preço estimado, informado na cotação (orcamento_insumo_cotacoes.estimado_motivo) — null se não informado. */
-  motivo: string | null
-}
-
-export interface ItemEstimadoRow {
-  numero: string
-  /** Nome do serviço (descrição do item da EAP) — nunca concatenado com os insumos; o detalhe deles vem em `insumosEstimados`. */
-  descricao: string
-  unidade: string | null
-  /** Descrição do grupo/item pai imediato — null quando o item está na raiz da planilha. Derivado de caminhoCompleto (último elemento). */
-  itemPaiDescricao: string | null
-  /**
-   * Cadeia completa de ancestrais, da raiz até o pai imediato (sem incluir o
-   * próprio item) — ex.: ['Estrutura', 'Superestrutura', 'Pilares'] para um
-   * item "Armação" dentro de Pilares. Coletada de graça durante a mesma
-   * travessia que já produzia itemPaiDescricao, para permitir no futuro (ou
-   * já hoje, via opção "Exibir caminho completo") montar o breadcrumb
-   * "Estrutura > Superestrutura > Pilares > Armação" sem nova consulta.
-   */
-  caminhoCompleto: string[]
-  /** Total do serviço com BDI aplicado — mesma base do Total Orçado (A). */
-  valor: number
-  /** Quantidade de insumos com preço estimado usados neste serviço (via composição, ou o próprio insumo avulso do item). */
-  qtdInsumosEstimados: number
-  /** Detalhe de cada insumo com preço estimado — fornecedor/preço/data/motivo, para exibição opcional. */
-  insumosEstimados: InsumoEstimadoDetalhe[]
-}
-
-export interface ItemEstimadoGrupo {
-  planilhaId: string | null
-  planilhaNome: string
-  itens: ItemEstimadoRow[]
-  total: number
-}
-
 export interface CadernoData {
   orcamento: {
     nome_obra: string
@@ -176,7 +134,6 @@ export interface CadernoData {
   insumosConsumo: InsumoConsumoRow[]
   listaInsumos: ListaInsumoGrupo[]
   distribuicaoCustos: DistribuicaoCustoItem[]
-  itensEstimados: ItemEstimadoGrupo[]
 }
 
 interface EstruturaFullItem {
@@ -262,12 +219,6 @@ export async function getCadernoData(
     ((planilhasBdi ?? []) as { id: string; bdi_global: number | null }[])
       .map(p => [p.id, p.bdi_global ?? 0])
   )
-  // nome/ordem de cada planilha — usado no agrupamento da seção Serviços com Preços Estimados.
-  const planilhaInfoMap = new Map<string, { nome: string; ordem: number }>(
-    ((planilhasBdi ?? []) as { id: string; nome: string; ordem: number }[])
-      .map(p => [p.id, { nome: p.nome, ordem: p.ordem }])
-  )
-
   // Insumos dentro de composições — já buscados por getInsumosByOrcamentoDetalhado
   // (composicao_id é sempre não-nulo aqui, pela própria query que os produziu).
   const allInsumos: InsumoComposicaoBasico[] = insumosDeComposicao.map(ins => ({
@@ -397,12 +348,35 @@ export async function getCadernoData(
   // Grupos/itens cujo nome termina em "- Estimado" não compõem o Total Orçado
   // (A) nem as demais seções do caderno; seu custo entra como Serviço
   // Estimado (B). Quando o marcador está num grupo, cada filho direto vira
-  // um serviço estimado (com o custo de toda a sua subárvore).
+  // um serviço estimado (com o custo de toda a sua subárvore). Mesmo destino
+  // (sai de A, entra em B) para um item que não tem esse sufixo mas usa um
+  // insumo de preço estimado — ver temInsumoEstimado, logo abaixo.
   const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
 
   function sumLeaves(raw: RawNode): number {
     if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0) * fatorBdiDoItem(raw)
     return raw.filhos.reduce((s, f) => s + sumLeaves(f), 0)
+  }
+
+  // Descoberta automática de serviços com preço estimado: um item entra em
+  // Serviços Estimados (B) tanto pelo nome terminar em "- Estimado" quanto
+  // por usar (via sua composição, ou como insumo avulso direto) algum
+  // insumo cuja cotação está marcada como "estimada" (orcamento_insumos.
+  // estimado, snapshot de orcamento_insumo_cotacoes.estimado). Nunca há
+  // marcação manual no item — a descoberta é 100% derivada dos insumos.
+  const compIdsComInsumoEstimado = new Set<string>()
+  for (const ins of allInsumos) {
+    if (ins.estimado) compIdsComInsumoEstimado.add(ins.composicao_id)
+  }
+  const codigosAvulsoEstimados = new Set<string>()
+  for (const ins of todosInsumos) {
+    if (ins.composicao_id === null && ins.estimado) codigosAvulsoEstimados.add(ins.codigo)
+  }
+  function temInsumoEstimado(node: RawNode): boolean {
+    if (!node.codigo) return false
+    const compId = compCodeToId.get(node.codigo)
+    if (compId) return compIdsComInsumoEstimado.has(compId)
+    return codigosAvulsoEstimados.has(node.codigo)
   }
 
   const idsEstimados = new Set<string>()
@@ -424,6 +398,11 @@ export async function getCadernoData(
             autoServicosEstimados.push({ descricao: filho.descricao, valor: sumLeaves(filho) })
           }
         }
+        continue
+      }
+      if (node.tipo === 'item' && temInsumoEstimado(node)) {
+        marcarSubarvore(node)
+        autoServicosEstimados.push({ descricao: node.descricao, valor: sumLeaves(node) })
         continue
       }
       detectarEstimados(node.filhos)
@@ -515,96 +494,6 @@ export async function getCadernoData(
   const arvore = arvoreRoots.map(buildNode)
   const totalGeral = arvore.reduce((s, n) => s + n.total, 0)
   const totalGeralComBdi = arvore.reduce((s, n) => s + n.totalComBdi, 0)
-
-  // Árvore completa (A+B) — mesma lógica de buildNode, mas sem excluir os
-  // itens "- Estimado" (que viram Serviço Estimado B e saem de `arvore`).
-  // Usada só pela seção "Serviços com Preços Estimados" logo abaixo: um
-  // serviço que já é "- Estimado" (preço todo provisório) e ainda por cima
-  // usa um insumo com preço estimado na cotação também precisa aparecer lá
-  // — o cliente precisa saber que aquele preço é duplamente provisório.
-  const arvoreCompleta = roots.map(buildNode)
-
-  // ── Serviços com Preços Estimados — descoberta 100% automática, nunca uma
-  // marcação manual no item da EAP. Quem tem preço é o insumo, via sua
-  // cotação (orcamento_insumo_cotacoes.estimado); orcamento_insumos.estimado
-  // é só o snapshot dessa cotação (ver upsertAvulsoInsumo). Aqui percorremos
-  // cada item da planilha → sua composição → os insumos dela (ou, se o item
-  // referencia um insumo avulso diretamente, o próprio insumo) e verificamos
-  // se algum tem preço estimado. Se sim, o SERVIÇO entra nesta seção — nunca
-  // listamos "insumos estimados" soltos, sempre agrupados pelo serviço que
-  // os usa. Não afeta nenhum total — o item continua somando normalmente em
-  // `arvore`.
-  function buildInsumoEstimadoDetalhe(codigo: string, descricao: string, motivo: string | null): InsumoEstimadoDetalhe {
-    const info = insumoInfoMap.get(codigo)
-    return {
-      descricao,
-      fornecedor: info?.fornecedor ?? null,
-      precoUtilizado: precoEfetivoMap.get(codigo) ?? 0,
-      dataCotacao: info?.dataCotacao ?? null,
-      motivo,
-    }
-  }
-
-  // composicao_id → detalhe dos insumos dessa composição com preço estimado.
-  const compInsumosEstimadosByCompId = new Map<string, InsumoEstimadoDetalhe[]>()
-  for (const ins of allInsumos) {
-    if (!ins.estimado) continue
-    const arr = compInsumosEstimadosByCompId.get(ins.composicao_id) ?? []
-    arr.push(buildInsumoEstimadoDetalhe(ins.codigo, ins.descricao, ins.estimadoMotivo ?? null))
-    compInsumosEstimadosByCompId.set(ins.composicao_id, arr)
-  }
-
-  // codigo → detalhe do insumo avulso com preço estimado — para itens da EAP
-  // que referenciam um insumo diretamente (sem composição intermediária).
-  const avulsoEstimadoMap = new Map<string, InsumoEstimadoDetalhe>()
-  for (const ins of todosInsumos) {
-    if (ins.composicao_id === null && ins.estimado) {
-      avulsoEstimadoMap.set(ins.codigo, buildInsumoEstimadoDetalhe(ins.codigo, ins.descricao, ins.estimado_motivo ?? null))
-    }
-  }
-
-  interface GrupoEstimadoAcc { nome: string; ordem: number; itens: ItemEstimadoRow[] }
-  const estimadosPorPlanilha = new Map<string, GrupoEstimadoAcc>()
-
-  function coletarEstimados(nodes: CadernoNode[], caminho: string[]) {
-    for (const n of nodes) {
-      if (n.tipo === 'item') {
-        const compId = n.codigo ? compCodeToId.get(n.codigo) : undefined
-        const insumosEstimados = compId
-          ? (compInsumosEstimadosByCompId.get(compId) ?? [])
-          : (n.codigo && avulsoEstimadoMap.has(n.codigo) ? [avulsoEstimadoMap.get(n.codigo)!] : [])
-
-        if (insumosEstimados.length > 0) {
-          const chave = n.planilhaId ?? '__sem_planilha__'
-          const info = n.planilhaId ? planilhaInfoMap.get(n.planilhaId) : undefined
-          const grupo = estimadosPorPlanilha.get(chave) ?? { nome: info?.nome ?? 'Planilha', ordem: info?.ordem ?? 0, itens: [] }
-          grupo.itens.push({
-            numero: n.numero,
-            descricao: n.descricao,
-            unidade: n.unidade,
-            itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
-            caminhoCompleto: caminho,
-            valor: n.totalComBdi,
-            qtdInsumosEstimados: insumosEstimados.length,
-            insumosEstimados,
-          })
-          estimadosPorPlanilha.set(chave, grupo)
-        }
-        continue
-      }
-      coletarEstimados(n.filhos, [...caminho, n.descricao])
-    }
-  }
-  coletarEstimados(arvoreCompleta, [])
-
-  const itensEstimados: ItemEstimadoGrupo[] = [...estimadosPorPlanilha.entries()]
-    .sort(([, a], [, b]) => a.ordem - b.ordem)
-    .map(([planilhaId, g]) => ({
-      planilhaId: planilhaId === '__sem_planilha__' ? null : planilhaId,
-      planilhaNome: g.nome,
-      itens: g.itens,
-      total: g.itens.reduce((s, it) => s + it.valor, 0),
-    }))
 
   function aplicarPercentual(nodes: CadernoNode[]) {
     for (const n of nodes) {
@@ -933,6 +822,5 @@ export async function getCadernoData(
     insumosConsumo,
     listaInsumos,
     distribuicaoCustos,
-    itensEstimados,
   }
 }

@@ -35,7 +35,6 @@ export function CadernoView({ data }: { data: CadernoData }) {
 
   const sections = [
     { title: 'Resumo Geral do Orçamento', desc: `Total Orçado (A): ${fmt(data.totalGeralComBdi)} • Serviços Estimados (B): ${fmt(data.totalServicosEstimados)} • Total Geral (A+B): ${fmt(data.totalGeralComBdi + data.totalServicosEstimados)}`, ok: data.arvore.length > 0 },
-    { title: 'Serviços com Preços Estimados', desc: `${data.itensEstimados.reduce((s, g) => s + g.itens.length, 0)} serviço(s) com insumo de preço estimado em ${data.itensEstimados.length} planilha(s)`, ok: data.itensEstimados.length > 0 },
     { title: 'Custo / m²', desc: temArea ? 'Áreas e indicadores de custo por m² cadastrados' : 'Nenhuma área cadastrada para o orçamento', ok: temArea },
     { title: 'Planilha de Preços Unitários', desc: `${itens} item(ns) na planilha orçamentária`, ok: itens > 0 },
     { title: 'Curva ABC — Insumos', desc: `${data.abcInsumos.length} insumo(s) classificado(s)`, ok: data.abcInsumos.length > 0 },

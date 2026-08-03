@@ -67,16 +67,17 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
 
   const fmt = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-  // "Resumo da revisão" — reutiliza data.itensEstimados (já calculado em
+  // "Resumo da revisão" — reutiliza data.servicosEstimados (já calculado em
   // getCadernoData, sem consulta extra) para dar uma visão rápida antes de
-  // emitir a proposta. Reflete o mesmo escopo (planilha atual/selecionadas)
-  // já aplicado ao restante da tela.
+  // emitir a proposta. Reúne tanto itens "- Estimado" quanto serviços que
+  // usam algum insumo de preço estimado — ambos saem do Total Orçado (A) e
+  // somam em Serviços Estimados (B), ver detectarEstimados em caderno.ts.
   const resumoEstimados = useMemo(() => {
-    const qtd = data.itensEstimados.reduce((s, g) => s + g.itens.length, 0)
-    const valor = data.itensEstimados.reduce((s, g) => s + g.total, 0)
+    const qtd = data.servicosEstimados.length
+    const valor = data.totalServicosEstimados
     const percentual = data.totalGeralComBdi > 0 ? (valor / data.totalGeralComBdi) * 100 : 0
-    return { qtd, valor, percentual, planilhas: data.itensEstimados.length }
-  }, [data.itensEstimados, data.totalGeralComBdi])
+    return { qtd, valor, percentual }
+  }, [data.servicosEstimados, data.totalServicosEstimados, data.totalGeralComBdi])
 
   return (
     <div className="space-y-5">
@@ -91,13 +92,12 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
       {resumoEstimados.qtd > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
           <p className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
-            <AlertTriangle size={13} /> Resumo da revisão — Serviços com Preços Estimados
+            <AlertTriangle size={13} /> Resumo da revisão — Serviços Estimados (B)
           </p>
           <StatRow>
-            <StatCard label="Serviços com preço estimado" value={resumoEstimados.qtd} />
+            <StatCard label="Serviços estimados" value={resumoEstimados.qtd} />
             <StatCard label="Valor total estimado" value={fmt(resumoEstimados.valor)} />
-            <StatCard label="% do orçamento" value={`${resumoEstimados.percentual.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`} />
-            <StatCard label="Planilhas afetadas" value={resumoEstimados.planilhas} />
+            <StatCard label="% do Total Orçado (A)" value={`${resumoEstimados.percentual.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`} />
           </StatRow>
         </div>
       )}
