@@ -33,10 +33,23 @@ export interface ComposicoesByOrcamentoDetalhado {
  * varredura redundante de orcamento_insumos. `getComposicoesByOrcamento`
  * abaixo é um wrapper fino sobre esta função, mantendo o contrato antigo
  * inalterado.
+ *
+ * `preFetched`: quando o caller já tem `insumosDeComposicao` (via
+ * vw_insumos_de_composicao) e avulsos em mãos — ex.: insumos/page.tsx e
+ * caderno.ts, que chamam `getInsumosByOrcamentoDetalhado` de qualquer forma
+ * — evita refazer as MESMAS buscas paginadas aqui dentro. Medido em produção
+ * (orçamento real com 7707 avulsos): sem isso, a página de Insumos disparava
+ * 16 requisições de orcamento_insumos + 4 de vw_insumos_de_composicao (o
+ * dobro do necessário — 8+2 já bastam), porque as duas funções buscavam os
+ * mesmos dados em paralelo sem saber uma da outra.
  */
 export async function getComposicoesByOrcamentoDetalhado(
   supabase: SupabaseClient,
-  orcamentoId: string
+  orcamentoId: string,
+  preFetched?: {
+    avulsos: { codigo: string; custo: number }[]
+    insumosDeComposicao: InsumoDeComposicao[]
+  }
 ): Promise<ComposicoesByOrcamentoDetalhado> {
   const composicoes = await fetchAllPaginatedParallel<Omit<OrcamentoComposicao, 'custo_unitario'>>(
     (from, to) =>
@@ -61,30 +74,36 @@ export async function getComposicoesByOrcamentoDetalhado(
   // Composições e Relatórios travando). Colunas: busca o conjunto completo
   // (não só o que o cálculo de custo usa) porque esse mesmo resultado é
   // reaproveitado pela tela de Composições (descrição/unidade/grupo).
-  const allInsData = await fetchAllPaginatedParallel<InsumoDeComposicao>(
-    (from, to) =>
-      supabase
-        .from('vw_insumos_de_composicao')
-        .select('composicao_id, codigo, descricao, unidade, custo, indice, grupo', { count: 'exact' })
-        .eq('orcamento_id', orcamentoId)
-        .order('id')
-        .range(from, to) as any
-  )
+  // Se o caller já tem esse dado (`preFetched`), reaproveita em vez de
+  // refazer a mesma paginação — ver comentário do parâmetro acima.
+  const allInsData: InsumoDeComposicao[] = preFetched
+    ? preFetched.insumosDeComposicao
+    : await fetchAllPaginatedParallel<InsumoDeComposicao>(
+        (from, to) =>
+          supabase
+            .from('vw_insumos_de_composicao')
+            .select('composicao_id, codigo, descricao, unidade, custo, indice, grupo', { count: 'exact' })
+            .eq('orcamento_id', orcamentoId)
+            .order('id')
+            .range(from, to) as any
+      )
 
   // Busca custos de TODOS os avulsos do orçamento (paginado em paralelo,
   // mesma cautela) — extras não usados por nenhuma composição não custam
   // nada além de memória (o Map só é lido pelos códigos que aparecem em allInsData).
   const precoMap = new Map<string, number>() // codigo → custo efetivo
-  const avulsosRows = await fetchAllPaginatedParallel<{ codigo: string; custo: number }>(
-    (from, to) =>
-      supabase
-        .from('orcamento_insumos')
-        .select('codigo, custo', { count: 'exact' })
-        .eq('orcamento_id', orcamentoId)
-        .is('composicao_id', null)
-        .order('codigo')
-        .range(from, to) as any
-  )
+  const avulsosRows = preFetched
+    ? preFetched.avulsos
+    : await fetchAllPaginatedParallel<{ codigo: string; custo: number }>(
+        (from, to) =>
+          supabase
+            .from('orcamento_insumos')
+            .select('codigo, custo', { count: 'exact' })
+            .eq('orcamento_id', orcamentoId)
+            .is('composicao_id', null)
+            .order('codigo')
+            .range(from, to) as any
+      )
   for (const av of avulsosRows) {
     precoMap.set(av.codigo, av.custo)
   }

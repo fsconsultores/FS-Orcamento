@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getInsumosByOrcamentoDetalhado, getComposicoesByOrcamento, calcularCodigosUtilizados } from '@/lib/orcamento'
+import { getInsumosByOrcamentoDetalhado, getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados, type InsumoDeComposicao } from '@/lib/orcamento'
 import { OrcamentoInsumosTable } from './insumos-table'
 import { DevProfiler } from '@/components/dev-profiler'
 
@@ -11,11 +11,21 @@ export default async function OrcamentoInsumosPage({
   const { id: orcamentoId } = await params
   const supabase = await createClient()
   const sb = supabase as any
-  const [{ insumos, insumosDeComposicao }, composicoes, { data: estrutura }] = await Promise.all([
+  const [{ insumos, insumosDeComposicao }, { data: estrutura }] = await Promise.all([
     getInsumosByOrcamentoDetalhado(supabase as any, orcamentoId),
-    getComposicoesByOrcamento(supabase as any, orcamentoId),
     sb.from('orcamento_estrutura').select('codigo').eq('orcamento_id', orcamentoId).eq('tipo', 'item'),
   ])
+  // Reaproveita insumosDeComposicao/avulsos já buscados acima em vez de deixar
+  // getComposicoesByOrcamentoDetalhado refazer a MESMA paginação de
+  // vw_insumos_de_composicao + orcamento_insumos avulsos — medido em produção,
+  // dobrava as requisições nesta página em orçamentos com catálogo grande.
+  const avulsos = insumos.filter(i => i.composicao_id === null).map(i => ({ codigo: i.codigo, custo: i.custo }))
+  const { composicoes } = await getComposicoesByOrcamentoDetalhado(sb, orcamentoId, {
+    avulsos,
+    // composicao_id nunca é null aqui — vem do JOIN em vw_insumos_de_composicao — só o
+    // tipo genérico de OrcamentoInsumo não expressa essa garantia.
+    insumosDeComposicao: insumosDeComposicao as unknown as InsumoDeComposicao[],
+  })
 
   const codigosUtilizados = calcularCodigosUtilizados(
     (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),

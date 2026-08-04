@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeAbcCurves, computeAbcCurvaUnica, type AbcItem, type AbcItemComCategoria, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '../curva-abc'
 import { getInsumosByOrcamentoDetalhado } from './insumos'
-import { getComposicoesByOrcamento } from './composicoes'
+import { getComposicoesByOrcamentoDetalhado, type InsumoDeComposicao } from './composicoes'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
 import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
 import { getPavimentosByOrcamento, type OrcamentoPavimento } from './pavimentos'
@@ -231,7 +231,7 @@ export async function getCadernoData(
   let planilhasQuery = sb.from('orcamento_planilhas').select('id, nome, bdi_global, ordem').eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) planilhasQuery = planilhasQuery.in('id', planilhaIds)
 
-  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, composicoes, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
+  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
       .eq('id', orcamentoId)
@@ -241,11 +241,21 @@ export async function getCadernoData(
       .select('descricao, valor')
       .eq('orcamento_id', orcamentoId)
       .order('ordem', { ascending: true }),
-    getComposicoesByOrcamento(supabase, orcamentoId),
     getInsumosByOrcamentoDetalhado(supabase, orcamentoId),
     planilhasQuery,
     getPavimentosByOrcamento(supabase, orcamentoId),
   ])
+  // Reaproveita insumosDeComposicao/avulsos já buscados acima em vez de deixar
+  // getComposicoesByOrcamentoDetalhado refazer a MESMA paginação de
+  // vw_insumos_de_composicao + orcamento_insumos avulsos — medido em produção,
+  // dobrava as requisições no Caderno/Relatórios em orçamentos com catálogo grande.
+  const avulsosParaComposicoes = todosInsumos.filter(i => i.composicao_id === null).map(i => ({ codigo: i.codigo, custo: i.custo }))
+  // composicao_id nunca é null aqui — vem do JOIN em vw_insumos_de_composicao — só o
+  // tipo genérico de OrcamentoInsumo não expressa essa garantia.
+  const { composicoes } = await getComposicoesByOrcamentoDetalhado(supabase, orcamentoId, {
+    avulsos: avulsosParaComposicoes,
+    insumosDeComposicao: insumosDeComposicao as unknown as InsumoDeComposicao[],
+  })
 
   const estItems: EstruturaFullItem[] = estrutura ?? []
 
