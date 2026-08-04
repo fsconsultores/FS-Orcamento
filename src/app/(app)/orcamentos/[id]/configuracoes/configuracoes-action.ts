@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { salvarConfigNumeracao } from '../planilha/planilha-action'
 import { salvarDadosCadastrais } from '@/lib/orcamento/dados-cadastrais'
+import { salvarPavimentos, type OrcamentoPavimento } from '@/lib/orcamento/pavimentos'
 import { registrarHistorico } from '@/lib/log'
 
 export interface ConfigOrcamentoInput {
@@ -19,6 +20,7 @@ export interface ConfigOrcamentoInput {
   numeracao_digitos: number[]
   servicos_estimados: { descricao: string; valor: number }[]
   categorias_grafico: Record<string, string>
+  pavimentos: OrcamentoPavimento[]
 }
 
 export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrcamentoInput): Promise<void> {
@@ -58,8 +60,10 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
     .eq('orcamento_id', orcamentoId)
 
   await salvarConfigNumeracao(orcamentoId, input.numeracao_digitos)
+  await salvarPavimentos(supabase, orcamentoId, input.pavimentos)
 
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
+  revalidatePath(`/orcamentos/${orcamentoId}/caderno`)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   revalidatePath(`/orcamentos/${orcamentoId}/relatorios`)
   revalidatePath(`/orcamentos/${orcamentoId}/relatorios/gerar`)

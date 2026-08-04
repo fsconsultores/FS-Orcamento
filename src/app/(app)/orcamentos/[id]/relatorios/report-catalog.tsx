@@ -82,7 +82,7 @@ export const REPORT_CATALOG: ReportCategoryDef[] = [
         shortDescription: 'Itens, quantidades e preços unitários, sem detalhamento de insumos.',
         longDescription: 'Visão resumida do orçamento: cada grupo e item da planilha com unidade, quantidade, preço unitário e total — sem abrir a composição de insumos.',
         icon: IconSintetica,
-        formats: ['xlsx'],
+        formats: ['xlsx', 'pdf'],
         kind: { type: 'planilha-sintetica' },
       },
       {
@@ -93,7 +93,6 @@ export const REPORT_CATALOG: ReportCategoryDef[] = [
         longDescription: 'Igual à Sintética, mas mostra também os insumos que compõem cada serviço. Pode ser exportada normal, decompondo sub-composições recursivamente, ou agrupada por tipo de insumo.',
         icon: IconAnalitica,
         formats: ['xlsx', 'pdf'],
-        pdfComingSoon: true,
         kind: { type: 'planilha-analitica' },
       },
       {

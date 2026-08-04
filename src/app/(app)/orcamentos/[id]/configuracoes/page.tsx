@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { ConfiguracoesView } from './configuracoes-view'
 import { PageHeader } from '@/components/ui/toolbar'
+import { getPavimentosByOrcamento } from '@/lib/orcamento/pavimentos'
 
 export default async function ConfiguracoesPage({
   params,
@@ -11,7 +12,7 @@ export default async function ConfiguracoesPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  const [{ data: orc }, { data: extra }, { data: servicos }, { data: grupos }] = await Promise.all([
+  const [{ data: orc }, { data: extra }, { data: servicos }, { data: grupos }, pavimentos] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, data, bdi_global, area_total, area_coberta, area_equivalente')
       .eq('id', orcamentoId)
@@ -30,6 +31,7 @@ export default async function ConfiguracoesPage({
       .eq('tipo', 'grupo')
       .is('parent_id', null)
       .order('ordem', { ascending: true }),
+    getPavimentosByOrcamento(supabase, orcamentoId),
   ])
 
   const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
@@ -52,6 +54,7 @@ export default async function ConfiguracoesPage({
         areaEquivalente={orc?.area_equivalente ?? null}
         numeracaoDigitos={extra?.numeracao_digitos ?? [1, 1, 1, 1]}
         servicosEstimados={(servicos ?? []).map((s: any) => ({ id: s.id, descricao: s.descricao, valor: s.valor }))}
+        pavimentos={pavimentos}
         gruposNivel1={gruposNivel1.map((g: any) => ({ numero: g.numero, descricao: g.descricao }))}
         categoriasGrafico={extra?.categorias_grafico ?? {}}
       />

@@ -71,6 +71,15 @@ export interface VersaoSnapshotV1 {
     valor: number
     ordem: number
   }[]
+  /** Opcional: snapshots gerados antes desse campo existir restauram sem pavimentos (áreas totais únicas continuam funcionando normalmente). */
+  pavimentos?: {
+    descricao: string
+    unidade: string
+    area_total: number
+    area_equivalente: number
+    area_coberta: number
+    ordem: number
+  }[]
 }
 
 export interface OrcamentoVersaoResumo {
@@ -126,7 +135,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
   if (orcErr) throw new Error(`Erro ao capturar orçamento: ${orcErr.message}`)
   if (planErr) throw new Error(`Erro ao capturar planilhas: ${planErr.message}`)
 
-  const [estrutura, composicoes, insumos, servicosEstimadosRows] = await Promise.all([
+  const [estrutura, composicoes, insumos, servicosEstimadosRows, pavimentosRows] = await Promise.all([
     fetchPaginado<VersaoSnapshotV1['estrutura'][number]>(
       sb, 'orcamento_estrutura',
       'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem',
@@ -148,8 +157,13 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
       .select('descricao, valor, ordem')
       .eq('orcamento_id', orcamentoId)
       .order('ordem'),
+    sb.from('orcamento_pavimentos')
+      .select('descricao, unidade, area_total, area_equivalente, area_coberta, ordem')
+      .eq('orcamento_id', orcamentoId)
+      .order('ordem'),
   ])
   if (servicosEstimadosRows.error) throw new Error(`Erro ao capturar serviços estimados: ${servicosEstimadosRows.error.message}`)
+  if (pavimentosRows.error) throw new Error(`Erro ao capturar pavimentos: ${pavimentosRows.error.message}`)
 
   return {
     formatVersion: 1,
@@ -171,6 +185,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
     composicoes,
     insumos,
     servicosEstimados: (servicosEstimadosRows.data ?? []) as VersaoSnapshotV1['servicosEstimados'],
+    pavimentos: (pavimentosRows.data ?? []) as VersaoSnapshotV1['pavimentos'],
   }
 }
 
@@ -356,6 +371,24 @@ async function restaurarServicosEstimados(
   if (error) throw new Error(`Erro ao restaurar serviços estimados: ${error.message}`)
 }
 
+async function restaurarPavimentos(
+  sb: any,
+  orcamentoId: string,
+  pavimentos: VersaoSnapshotV1['pavimentos']
+): Promise<void> {
+  const { error: delErr } = await sb.from('orcamento_pavimentos').delete().eq('orcamento_id', orcamentoId)
+  if (delErr) throw new Error(`Erro ao limpar pavimentos: ${delErr.message}`)
+  if (!pavimentos || pavimentos.length === 0) return
+
+  const { error } = await sb
+    .from('orcamento_pavimentos')
+    .insert(pavimentos.map(p => ({
+      orcamento_id: orcamentoId, descricao: p.descricao, unidade: p.unidade,
+      area_total: p.area_total, area_equivalente: p.area_equivalente, area_coberta: p.area_coberta, ordem: p.ordem,
+    })))
+  if (error) throw new Error(`Erro ao restaurar pavimentos: ${error.message}`)
+}
+
 /**
  * Sobrescreve campos de identidade do orçamento (nome/código/cliente) — usado
  * por "Criar novo orçamento desta versão", onde esses três campos vêm do
@@ -402,4 +435,5 @@ export async function aplicarSnapshot(
   await restaurarInsumos(sb, orcamentoId, snapshot.insumos, compIdMap)
   await restaurarEstrutura(sb, orcamentoId, snapshot.estrutura, planilhaIdMap)
   await restaurarServicosEstimados(sb, orcamentoId, snapshot.servicosEstimados)
+  await restaurarPavimentos(sb, orcamentoId, snapshot.pavimentos)
 }

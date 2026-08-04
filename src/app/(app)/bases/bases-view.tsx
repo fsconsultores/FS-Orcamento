@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { Trash2, Database, Building2, UploadCloud, RefreshCw } from 'lucide-react'
+import { Trash2, Database, Building2, UploadCloud, RefreshCw, Eye } from 'lucide-react'
 import { createBase, deleteBase, preencherPrecos } from './actions'
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
@@ -117,13 +117,18 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary-700">Base própria da empresa</p>
-              <p className="mt-0.5 truncate text-base font-semibold text-gray-900">{base.orgao}</p>
+              <Link href={`/bases/${base.id}` as any} className="mt-0.5 block truncate text-base font-semibold text-gray-900 hover:underline">
+                {base.orgao}
+              </Link>
               <p className="mt-0.5 text-sm text-gray-500">
                 {base.total_insumos.toLocaleString('pt-BR')} insumo(s) · {base.total_composicoes.toLocaleString('pt-BR')} composição(ões)
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <FavoriteButton entityType="base" entityId={base.id} initialFavorito={!!base.is_favorito} />
+              <Link href={`/bases/${base.id}` as any}>
+                <Button variant="outline" size="sm" icon={<Eye size={14} />}>Ver conteúdo</Button>
+              </Link>
               <Link href={`/bases/${base.id}/importar` as any}>
                 <Button variant="outline" size="sm" icon={<UploadCloud size={14} />}>Importar</Button>
               </Link>
@@ -193,7 +198,9 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
                   <Td>
                     <FavoriteButton entityType="base" entityId={base.id} initialFavorito={!!base.is_favorito} />
                   </Td>
-                  <Td className="font-medium text-gray-900">{base.orgao}</Td>
+                  <Td className="font-medium text-gray-900">
+                    <Link href={`/bases/${base.id}` as any} className="hover:underline">{base.orgao}</Link>
+                  </Td>
                   <Td className="text-right tabular-nums text-gray-700">
                     {base.total_insumos > 0 ? base.total_insumos.toLocaleString('pt-BR') : <span className="text-gray-300">—</span>}
                   </Td>
@@ -201,12 +208,20 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
                     {base.total_composicoes > 0 ? base.total_composicoes.toLocaleString('pt-BR') : <span className="text-gray-300">—</span>}
                   </Td>
                   <Td>
-                    <Link
-                      href={`/bases/${base.id}/importar` as any}
-                      className="text-xs font-medium text-primary-700 hover:underline"
-                    >
-                      Importar →
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/bases/${base.id}` as any}
+                        className="text-xs font-medium text-primary-700 hover:underline"
+                      >
+                        Ver conteúdo →
+                      </Link>
+                      <Link
+                        href={`/bases/${base.id}/importar` as any}
+                        className="text-xs font-medium text-primary-700 hover:underline"
+                      >
+                        Importar →
+                      </Link>
+                    </div>
                   </Td>
                   <Td>
                     <IconButton

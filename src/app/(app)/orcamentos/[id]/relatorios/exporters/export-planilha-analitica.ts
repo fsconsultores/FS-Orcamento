@@ -34,13 +34,15 @@ export function buildAnaliticaRows(data: CadernoData, opts: AnaliticaFilterState
   return filterAnaliticaRows(base, { categorias: opts.categorias, classesAbc: opts.classesAbc })
 }
 
-const TITULOS: Record<AnaliticaModo, string> = {
+// Exportados (não só locais) pra export-planilha-analitica-pdf.ts reaproveitar
+// os mesmos títulos/sufixos/formatação — mesmo relatório, dois formatos.
+export const TITULOS: Record<AnaliticaModo, string> = {
   normal: 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS',
   decomposta: 'PLANILHA ANALÍTICA DECOMPOSTA',
   agrupada: 'PLANILHA ANALÍTICA AGRUPADA POR TIPO DE INSUMO',
 }
 
-const SUFIXOS: Record<AnaliticaModo, string> = {
+export const SUFIXOS: Record<AnaliticaModo, string> = {
   normal: '_analitica',
   decomposta: '_analitica_decomposta',
   agrupada: '_analitica_agrupada',
@@ -48,7 +50,7 @@ const SUFIXOS: Record<AnaliticaModo, string> = {
 
 // data_cotacao é DATE puro ('AAAA-MM-DD') — evita passar por new Date() e
 // arriscar deslocar de fuso.
-function fmtDataCotacao(dataIso: string | null | undefined): string {
+export function fmtDataCotacao(dataIso: string | null | undefined): string {
   if (!dataIso) return ''
   const [ano, mes, dia] = dataIso.split('-')
   return `${dia}/${mes}/${ano}`

@@ -45,6 +45,9 @@ export async function atualizarPrecoInsumoAction(
       preco_anterior: atual?.custo ?? null,
       preco_novo: novoCusto,
       usuario: user?.email ?? null,
+      fornecedor: cotacao?.fornecedor?.trim() || null,
+      data_cotacao: cotacao?.dataCotacao || null,
+      observacoes: cotacao?.observacoes?.trim() || null,
     }).then(({ error }: any) => { if (error) console.error('[historico-preco]', error) })
   }
 

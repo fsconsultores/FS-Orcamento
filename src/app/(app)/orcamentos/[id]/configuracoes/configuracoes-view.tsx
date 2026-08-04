@@ -45,9 +45,18 @@ interface ServicoEstimadoForm {
   valor: string
 }
 
+interface PavimentoForm {
+  id?: string
+  descricao: string
+  unidade: string
+  area_total: string
+  area_equivalente: string
+  area_coberta: string
+}
+
 export function ConfiguracoesView({
   orcamentoId, nomeObra, codigo, cliente, local, dataOrcamento, bdiGlobal,
-  areaTotal, areaCoberta, areaEquivalente, numeracaoDigitos, servicosEstimados,
+  areaTotal, areaCoberta, areaEquivalente, numeracaoDigitos, servicosEstimados, pavimentos,
   gruposNivel1, categoriasGrafico,
 }: {
   orcamentoId: string
@@ -62,6 +71,7 @@ export function ConfiguracoesView({
   areaEquivalente: number | null
   numeracaoDigitos: number[]
   servicosEstimados: { id?: string; descricao: string; valor: number }[]
+  pavimentos: { id?: string; descricao: string; unidade: string; area_total: number; area_equivalente: number; area_coberta: number }[]
   gruposNivel1: { numero: string; descricao: string }[]
   categoriasGrafico: Record<string, string>
 }) {
@@ -78,6 +88,12 @@ export function ConfiguracoesView({
   })
   const [servicos, setServicos] = useState<ServicoEstimadoForm[]>(
     servicosEstimados.map(s => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
+  )
+  const [pavimentosForm, setPavimentosForm] = useState<PavimentoForm[]>(
+    pavimentos.map(p => ({
+      id: p.id, descricao: p.descricao, unidade: p.unidade,
+      area_total: String(p.area_total), area_equivalente: String(p.area_equivalente), area_coberta: String(p.area_coberta),
+    }))
   )
   const [digitos, setDigitos] = useState<number[]>(numeracaoDigitos.length > 0 ? numeracaoDigitos : [1, 1, 1, 1])
   const [categorias, setCategorias] = useState<Record<string, string>>(() => {
@@ -107,6 +123,21 @@ export function ConfiguracoesView({
 
   function removeServico(index: number) {
     setServicos(prev => prev.filter((_, i) => i !== index))
+    setSalvo(false)
+  }
+
+  function updatePavimento(index: number, field: keyof PavimentoForm, value: string) {
+    setPavimentosForm(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p))
+    setSalvo(false)
+  }
+
+  function addPavimento() {
+    setPavimentosForm(prev => [...prev, { descricao: '', unidade: 'M2', area_total: '', area_equivalente: '', area_coberta: '' }])
+    setSalvo(false)
+  }
+
+  function removePavimento(index: number) {
+    setPavimentosForm(prev => prev.filter((_, i) => i !== index))
     setSalvo(false)
   }
 
@@ -141,6 +172,17 @@ export function ConfiguracoesView({
       .map(s => ({ descricao: s.descricao.trim(), valor: parseFloat(s.valor.replace(',', '.')) || 0 }))
       .filter(s => s.descricao)
 
+    const pavimentosValidos = pavimentosForm
+      .map(p => ({
+        id: p.id,
+        descricao: p.descricao.trim(),
+        unidade: p.unidade.trim() || 'M2',
+        area_total: parseFloat(p.area_total.replace(',', '.')) || 0,
+        area_equivalente: parseFloat(p.area_equivalente.replace(',', '.')) || 0,
+        area_coberta: parseFloat(p.area_coberta.replace(',', '.')) || 0,
+      }))
+      .filter(p => p.descricao)
+
     startTransition(async () => {
       try {
         await salvarConfiguracoes(orcamentoId, {
@@ -156,6 +198,7 @@ export function ConfiguracoesView({
           numeracao_digitos: digitos,
           servicos_estimados: servicosValidos,
           categorias_grafico: categorias,
+          pavimentos: pavimentosValidos,
         })
         setSalvo(true)
       } catch (err) {
@@ -237,12 +280,49 @@ export function ConfiguracoesView({
         </div>
 
         <div className="grid grid-cols-3 gap-4">
-          <Input type="number" min="0" step="0.01" label="Área total (m²)" value={form.area_total} onChange={e => update('area_total', e.target.value)} />
-          <Input type="number" min="0" step="0.01" label="Área coberta (m²)" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} />
-          <Input type="number" min="0" step="0.01" label="Área equivalente (m²)" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} />
+          <Input type="number" min="0" step="0.01" label="Área total (m²)" value={form.area_total} onChange={e => update('area_total', e.target.value)} disabled={pavimentosForm.length > 0} />
+          <Input type="number" min="0" step="0.01" label="Área coberta (m²)" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} disabled={pavimentosForm.length > 0} />
+          <Input type="number" min="0" step="0.01" label="Área equivalente (m²)" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} disabled={pavimentosForm.length > 0} />
+        </div>
+        {pavimentosForm.length > 0 && (
+          <p className="text-xs text-gray-400 -mt-2">
+            Calculado automaticamente como a soma dos pavimentos abaixo — remova todos pra voltar a preencher manualmente.
+          </p>
+        )}
+
+        <div className="space-y-2 border-t border-gray-100 pt-4">
+          <div>
+            <label className={LABEL}>Pavimentos (opcional)</label>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Detalha a área por pavimento na tabela &quot;Custo/m²&quot; do Caderno (ex.: &quot;Restaurante e Cozinha —
+              Áreas Cobertas&quot;, &quot;Pátios Externos — Áreas Descobertas&quot;). Se cadastrado, as áreas totais acima
+              passam a ser a soma automática destes pavimentos.
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={addPavimento} className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline">
+              <Plus size={12} /> Adicionar pavimento
+            </button>
+          </div>
+          {pavimentosForm.length === 0 && (
+            <p className="text-xs text-gray-400">Nenhum pavimento cadastrado — usando as áreas totais preenchidas acima.</p>
+          )}
+          {pavimentosForm.map((p, i) => (
+            <div key={p.id ?? `new-${i}`} className="grid grid-cols-[1fr_repeat(3,7rem)_auto] items-end gap-2">
+              <Input value={p.descricao} onChange={e => updatePavimento(i, 'descricao', e.target.value)}
+                placeholder="Ex: Restaurante e Cozinha - Áreas Cobertas" />
+              <Input type="number" min="0" step="0.01" value={p.area_total} onChange={e => updatePavimento(i, 'area_total', e.target.value)}
+                placeholder="Área total" />
+              <Input type="number" min="0" step="0.01" value={p.area_equivalente} onChange={e => updatePavimento(i, 'area_equivalente', e.target.value)}
+                placeholder="Área equiv." />
+              <Input type="number" min="0" step="0.01" value={p.area_coberta} onChange={e => updatePavimento(i, 'area_coberta', e.target.value)}
+                placeholder="Área coberta" />
+              <IconButton label="Remover pavimento" icon={<X size={14} />} variant="outline" onClick={() => removePavimento(i)} />
+            </div>
+          ))}
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 border-t border-gray-100 pt-4">
           <div className="flex items-center justify-between">
             <label className={LABEL}>Serviços estimados (B)</label>
             <button type="button" onClick={addServico} className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline">

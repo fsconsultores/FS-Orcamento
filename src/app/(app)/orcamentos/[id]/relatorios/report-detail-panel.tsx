@@ -11,9 +11,12 @@ import { AnaliticaFilters } from './filters/analitica-filters'
 import { defaultAnaliticaFilterState, buildAnaliticaRows, exportPlanilhaAnaliticaXlsx } from './exporters/export-planilha-analitica'
 import { exportPlanilhaSinteticaXlsx, countPlanilhaSinteticaItens, previewPlanilhaSintetica } from './exporters/export-planilha-sintetica'
 import { exportCurvaAbcXlsx } from './exporters/export-curva-abc-xlsx'
+import { exportPlanilhaSinteticaPdf } from './exporters/export-planilha-sintetica-pdf'
+import { exportPlanilhaAnaliticaPdf } from './exporters/export-planilha-analitica-pdf'
 import { CadernoInfoForm } from './caderno-info-form'
+import { ServicosEstimadosModal } from './servicos-estimados-modal'
 import { Button } from '@/components/ui/button'
-import { Download } from 'lucide-react'
+import { Download, Settings2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
 
@@ -64,6 +67,12 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
   // aparecem em "(B) Serviços Estimados" no Resumo Geral, sem opção pra
   // desligar (mesmo tratamento dos itens "- Estimado").
   const [destacarNaAnalitica, setDestacarNaAnalitica] = useState(true)
+  // Quais serviços com insumo estimado aparecem em "(B) Serviços Estimados"
+  // NESTE Caderno — escolha só desta exportação, nunca salva no orçamento
+  // (a detecção em si é sempre automática, ver data.servicosComInsumoEstimado).
+  const [incluirServicosComInsumoEstimado, setIncluirServicosComInsumoEstimado] = useState(true)
+  const [servicosEstimadosOcultosIds, setServicosEstimadosOcultosIds] = useState<Set<string>>(new Set())
+  const [modalServicosAberto, setModalServicosAberto] = useState(false)
 
   const analiticaRows = useMemo(
     () => (report.kind.type === 'planilha-analitica' ? buildAnaliticaRows(data, analitica) : null),
@@ -75,12 +84,18 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
     setLoading(true); setError(null)
     try {
       if (report.kind.type === 'planilha-sintetica') {
-        await exportPlanilhaSinteticaXlsx(data)
+        if (formato === 'xlsx') await exportPlanilhaSinteticaXlsx(data)
+        else await exportPlanilhaSinteticaPdf(data)
       } else if (report.kind.type === 'planilha-analitica') {
-        await exportPlanilhaAnaliticaXlsx(data, analitica)
+        if (formato === 'xlsx') await exportPlanilhaAnaliticaXlsx(data, analitica)
+        else await exportPlanilhaAnaliticaPdf(data, analitica)
       } else if (report.kind.type === 'caderno') {
         const { exportCadernoPdf } = await import('../caderno/export-caderno-pdf')
-        await exportCadernoPdf(data, { destacarNaAnalitica })
+        await exportCadernoPdf(data, {
+          destacarNaAnalitica,
+          incluirServicosComInsumoEstimado,
+          servicosComInsumoEstimadoOcultos: [...servicosEstimadosOcultosIds],
+        })
       } else if (report.kind.type === 'curva-abc') {
         const items = getAbcItems(data, report.kind.tab)
         if (formato === 'xlsx') {
@@ -168,6 +183,32 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
                   <input type="checkbox" checked={destacarNaAnalitica} onChange={e => setDestacarNaAnalitica(e.target.checked)} className="accent-primary-600" />
                   Destacar insumos estimados na Planilha Analítica
                 </label>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={incluirServicosComInsumoEstimado}
+                      onChange={e => setIncluirServicosComInsumoEstimado(e.target.checked)}
+                      className="accent-primary-600"
+                    />
+                    Incluir Serviços com Preços Estimados
+                  </label>
+                  {incluirServicosComInsumoEstimado && data.servicosComInsumoEstimado.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setModalServicosAberto(true)}
+                      className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline"
+                    >
+                      <Settings2 size={12} /> Configurar…
+                    </button>
+                  )}
+                </div>
+                {incluirServicosComInsumoEstimado && data.servicosComInsumoEstimado.length > 0 && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    {data.servicosComInsumoEstimado.length - servicosEstimadosOcultosIds.size} de {data.servicosComInsumoEstimado.length} serviço(s) selecionado(s)
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -208,6 +249,14 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       </div>
+
+      <ServicosEstimadosModal
+        open={modalServicosAberto}
+        onClose={() => setModalServicosAberto(false)}
+        servicos={data.servicosComInsumoEstimado}
+        ocultosIds={servicosEstimadosOcultosIds}
+        onChange={setServicosEstimadosOcultosIds}
+      />
     </div>
   )
 }

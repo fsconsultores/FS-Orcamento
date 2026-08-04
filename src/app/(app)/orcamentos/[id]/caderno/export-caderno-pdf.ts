@@ -163,7 +163,10 @@ function addSectionBanner(doc: jsPDF, margin: number, contentW: number, numero: 
 
 // ─── Seção: Resumo Geral do Orçamento ────────────────────────────────────────
 
-async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
+async function drawResumoGeralSection(
+  doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string,
+  incluirServicosComInsumoEstimado: boolean, servicosComInsumoEstimadoOcultos: Set<string>
+) {
   const { autoTable } = await import('jspdf-autotable')
 
   doc.addPage()
@@ -221,12 +224,25 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
   doc.text(fmt(B), margin + leftW - 3, yLeft + 5.5, { align: 'right' })
   yLeft += 8
 
-  if (data.servicosEstimados.length > 0) {
+  // Filtra só a LISTAGEM — o total (B) acima sempre reflete o valor real,
+  // completo, independente do que fica visível aqui. Só linhas com `id`
+  // (serviço com insumo de preço estimado, ver ServicoComInsumoEstimado)
+  // podem ser ocultadas — itens "- Estimado" sem insumo e os manuais
+  // (orcamento_servicos_estimados) não têm essa opção, sempre aparecem.
+  // Escolha feita na hora de gerar o relatório (Relatórios > Caderno >
+  // "Configurar..."), nunca salva no orçamento.
+  const servicosVisiveis = data.servicosEstimados.filter(s => {
+    if (!s.id) return true
+    if (!incluirServicosComInsumoEstimado) return false
+    return !servicosComInsumoEstimadoOcultos.has(s.id)
+  })
+
+  if (servicosVisiveis.length > 0) {
     autoTable(doc, {
       startY: yLeft,
       margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
       head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-      body: data.servicosEstimados.map(s => [s.descricao, fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0)]),
+      body: servicosVisiveis.map(s => [s.descricao, fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0)]),
       foot: [['TOTAL', fmt(B), '100,00%']],
       showFoot: 'lastPage',
       styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
@@ -242,7 +258,12 @@ async function drawResumoGeralSection(doc: jsPDF, data: CadernoData, margin: num
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(PDF_COLORS.textGray)
-    doc.text('Nenhum serviço estimado cadastrado.', margin + 3, yLeft + 5)
+    doc.text(
+      data.servicosEstimados.length === 0
+        ? 'Nenhum serviço estimado cadastrado.'
+        : 'Nenhum serviço estimado selecionado para exibição nesta exportação.',
+      margin + 3, yLeft + 5
+    )
   }
 
   // ── Coluna direita: KPI cards ──────────────────────────────────────────────
@@ -324,21 +345,37 @@ async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number,
   }
 
   // ── Tabela de áreas ─────────────────────────────────────────────────────────
+  // Com pavimentos cadastrados (Configurações), uma linha por pavimento +
+  // uma linha de soma "ÁREA TOTAL:" (colSpan nas 2 primeiras colunas, igual
+  // ao modelo de referência). Sem pavimentos, mantém o comportamento de
+  // sempre: uma única linha "ÁREA TOTAL:" com os campos únicos do orçamento
+  // (que já são a mesma coisa que a soma, quando há pavimentos — ver
+  // getCadernoData).
+  const temPavimentos = data.pavimentos.length > 0
+  const linhaTotal = [
+    'ÁREA TOTAL:',
+    'M²',
+    area_total != null ? fmtQtd(area_total) : '—',
+    area_equivalente != null ? fmtQtd(area_equivalente) : '—',
+    area_coberta != null ? fmtQtd(area_coberta) : '—',
+  ]
+
   y += 4
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     head: [['PAVIMENTO', 'UN', 'ÁREA TOTAL', 'ÁREA EQUIVALENTE', 'ÁREAS COBERTAS']],
-    body: [[
-      'ÁREA TOTAL:',
-      'M²',
-      area_total != null ? fmtQtd(area_total) : '—',
-      area_equivalente != null ? fmtQtd(area_equivalente) : '—',
-      area_coberta != null ? fmtQtd(area_coberta) : '—',
-    ]],
+    body: temPavimentos
+      ? data.pavimentos.map(p => [p.descricao, p.unidade, fmtQtd(p.area_total), fmtQtd(p.area_equivalente), fmtQtd(p.area_coberta)])
+      : [linhaTotal],
+    foot: temPavimentos ? [[{ content: 'ÁREA TOTAL:', colSpan: 2 }, ...linhaTotal.slice(2)]] as RowInput[] : undefined,
+    showFoot: temPavimentos ? 'lastPage' : undefined,
     styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', halign: 'right', lineColor: '#cbd5e1', lineWidth: 0.1 },
     headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
-    bodyStyles: { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
+    bodyStyles: temPavimentos
+      ? { fillColor: '#ffffff', textColor: '#1f2937', fontStyle: 'normal' }
+      : { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
+    footStyles: { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
     columnStyles: {
       0: { halign: 'left' },
       1: { halign: 'center' },
@@ -643,6 +680,10 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
 export interface ExportCadernoOptions {
   /** Default true — colore de âmbar as linhas de insumo estimado na Planilha Analítica (8.0). */
   destacarNaAnalitica?: boolean
+  /** Default true — inclui a listagem de serviços com insumo de preço estimado em "(B) Serviços Estimados" (3.0). O total (B) nunca muda — só afeta quais linhas aparecem. */
+  incluirServicosComInsumoEstimado?: boolean
+  /** IDs (orcamento_estrutura.id) de serviços com insumo estimado a ocultar da listagem — escolha feita no modal "Configurar..." (Relatórios), nunca salva no orçamento. Só tem efeito se incluirServicosComInsumoEstimado !== false. */
+  servicosComInsumoEstimadoOcultos?: string[]
 }
 
 export async function exportCadernoPdf(data: CadernoData, options: ExportCadernoOptions = {}) {
@@ -680,7 +721,11 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   // reúne tanto itens "- Estimado" quanto serviços com insumo de preço
   // estimado na cotação (ver detectarEstimados em getCadernoData).
   divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
-  await drawResumoGeralSection(doc, data, margin, contentW, subtitle, '3.0')
+  await drawResumoGeralSection(
+    doc, data, margin, contentW, subtitle, '3.0',
+    options.incluirServicosComInsumoEstimado ?? true,
+    new Set(options.servicosComInsumoEstimadoOcultos ?? []),
+  )
 
   // 4.0 Custo / m²
   divider('4.0', 'CUSTO / M²', 'Áreas e Indicadores de Custo')

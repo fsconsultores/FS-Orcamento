@@ -71,6 +71,9 @@ interface HistoricoPreco {
   preco_novo: number
   usuario: string | null
   created_at: string
+  fornecedor: string | null
+  data_cotacao: string | null
+  observacoes: string | null
 }
 
 interface HistoricoModal {
@@ -133,22 +136,23 @@ function fmtMoedaCompacta(v: number): string {
  * preço original antes dela. Se o primeiro registro tem preco_anterior, ele
  * vira um ponto extra no início (mesma data, valor anterior).
  */
-function construirDadosGrafico(historico: HistoricoPreco[]): { created_at: string; preco_novo: number }[] {
+function construirDadosGrafico(historico: HistoricoPreco[]): { created_at: string; preco_novo: number; fornecedor: string | null }[] {
   const asc = [...historico].reverse()
   const primeiro = asc[0]
   if (primeiro && primeiro.preco_anterior != null) {
-    return [{ created_at: primeiro.created_at, preco_novo: primeiro.preco_anterior }, ...asc]
+    return [{ created_at: primeiro.created_at, preco_novo: primeiro.preco_anterior, fornecedor: null }, ...asc]
   }
   return asc
 }
 
 function HistoricoChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
-  const p = payload[0].payload as { created_at: string; preco_novo: number }
+  const p = payload[0].payload as { created_at: string; preco_novo: number; fornecedor: string | null }
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
       <p className="font-medium text-gray-800">{fmtDataHora(p.created_at)}</p>
       <p className="mt-0.5 tabular-nums text-gray-500">{fmtMoeda(p.preco_novo)}</p>
+      {p.fornecedor && <p className="mt-0.5 text-gray-400">{p.fornecedor}</p>}
     </div>
   )
 }
@@ -296,6 +300,25 @@ export function OrcamentoInsumosTable({
     () => historicoModal ? construirDadosGrafico(historicoModal.historico) : [],
     [historicoModal]
   )
+
+  // domain=['auto','auto'] deixa o Recharts escolher limites "redondos" pro
+  // eixo Y — em variações pequenas (ex.: 150 → 151), isso costuma abrir um
+  // range bem maior que os dados reais (ex.: 0-200), deixando a variação
+  // visualmente imperceptível mesmo com os pontos corretos. Calculando o
+  // domínio a partir do min/max real dos dados (+ margem proporcional), a
+  // variação sempre fica visível, não importa a magnitude do preço.
+  const chartYDomain = useMemo((): [number, number] => {
+    if (chartData.length === 0) return [0, 1]
+    const valores = chartData.map(d => d.preco_novo)
+    const min = Math.min(...valores)
+    const max = Math.max(...valores)
+    if (min === max) {
+      const pad = Math.max(min * 0.05, 0.01)
+      return [min - pad, max + pad]
+    }
+    const pad = (max - min) * 0.15
+    return [min - pad, max + pad]
+  }, [chartData])
 
   function toggleSort(field: SortField) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -451,7 +474,7 @@ export function OrcamentoInsumosTable({
     const sb = createClient() as any
     const [{ data, error }, { data: cotacoesData, error: cotacoesErr }] = await Promise.all([
       sb.from('orcamento_insumo_historico_precos')
-        .select('id, preco_anterior, preco_novo, usuario, created_at')
+        .select('id, preco_anterior, preco_novo, usuario, created_at, fornecedor, data_cotacao, observacoes')
         .eq('orcamento_id', orcamentoId)
         .eq('codigo', insumo.codigo)
         .is('deleted_at', null)
@@ -1072,7 +1095,8 @@ export function OrcamentoInsumosTable({
                         axisLine={false}
                         width={64}
                         tick={{ fontSize: 11, fill: '#9ca3af' }}
-                        domain={['auto', 'auto']}
+                        domain={chartYDomain}
+                        allowDecimals
                       />
                       <Tooltip content={<HistoricoChartTooltip />} cursor={{ stroke: '#e5e7eb' }} />
                       <Line
@@ -1095,6 +1119,7 @@ export function OrcamentoInsumosTable({
                     <th className="px-3 py-2.5 text-right font-medium text-gray-600">Anterior</th>
                     <th className="px-3 py-2.5 text-right font-medium text-gray-600">Novo</th>
                     <th className="px-3 py-2.5 text-right font-medium text-gray-600">Var.</th>
+                    <th className="px-3 py-2.5 text-left font-medium text-gray-600">Fornecedor</th>
                     <th className="px-3 py-2.5 text-left font-medium text-gray-600">Usuário</th>
                     <th className="sticky right-0 top-0 w-8 bg-gray-50 px-1 py-2.5" />
                   </tr>
@@ -1119,6 +1144,9 @@ export function OrcamentoInsumosTable({
                           {pct != null
                             ? `${diff > 0 ? '+' : ''}${pct.toFixed(1)}%`
                             : h.preco_anterior == null ? 'novo' : '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-500 text-xs truncate max-w-[110px]" title={h.observacoes ?? undefined}>
+                          {h.fornecedor ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-2.5 text-gray-500 text-xs truncate max-w-[90px]" title={h.usuario ?? undefined}>
                           {h.usuario ?? '—'}
