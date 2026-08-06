@@ -48,8 +48,29 @@ export async function importarInsumos(
   const supabase = await createClient()
   const sb = supabase as any
   const result: ImportResult = { composicoesCriadas: 0, insumosCriados: 0, erros: [] }
+  const { data: { user } } = await supabase.auth.getUser()
 
   const allCodigos = insumos.map(ins => ins.codigo)
+
+  // 0. Preço atual dos avulsos que serão sobrescritos — precisa ser lido ANTES
+  //    do delete abaixo. Usado depois do insert para registrar em
+  //    orcamento_insumo_historico_precos os códigos que já existiam e mudaram
+  //    de preço nesta importação: reimportar uma base (ou reenviar a planilha
+  //    de Insumos Avulsos) também é uma forma de atualizar preço, e até agora
+  //    só a edição manual (atualizar-preco-insumo-action.ts) gravava histórico
+  //    — uma reimportação apagava e recriava a linha em silêncio.
+  const custoAntigoMap = new Map<string, number>()
+  for (let i = 0; i < allCodigos.length; i += 500) {
+    const { data: existentes } = await sb
+      .from('orcamento_insumos')
+      .select('codigo, custo')
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .in('codigo', allCodigos.slice(i, i + 500))
+    for (const row of (existentes ?? []) as { codigo: string; custo: number }[]) {
+      custoAntigoMap.set(row.codigo, row.custo)
+    }
+  }
 
   // 1. Apagar avulsos existentes com o mesmo código (importados têm prioridade)
   for (let i = 0; i < allCodigos.length; i += 500) {
@@ -68,7 +89,6 @@ export async function importarInsumos(
   const comCotacao = insumos.filter(ins => ins.fornecedor || ins.data_cotacao)
   const cotacaoIdByCodigo = new Map<string, string>()
   if (comCotacao.length > 0) {
-    const { data: { user } } = await supabase.auth.getUser()
     const codigosComCotacao = comCotacao.map(ins => ins.codigo)
     for (let i = 0; i < codigosComCotacao.length; i += 500) {
       await sb.from('orcamento_insumo_cotacoes')
@@ -120,6 +140,27 @@ export async function importarInsumos(
     } else {
       result.insumosCriados += Math.min(500, rows.length - i)
     }
+  }
+
+  // 2.1 Histórico de preço — só para códigos que já existiam antes desta
+  //     importação (custoAntigoMap) e cujo preço mudou. Insumos totalmente
+  //     novos não geram entrada aqui (evita ruído: importar uma base inteira
+  //     não deveria criar milhares de linhas "novo" no histórico).
+  const historicoRows = insumos
+    .filter(ins => custoAntigoMap.has(ins.codigo) && custoAntigoMap.get(ins.codigo) !== ins.custo)
+    .map(ins => ({
+      orcamento_id: orcamentoId,
+      codigo: ins.codigo,
+      preco_anterior: custoAntigoMap.get(ins.codigo)!,
+      preco_novo: ins.custo,
+      usuario: user?.email ?? null,
+      fornecedor: ins.fornecedor?.trim() || null,
+      data_cotacao: ins.data_cotacao || null,
+      observacoes: ins.base ? `Atualizado via importação (base: ${ins.base})` : 'Atualizado via importação',
+    }))
+  for (let i = 0; i < historicoRows.length; i += 500) {
+    const { error } = await sb.from('orcamento_insumo_historico_precos').insert(historicoRows.slice(i, i + 500))
+    if (error) result.erros.push(`Histórico de preço lote ${i / 500 + 1}: ${error.message}`)
   }
 
   // 3. Propagar custo para insumos de composições com o mesmo código (paralelo)

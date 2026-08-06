@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { recalcularComposicaoAction } from '../../planilha/calcular-action'
-import { atualizarPrecoInsumoAction } from '../../atualizar-preco-insumo-action'
+import { atualizarInsumoComposicaoAction } from '../../atualizar-insumo-composicao-action'
 import { EstimadoBadge } from '@/components/estimado-badge'
+import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 
 type InsumoRow = {
   id: string
@@ -18,6 +19,9 @@ type InsumoRow = {
   grupo: string | null
   estimado: boolean
   estimado_motivo: string | null
+  fornecedor: string | null
+  data_cotacao: string | null
+  cotacao_observacoes: string | null
 }
 
 type Composicao = {
@@ -163,8 +167,7 @@ export function ComposicaoDetail({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
-  const [editingPrecoId, setEditingPrecoId] = useState<string | null>(null)
-  const [precoDraft, setPrecoDraft] = useState('')
+  const [cotacaoModal, setCotacaoModal] = useState<InsumoRow | null>(null)
   const [adding, setAdding] = useState(autoOpenAdd)
   const [saving, setSaving] = useState(false)
   const [addTipo, setAddTipo] = useState<'insumo' | 'composicao'>('insumo')
@@ -212,22 +215,41 @@ export function ComposicaoDetail({
     sincronizar()
   }
 
-  async function handleSavePreco(id: string) {
-    const val = parseFloat(precoDraft.replace(',', '.'))
-    setEditingPrecoId(null)
-    if (isNaN(val) || val < 0) return
-    const ins = insumos.find(i => i.id === id)
-    if (!ins || !ins.codigo || val === ins.custo) return
+  function abrirCotacaoModal(ins: InsumoRow) {
+    if (!ins.codigo || ins.grupo === 'COMPOSIÇÃO AUXILIAR') return
+    setCotacaoModal(ins)
+  }
+
+  /**
+   * Preço sincroniza pra todas as cópias do mesmo código no orçamento (é a
+   * mesma tabela de preços) — mas fornecedor/data/observações/estimado ficam
+   * só nesta linha (atualizarInsumoComposicaoAction, ver comentário lá):
+   * é o que permite um insumo estar "estimado" numa composição e confirmado
+   * em outra.
+   */
+  async function handleSalvarCotacao(payload: CotacaoSalva) {
+    if (!cotacaoModal) return
+    const ins = cotacaoModal
     const custoAnterior = ins.custo
-    setInsumos(prev => prev.map(i => i.codigo === ins.codigo ? { ...i, custo: val } : i))
+    const estadoAnterior = { estimado: ins.estimado, estimado_motivo: ins.estimado_motivo, fornecedor: ins.fornecedor, data_cotacao: ins.data_cotacao, cotacao_observacoes: ins.cotacao_observacoes }
+    setInsumos(prev => prev.map(i => {
+      if (i.id === ins.id) {
+        return { ...i, custo: payload.preco, estimado: payload.estimado, estimado_motivo: payload.estimadoMotivo, fornecedor: payload.fornecedor, data_cotacao: payload.dataCotacao, cotacao_observacoes: payload.observacoes }
+      }
+      if (i.codigo === ins.codigo) return { ...i, custo: payload.preco }
+      return i
+    }))
     try {
-      await atualizarPrecoInsumoAction(orcamentoId, ins.codigo, val, {
-        descricao: ins.descricao, unidade: ins.unidade, grupo: ins.grupo,
-      })
+      await atualizarInsumoComposicaoAction(orcamentoId, ins.id, ins.codigo, payload.preco, payload)
+      setCotacaoModal(null)
       sincronizar()
     } catch (err) {
-      setInsumos(prev => prev.map(i => i.codigo === ins.codigo ? { ...i, custo: custoAnterior } : i))
-      alert(`Erro ao atualizar preço: ${err instanceof Error ? err.message : String(err)}`)
+      setInsumos(prev => prev.map(i => {
+        if (i.id === ins.id) return { ...i, custo: custoAnterior, ...estadoAnterior }
+        if (i.codigo === ins.codigo) return { ...i, custo: custoAnterior }
+        return i
+      }))
+      alert(`Erro ao atualizar preço/cotação: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -262,7 +284,6 @@ export function ComposicaoDetail({
 
   function handleConcluir() {
     if (editingId) handleSaveIndice(editingId)
-    if (editingPrecoId) handleSavePreco(editingPrecoId)
     startTransition(() => {
       router.push(`/orcamentos/${orcamentoId}/composicoes` as any)
     })
@@ -399,7 +420,7 @@ export function ComposicaoDetail({
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Preço unit.</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Índice</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Custo</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Preço estimado — definido na cotação do insumo, na aba Insumos">Estim.</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Preço estimado nesta composição — clique no preço ou aqui pra editar">Estim.</th>
                 <th className="px-4 py-3 w-10" />
               </tr>
             </thead>
@@ -417,22 +438,10 @@ export function ComposicaoDetail({
                       <span className="tabular-nums text-gray-600" title="Preço herdado do custo unitário da sub-composição">
                         {BRL(ins.custo ?? 0)}
                       </span>
-                    ) : editingPrecoId === ins.id ? (
-                      <input
-                        autoFocus type="number" step="any" min="0"
-                        value={precoDraft}
-                        onChange={e => setPrecoDraft(e.target.value)}
-                        onBlur={() => handleSavePreco(ins.id)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleSavePreco(ins.id)
-                          if (e.key === 'Escape') setEditingPrecoId(null)
-                        }}
-                        className="w-full text-right border border-blue-400 rounded px-1.5 py-0.5 text-sm focus:outline-none"
-                      />
                     ) : (
                       <button
-                        onClick={() => { setEditingPrecoId(ins.id); setPrecoDraft(String(ins.custo ?? 0)) }}
-                        title="Clique para editar o preço — atualiza em todo o orçamento"
+                        onClick={() => abrirCotacaoModal(ins)}
+                        title="Clique para editar preço e cotação — preço atualiza em todo o orçamento, estimado fica só nesta composição"
                         className="block w-full text-right tabular-nums text-gray-600 hover:text-blue-600 hover:underline cursor-text"
                       >
                         {BRL(ins.custo ?? 0)}
@@ -466,7 +475,13 @@ export function ComposicaoDetail({
                     {BRL((ins.custo ?? 0) * (ins.indice ?? 1))}
                   </td>
                   <td className="px-2 py-2.5 text-center">
-                    <EstimadoBadge estimado={ins.estimado} estimadoMotivo={ins.estimado_motivo} />
+                    {ins.grupo === 'COMPOSIÇÃO AUXILIAR' ? (
+                      <EstimadoBadge estimado={ins.estimado} estimadoMotivo={ins.estimado_motivo} />
+                    ) : (
+                      <button onClick={() => abrirCotacaoModal(ins)} title="Clique para marcar/desmarcar como estimado nesta composição">
+                        <EstimadoBadge estimado={ins.estimado} estimadoMotivo={ins.estimado_motivo} />
+                      </button>
+                    )}
                   </td>
                   <td className="px-2 py-2.5">
                     <button
@@ -507,6 +522,18 @@ export function ComposicaoDetail({
           Salvar e voltar
         </button>
       </div>
+
+      {/* Modal de preço + cotação — compartilhado com a aba Insumos (ver
+          cotacao-insumo-modal.tsx). "estimado" salvo aqui fica só nesta
+          composição, nunca sincroniza pras outras cópias do mesmo código. */}
+      {cotacaoModal && (
+        <CotacaoInsumoModal
+          alvo={cotacaoModal}
+          onClose={() => setCotacaoModal(null)}
+          onSave={handleSalvarCotacao}
+          escopoComposicaoLabel={composicao.descricao}
+        />
+      )}
     </div>
   )
 }

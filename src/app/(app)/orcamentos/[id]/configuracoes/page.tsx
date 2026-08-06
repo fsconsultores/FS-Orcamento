@@ -26,7 +26,7 @@ export default async function ConfiguracoesPage({
       .eq('orcamento_id', orcamentoId)
       .order('ordem', { ascending: true }),
     sb.from('orcamento_estrutura')
-      .select('numero, descricao')
+      .select('numero, descricao, estimado')
       .eq('orcamento_id', orcamentoId)
       .eq('tipo', 'grupo')
       .is('parent_id', null)
@@ -34,8 +34,7 @@ export default async function ConfiguracoesPage({
     getPavimentosByOrcamento(supabase, orcamentoId),
   ])
 
-  const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
-  const gruposNivel1 = (grupos ?? []).filter((g: any) => !ESTIMADO_RE.test(g.descricao))
+  const gruposNivel1 = (grupos ?? []).filter((g: any) => !g.estimado)
 
   return (
     <div className="space-y-5">

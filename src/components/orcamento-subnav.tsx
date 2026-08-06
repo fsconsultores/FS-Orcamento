@@ -13,6 +13,7 @@ const TABS = [
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'curva-abc', label: 'Curva ABC' },
+  { suffix: 'estimados', label: 'Estimados' },
   { suffix: 'relatorios', label: 'Relatórios' },
   { suffix: 'importar', label: 'Importar' },
   { suffix: 'versoes', label: 'Versões' },

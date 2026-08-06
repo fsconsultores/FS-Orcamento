@@ -28,6 +28,35 @@ export async function createBase(orgao: string): Promise<{ id: string } | { erro
   return { id: data.id }
 }
 
+export async function renomearBase(baseId: string, novoNome: string): Promise<{ error?: string }> {
+  const nome = novoNome.trim()
+  if (!nome) return { error: 'Nome obrigatório.' }
+  const supabase = await createClient()
+  const sb = supabase as any
+  const user = await getUser(supabase)
+  if (!user) return { error: 'Não autenticado.' }
+
+  const { data: atual } = await sb.from('tabela_bases').select('orgao').eq('id', baseId).single()
+
+  // `nome` e `orgao` sempre andam juntos (ver createBase) — orgao é o que
+  // toda a UI exibe (bases-view.tsx), nome existe por simetria com o resto
+  // do schema, sem uso próprio hoje.
+  const { error } = await sb.from('tabela_bases').update({ nome, orgao: nome }).eq('id', baseId)
+  if (error) return { error: error.message }
+
+  revalidatePath('/bases')
+  revalidatePath(`/bases/${baseId}`)
+  registrarHistorico(supabase, {
+    entidade: 'base',
+    tipo: 'sucesso',
+    acao: 'renomear_base',
+    mensagem: `Base renomeada de "${atual?.orgao ?? '—'}" para "${nome}"`,
+    valorAnterior: atual ?? undefined,
+    valorNovo: { orgao: nome },
+  }).catch(console.error)
+  return {}
+}
+
 export async function preencherPrecos(
   minhaBaseId: string,
   referenciaBaseId: string

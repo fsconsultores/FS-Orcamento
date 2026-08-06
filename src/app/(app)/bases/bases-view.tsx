@@ -2,8 +2,8 @@
 
 import React, { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { Trash2, Database, Building2, UploadCloud, RefreshCw, Eye } from 'lucide-react'
-import { createBase, deleteBase, preencherPrecos } from './actions'
+import { Trash2, Database, Building2, UploadCloud, RefreshCw, Eye, Pencil } from 'lucide-react'
+import { createBase, deleteBase, preencherPrecos, renomearBase } from './actions'
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Button, IconButton } from '@/components/ui/button'
@@ -34,6 +34,28 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
   const [confirmDelete, setConfirmDelete] = useState<Base | null>(null)
   const [isPending, startTransition] = useTransition()
   const [preencher, setPreencher] = useState<PreencherState | null>(null)
+  const [renomeando, setRenomeando] = useState<string | null>(null)
+  const [renomeDraft, setRenomeDraft] = useState('')
+  const [renomeSalvando, setRenomeSalvando] = useState(false)
+
+  function iniciarRename(base: Base) {
+    setRenomeando(base.id)
+    setRenomeDraft(base.orgao)
+  }
+
+  async function confirmarRename(base: Base) {
+    const novoNome = renomeDraft.trim()
+    if (!novoNome || novoNome === base.orgao) { setRenomeando(null); return }
+    setRenomeSalvando(true)
+    const result = await renomearBase(base.id, novoNome)
+    if (result.error) {
+      toast.show(`Não foi possível renomear: ${result.error}`, 'error')
+    } else {
+      setBases(prev => prev.map(b => b.id === base.id ? { ...b, nome: novoNome, orgao: novoNome } : b))
+      setRenomeando(null)
+    }
+    setRenomeSalvando(false)
+  }
 
   const basesProprias = bases.filter(b => b.tipo_base === 'propria')
   const basesExternas = bases.filter(b => b.tipo_base !== 'propria')
@@ -115,11 +137,29 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-700 text-white">
               <Building2 size={20} />
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="group min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary-700">Base própria da empresa</p>
-              <Link href={`/bases/${base.id}` as any} className="mt-0.5 block truncate text-base font-semibold text-gray-900 hover:underline">
-                {base.orgao}
-              </Link>
+              {renomeando === base.id ? (
+                <input
+                  autoFocus
+                  value={renomeDraft}
+                  onChange={e => setRenomeDraft(e.target.value)}
+                  onBlur={() => confirmarRename(base)}
+                  onKeyDown={e => { if (e.key === 'Enter') confirmarRename(base); if (e.key === 'Escape') setRenomeando(null) }}
+                  disabled={renomeSalvando}
+                  className="mt-0.5 block w-full max-w-xs rounded border border-blue-400 px-1.5 py-0.5 text-base font-semibold text-gray-900 outline-none ring-2 ring-blue-400/20"
+                />
+              ) : (
+                <span className="mt-0.5 flex items-center gap-1.5">
+                  <Link href={`/bases/${base.id}` as any} className="truncate text-base font-semibold text-gray-900 hover:underline">
+                    {base.orgao}
+                  </Link>
+                  <button onClick={() => iniciarRename(base)} title="Renomear base"
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity">
+                    <Pencil size={13} />
+                  </button>
+                </span>
+              )}
               <p className="mt-0.5 text-sm text-gray-500">
                 {base.total_insumos.toLocaleString('pt-BR')} insumo(s) · {base.total_composicoes.toLocaleString('pt-BR')} composição(ões)
               </p>
@@ -138,7 +178,7 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
                   className="!border-secondary-300 !bg-secondary-50 !text-secondary-700 hover:!bg-secondary-100"
                   onClick={() => setPreencher(
                     preencher?.baseId === base.id ? null :
-                    { baseId: base.id, referenciaId: basesExternas[0].id, loading: false, resultado: null }
+                      { baseId: base.id, referenciaId: basesExternas[0].id, loading: false, resultado: null }
                   )}
                 >
                   Preencher preços
@@ -199,7 +239,25 @@ export function BasesView({ bases: initialBases }: { bases: Base[] }) {
                     <FavoriteButton entityType="base" entityId={base.id} initialFavorito={!!base.is_favorito} />
                   </Td>
                   <Td className="font-medium text-gray-900">
-                    <Link href={`/bases/${base.id}` as any} className="hover:underline">{base.orgao}</Link>
+                    {renomeando === base.id ? (
+                      <input
+                        autoFocus
+                        value={renomeDraft}
+                        onChange={e => setRenomeDraft(e.target.value)}
+                        onBlur={() => confirmarRename(base)}
+                        onKeyDown={e => { if (e.key === 'Enter') confirmarRename(base); if (e.key === 'Escape') setRenomeando(null) }}
+                        disabled={renomeSalvando}
+                        className="block w-full max-w-[220px] rounded border border-blue-400 px-1.5 py-0.5 text-sm outline-none ring-2 ring-blue-400/20"
+                      />
+                    ) : (
+                      <span className="group flex items-center gap-1.5">
+                        <Link href={`/bases/${base.id}` as any} className="hover:underline">{base.orgao}</Link>
+                        <button onClick={() => iniciarRename(base)} title="Renomear base"
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity">
+                          <Pencil size={12} />
+                        </button>
+                      </span>
+                    )}
                   </Td>
                   <Td className="text-right tabular-nums text-gray-700">
                     {base.total_insumos > 0 ? base.total_insumos.toLocaleString('pt-BR') : <span className="text-gray-300">—</span>}

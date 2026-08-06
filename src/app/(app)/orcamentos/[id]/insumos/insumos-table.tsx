@@ -13,7 +13,7 @@ import { ClientPagination } from '@/components/client-pagination'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Truck, CalendarDays } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
-import { MOTIVOS_ESTIMADO_PRESET, OUTRO_ESTIMADO_SENTINEL } from '@/lib/orcamento/estimado-motivos'
+import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
@@ -41,17 +41,6 @@ interface Editing {
   id: string
   field: EditableField
   value: string
-}
-
-interface CotacaoModalState {
-  insumo: OrcamentoInsumo
-  preco: string
-  fornecedor: string
-  dataCotacao: string
-  observacoes: string
-  estimado: boolean
-  motivoSelecionado: string
-  motivoTextoLivre: string
 }
 
 type SortField = 'fornecedor' | 'data_cotacao' | 'custo'
@@ -247,8 +236,7 @@ export function OrcamentoInsumosTable({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [composicoesModal, setComposicoesModal] = useState<ComposicoesModal | null>(null)
   const [historicoModal, setHistoricoModal] = useState<HistoricoModal | null>(null)
-  const [cotacaoModal, setCotacaoModal] = useState<CotacaoModalState | null>(null)
-  const [salvandoCotacao, setSalvandoCotacao] = useState(false)
+  const [cotacaoModal, setCotacaoModal] = useState<OrcamentoInsumo | null>(null)
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [filtroCotacao, setFiltroCotacao] = useState<FiltroCotacao>('todos')
@@ -345,58 +333,34 @@ export function OrcamentoInsumosTable({
       alert('Este insumo não tem código cadastrado, então não é possível editar o preço/cotação por aqui. Exclua esta linha e recadastre o insumo com um código válido.')
       return
     }
-    const motivoAtual = insumo.estimado_motivo ?? null
-    const motivoEhPreset = motivoAtual && (MOTIVOS_ESTIMADO_PRESET as readonly string[]).includes(motivoAtual)
-    setCotacaoModal({
-      insumo,
-      preco: String(insumo.custo || ''),
-      fornecedor: insumo.fornecedor ?? '',
-      dataCotacao: insumo.data_cotacao ?? hojeISO(),
-      observacoes: insumo.cotacao_observacoes ?? '',
-      estimado: insumo.estimado ?? false,
-      motivoSelecionado: motivoEhPreset ? motivoAtual! : (motivoAtual ? OUTRO_ESTIMADO_SENTINEL : MOTIVOS_ESTIMADO_PRESET[0]),
-      motivoTextoLivre: motivoEhPreset ? '' : (motivoAtual ?? ''),
-    })
+    setCotacaoModal(insumo)
   }
 
-  async function handleSalvarCotacao() {
-    if (!cotacaoModal || salvandoCotacao) return
-    const { insumo } = cotacaoModal
-    const str = cotacaoModal.preco.trim().replace(',', '.')
-    const preco = str === '' ? 0 : parseFloat(str)
-    if (isNaN(preco) || preco < 0) { alert('Preço inválido.'); return }
-
-    const fornecedor = cotacaoModal.fornecedor.trim() || null
-    const dataCotacao = cotacaoModal.dataCotacao || null
-    const observacoes = cotacaoModal.observacoes.trim() || null
-    const estimado = cotacaoModal.estimado
-    const estimadoMotivo = estimado
-      ? ((cotacaoModal.motivoSelecionado === OUTRO_ESTIMADO_SENTINEL ? cotacaoModal.motivoTextoLivre : cotacaoModal.motivoSelecionado).trim() || null)
-      : null
+  async function handleSalvarCotacao(payload: CotacaoSalva) {
+    if (!cotacaoModal) return
+    const insumo = cotacaoModal
 
     // Nada mudou — evita gravar uma cotação idêntica só porque o usuário
     // clicou Salvar sem editar nada.
-    if (preco === insumo.custo && fornecedor === (insumo.fornecedor ?? null)
-      && dataCotacao === (insumo.data_cotacao ?? null) && observacoes === (insumo.cotacao_observacoes ?? null)
-      && estimado === (insumo.estimado ?? false) && estimadoMotivo === (insumo.estimado_motivo ?? null)) {
+    if (payload.preco === insumo.custo && payload.fornecedor === (insumo.fornecedor ?? null)
+      && payload.dataCotacao === (insumo.data_cotacao ?? null) && payload.observacoes === (insumo.cotacao_observacoes ?? null)
+      && payload.estimado === (insumo.estimado ?? false) && payload.estimadoMotivo === (insumo.estimado_motivo ?? null)) {
       setCotacaoModal(null)
       return
     }
 
     const estadoAnterior = { custo: insumo.custo, fornecedor: insumo.fornecedor, data_cotacao: insumo.data_cotacao, cotacao_observacoes: insumo.cotacao_observacoes, estimado: insumo.estimado, estimado_motivo: insumo.estimado_motivo }
     setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo
-      ? { ...ins, custo: preco, fornecedor, data_cotacao: dataCotacao, cotacao_observacoes: observacoes, estimado, estimado_motivo: estimadoMotivo, custo_atualizado_em: new Date().toISOString() }
+      ? { ...ins, custo: payload.preco, fornecedor: payload.fornecedor, data_cotacao: payload.dataCotacao, cotacao_observacoes: payload.observacoes, estimado: payload.estimado, estimado_motivo: payload.estimadoMotivo, custo_atualizado_em: new Date().toISOString() }
       : ins))
-    setSalvandoCotacao(true)
     setSavingId(insumo.id)
     try {
-      await atualizarPrecoInsumoAction(orcamentoId, insumo.codigo, preco, undefined, { fornecedor, dataCotacao, observacoes, estimado, estimadoMotivo })
+      await atualizarPrecoInsumoAction(orcamentoId, insumo.codigo, payload.preco, undefined, payload)
       setCotacaoModal(null)
     } catch (e) {
       setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo ? { ...ins, ...estadoAnterior } : ins))
       alert(e instanceof Error ? e.message : 'Erro ao salvar a cotação. Tente novamente.')
     } finally {
-      setSalvandoCotacao(false)
       setSavingId(null)
     }
   }
@@ -581,7 +545,12 @@ export function OrcamentoInsumosTable({
     }
     const totalAvulsos = avulsosAtuais?.length ?? 0
     if (totalAvulsos === 0) {
-      alert('Não há insumos avulsos para remover. A lista será atualizada.')
+      // Insumos ainda podem aparecer na tabela mesmo com 0 avulsos — são
+      // cópias embutidas em composições (têm preço próprio dentro da
+      // composição, não são "avulsos"). Este botão nunca mexe nelas; deixa
+      // isso explícito aqui porque "Limpar avulsos" sozinho não deixa óbvio
+      // por que a lista continua com linhas depois da limpeza.
+      alert('Não há insumos avulsos (com preço próprio) para remover. Se a lista ainda mostra insumos, eles pertencem a composições — este botão não os apaga.')
       startTransition(() => router.refresh())
       return
     }
@@ -704,12 +673,13 @@ export function OrcamentoInsumosTable({
         </button>
         <button
           onClick={handleClear}
+          title="Remove só os insumos avulsos (com preço próprio) — insumos embutidos em composições não são afetados"
           className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-          Limpar insumos
+          Limpar avulsos
         </button>
       </div>
 
@@ -918,108 +888,15 @@ export function OrcamentoInsumosTable({
     )}
 
     {/* Modal: Cotação — preço + fornecedor + data + observações, 1 painel só,
-        salva tudo de uma vez (Funcionalidade "Interface" do épico de cotações) */}
+        salva tudo de uma vez (Funcionalidade "Interface" do épico de cotações).
+        Componente compartilhado com composicao-detail.tsx — ver
+        cotacao-insumo-modal.tsx. */}
     {cotacaoModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        onClick={() => !salvandoCotacao && setCotacaoModal(null)}>
-        <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Preço e cotação</h2>
-              <p className="text-xs text-gray-500 mt-0.5 font-mono">
-                {cotacaoModal.insumo.codigo} — {cotacaoModal.insumo.descricao}
-              </p>
-            </div>
-            <button onClick={() => setCotacaoModal(null)} disabled={salvandoCotacao}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Preço</label>
-              <input
-                autoFocus type="number" min="0" step="any"
-                value={cotacaoModal.preco}
-                onChange={e => setCotacaoModal(prev => prev ? { ...prev, preco: e.target.value } : null)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSalvarCotacao() } }}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Fornecedor</label>
-              <input
-                type="text" placeholder="Ex.: Construmax"
-                value={cotacaoModal.fornecedor}
-                onChange={e => setCotacaoModal(prev => prev ? { ...prev, fornecedor: e.target.value } : null)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSalvarCotacao() } }}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Data da cotação</label>
-              <input
-                type="date"
-                value={cotacaoModal.dataCotacao}
-                onChange={e => setCotacaoModal(prev => prev ? { ...prev, dataCotacao: e.target.value } : null)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">Observações <span className="font-normal text-gray-400">(opcional)</span></label>
-              <textarea
-                rows={2} placeholder="Ex.: Preço negociado para compra acima de 500 unidades."
-                value={cotacaoModal.observacoes}
-                onChange={e => setCotacaoModal(prev => prev ? { ...prev, observacoes: e.target.value } : null)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-              />
-            </div>
-            <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3">
-              <label className="flex items-center gap-2 text-sm font-medium text-amber-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cotacaoModal.estimado}
-                  onChange={e => setCotacaoModal(prev => prev ? { ...prev, estimado: e.target.checked } : null)}
-                  className="h-4 w-4 accent-amber-500 cursor-pointer"
-                />
-                Este é um preço estimado (provisório)
-              </label>
-              {cotacaoModal.estimado && (
-                <div className="mt-2 space-y-2">
-                  <select
-                    value={cotacaoModal.motivoSelecionado}
-                    onChange={e => setCotacaoModal(prev => prev ? { ...prev, motivoSelecionado: e.target.value } : null)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
-                  >
-                    {MOTIVOS_ESTIMADO_PRESET.map(m => <option key={m} value={m}>{m}</option>)}
-                    <option value={OUTRO_ESTIMADO_SENTINEL}>Outro…</option>
-                  </select>
-                  {cotacaoModal.motivoSelecionado === OUTRO_ESTIMADO_SENTINEL && (
-                    <textarea
-                      rows={2} placeholder="Descreva o motivo"
-                      value={cotacaoModal.motivoTextoLivre}
-                      onChange={e => setCotacaoModal(prev => prev ? { ...prev, motivoTextoLivre: e.target.value } : null)}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="mt-5 flex justify-end gap-3">
-            <button onClick={() => setCotacaoModal(null)} disabled={salvandoCotacao}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
-              Cancelar
-            </button>
-            <button onClick={handleSalvarCotacao} disabled={salvandoCotacao}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50">
-              {salvandoCotacao ? 'Salvando…' : 'Salvar'}
-            </button>
-          </div>
-        </div>
-      </div>
+      <CotacaoInsumoModal
+        alvo={cotacaoModal}
+        onClose={() => setCotacaoModal(null)}
+        onSave={handleSalvarCotacao}
+      />
     )}
 
     {historicoModal && (

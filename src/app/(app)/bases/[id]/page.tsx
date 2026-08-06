@@ -72,7 +72,11 @@ export default async function BaseDetailPage({
   const insumos: { id: string; codigo: string; descricao: string; unidade: string; grupo: string | null; preco_base: number; data_referencia: string | null }[] = tab === 'insumos' ? (tabData ?? []) : []
   const composicoes: { id: string; codigo: string; descricao: string; unidade: string; custo_unitario: number; incompleta?: boolean }[] = tab === 'composicoes' ? (tabData ?? []) : []
 
-  const nomeExibicao = base.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(base.orgao)
+  // "própria" agora pode ser renomeada (ver /bases → lápis no nome) — usa o
+  // orgao direto, sem o hardcode antigo "Minha Base" nem baseLabelFromOrgao
+  // (que existe pra mapear siglas de bases oficiais conhecidas, não faz
+  // sentido pra um nome livre digitado pelo usuário).
+  const nomeExibicao = base.tipo_base === 'propria' ? base.orgao : baseLabelFromOrgao(base.orgao)
 
   return (
     <div className="space-y-6">

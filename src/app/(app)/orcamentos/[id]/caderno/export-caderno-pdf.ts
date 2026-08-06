@@ -242,7 +242,14 @@ async function drawResumoGeralSection(
       startY: yLeft,
       margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
       head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-      body: servicosVisiveis.map(s => [s.descricao, fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0)]),
+      // Item pai (2ª linha, itálico) — o mesmo nome de item pode aparecer em
+      // mais de um lugar da árvore (ex.: "Armação Aço - Estimado" dentro de
+      // Fundação E de Estrutura); sem o pai não dá pra saber qual ocorrência
+      // é essa.
+      body: servicosVisiveis.map(s => [
+        s.itemPaiDescricao ? `${s.descricao}\nEm: ${s.itemPaiDescricao}` : s.descricao,
+        fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0),
+      ]),
       foot: [['TOTAL', fmt(B), '100,00%']],
       showFoot: 'lastPage',
       styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },

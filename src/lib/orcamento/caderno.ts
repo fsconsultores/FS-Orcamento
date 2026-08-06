@@ -48,6 +48,9 @@ export interface CadernoNode {
   // Planilha à qual o item pertence — presente em grupos também por
   // uniformidade do tipo, mas só tem sentido em itens-folha.
   planilhaId: string | null
+  /** Decisão persistida do orçamentista (aba Estimados) — ver getCadernoData(). */
+  estimado: boolean
+  estimado_motivo: string | null
   filhos: CadernoNode[]
 }
 
@@ -100,16 +103,22 @@ export interface ServicoEstimado {
   descricao: string
   valor: number
   /**
-   * orcamento_estrutura.id — só presente quando o serviço tem insumo de
-   * preço estimado (ver ServicoComInsumoEstimado). Usado pela geração do
-   * Caderno pra filtrar quais linhas aparecem na listagem "(B) Serviços
-   * Estimados" de um PDF específico (opção "Configurar..." em Relatórios) —
-   * nunca persistido, é uma escolha só daquela exportação. Ausente
-   * (undefined) para itens "- Estimado" sem insumo e para os manuais
-   * (orcamento_servicos_estimados) — esses sempre aparecem, sem opção de
-   * ocultar.
+   * orcamento_estrutura.id — presente pra todo serviço detectado (marcado na
+   * aba Estimados ou com insumo de preço estimado), ausente só pros manuais
+   * (orcamento_servicos_estimados, tela Editar Orçamento). Usado pela
+   * geração do Caderno pra filtrar quais linhas aparecem na listagem "(B)
+   * Serviços Estimados" de um PDF específico (opção "Configurar..." em
+   * Relatórios) — nunca persistido, é uma escolha só daquela exportação.
    */
   id?: string
+  /**
+   * Nome do item/grupo pai imediato na Planilha — mesmo código (`descricao`)
+   * pode se repetir em mais de um lugar da árvore (ex.: "Armação Aço -
+   * Estimado" dentro de "Fundação" E dentro de "Estrutura"), então o nome
+   * sozinho não basta pra saber QUAL ocorrência está em B. Null quando o
+   * item está na raiz da planilha (sem pai) ou é uma entrada manual.
+   */
+  itemPaiDescricao?: string | null
 }
 
 /**
@@ -188,6 +197,14 @@ interface EstruturaFullItem {
   bdi_especifico: number | null
   tipo: 'grupo' | 'item'
   ordem: number
+  /**
+   * Decisão explícita do orçamentista (aba Estimados) — nunca inferida do
+   * nome. Substituiu o antigo mecanismo de sufixo "- Estimado" no texto, que
+   * quebrava silenciosamente sempre que o preço era preenchido depois sem
+   * ninguém lembrar de tirar o sufixo do nome.
+   */
+  estimado: boolean
+  estimado_motivo: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -217,11 +234,20 @@ export async function getCadernoData(
   supabase: SupabaseClient,
   orcamentoId: string,
   planilhaIds?: string[] | null,
+  opts?: {
+    /**
+     * Quando true, `arvore` inclui TAMBÉM os itens marcados como estimados
+     * (sem removê-los) — usado pela aba Estimados, que precisa mostrar e
+     * calcular o valor de TODOS os itens (marcados ou não) pra montar a
+     * lista de seleção. O caderno/relatórios normais nunca passam isso.
+     */
+    incluirEstimadosNaArvore?: boolean
+  },
 ): Promise<CadernoData> {
   const sb = supabase as any
 
   let estruturaQuery = sb.from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
     .eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) estruturaQuery = estruturaQuery.in('planilha_id', planilhaIds)
   estruturaQuery = estruturaQuery
@@ -413,14 +439,20 @@ export async function getCadernoData(
     return 1 + bdiPct / 100
   }
 
-  // ── Itens "- Estimado" → Serviços Estimados (B) ──────────────────────────────
-  // Grupos/itens cujo nome termina em "- Estimado" não compõem o Total Orçado
-  // (A) nem as demais seções do caderno; seu custo entra como Serviço
-  // Estimado (B). Quando o marcador está num grupo, cada filho direto vira
-  // um serviço estimado (com o custo de toda a sua subárvore). Mesmo destino
-  // (sai de A, entra em B) para um item que não tem esse sufixo mas usa um
-  // insumo de preço estimado — ver contextoInsumoEstimado, logo abaixo.
-  const ESTIMADO_RE = /\s*-\s*estimados?\s*$/i
+  // ── Itens marcados como estimados (aba Estimados) → Serviços Estimados (B) ──
+  // Grupos/itens com `estimado = true` (decisão explícita do orçamentista,
+  // persistida em orcamento_estrutura — ver aba Estimados) não compõem o
+  // Total Orçado (A) nem as demais seções do caderno; seu custo entra como
+  // Serviço Estimado (B), com o custo de toda a sua subárvore. Mesmo destino
+  // (sai de A, entra em B) para um item que não está marcado mas usa um
+  // insumo de preço estimado — ver infoInsumoEstimado, logo abaixo (esse
+  // mecanismo continua automático, não depende da aba Estimados).
+  //
+  // Substituiu o antigo mecanismo de sufixo "- Estimado" no nome: um texto
+  // não tem como saber se o preço já foi preenchido depois, então itens já
+  // precificados continuavam presos em B pra sempre a menos que alguém
+  // lembrasse de editar o nome. Marcação explícita (checkbox) não tem esse
+  // problema — é um fato do item, não uma inferência de texto.
 
   function sumLeaves(raw: RawNode): number {
     if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0) * fatorBdiDoItem(raw)
@@ -507,25 +539,22 @@ export async function getCadernoData(
       valor,
       qtdInsumosEstimados: info.qtd,
     })
-    autoServicosEstimados.push({ id: raw.id, descricao: info.descricao, valor })
+    autoServicosEstimados.push({
+      id: raw.id, descricao: info.descricao, valor,
+      itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
+    })
   }
 
   function detectarEstimados(nodes: RawNode[], caminho: string[]) {
     for (const node of nodes) {
-      if (ESTIMADO_RE.test(node.descricao)) {
+      if (node.estimado) {
         marcarSubarvore(node)
-        if (node.tipo === 'item') {
-          const base = node.descricao.replace(ESTIMADO_RE, '').trim()
-          const info = infoInsumoEstimado(node)
-          if (info) registrarServicoComInsumo(node, base, info, caminho)
-          else autoServicosEstimados.push({ descricao: base, valor: sumLeaves(node) })
-        } else {
-          for (const filho of node.filhos) {
-            const info = infoInsumoEstimado(filho)
-            if (info) registrarServicoComInsumo(filho, filho.descricao, info, [...caminho, node.descricao])
-            else autoServicosEstimados.push({ descricao: filho.descricao, valor: sumLeaves(filho) })
-          }
-        }
+        const info = infoInsumoEstimado(node)
+        if (info) registrarServicoComInsumo(node, node.descricao, info, caminho)
+        else autoServicosEstimados.push({
+          id: node.id, descricao: node.descricao, valor: sumLeaves(node),
+          itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
+        })
         continue
       }
       if (node.tipo === 'item') {
@@ -551,7 +580,7 @@ export async function getCadernoData(
     }
     return result
   }
-  const arvoreRoots = removerEstimados(roots)
+  const arvoreRoots = opts?.incluirEstimadosNaArvore ? roots : removerEstimados(roots)
 
   function buildNode(raw: RawNode): CadernoNode {
     if (raw.filhos.length === 0) {
@@ -597,6 +626,8 @@ export async function getCadernoData(
         percentualComBdi: 0,
         classeAbc: null,
         planilhaId: raw.planilha_id,
+        estimado: raw.estimado,
+        estimado_motivo: raw.estimado_motivo,
         filhos: [],
       }
     }
@@ -618,6 +649,8 @@ export async function getCadernoData(
       percentualComBdi: 0,
       classeAbc: null,
       planilhaId: raw.planilha_id,
+      estimado: raw.estimado,
+      estimado_motivo: raw.estimado_motivo,
       filhos,
     }
   }

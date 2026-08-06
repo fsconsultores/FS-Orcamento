@@ -24,12 +24,16 @@ export default async function OrcamentoComposicaoDetailPage({
 
   const { data: insumosRaw } = await sb
     .from('orcamento_insumos')
-    .select('id, codigo, descricao, unidade, custo, indice, grupo, estimado, estimado_motivo')
+    .select('id, codigo, descricao, unidade, custo, indice, grupo, estimado, estimado_motivo, fornecedor, data_cotacao, cotacao_observacoes')
     .eq('composicao_id', compId)
     .order('grupo')
     .order('descricao')
 
-  type InsumoRow = { id: string; codigo: string; descricao: string; unidade: string; custo: number; indice: number; grupo: string | null; estimado: boolean; estimado_motivo: string | null }
+  type InsumoRow = {
+    id: string; codigo: string; descricao: string; unidade: string; custo: number; indice: number; grupo: string | null
+    estimado: boolean; estimado_motivo: string | null
+    fornecedor: string | null; data_cotacao: string | null; cotacao_observacoes: string | null
+  }
   const insumosBase = (insumosRaw ?? []) as InsumoRow[]
 
   // Resolve custo efetivo via avulsos
