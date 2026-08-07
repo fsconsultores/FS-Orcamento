@@ -4,7 +4,7 @@ import { fmt, fmtQtd } from '@/lib/curva-abc'
 import { PDF_COLORS } from '@/lib/pdf/abc-section'
 import { slugFilename } from './xlsx-shared'
 
-const GROUP_FILL = '#ede9f3'
+const GROUP_FILL = '#f1f5f9'
 
 function flattenArvore(nodes: CadernoNode[], depth = 0, out: { node: CadernoNode; depth: number }[] = []) {
   for (const n of nodes) {

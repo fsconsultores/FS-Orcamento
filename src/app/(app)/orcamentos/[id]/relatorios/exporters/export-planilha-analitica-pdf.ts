@@ -130,7 +130,7 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
       const row = rows[cellData.row.index]
       if (!row || row.tipo === 'grupo') return
       if (row.tipo === 'item') {
-        cellData.cell.styles.fillColor = '#e9d5ff'
+        cellData.cell.styles.fillColor = '#e2e8f0'
         cellData.cell.styles.fontStyle = 'bold'
         if (cellData.column.index === 0 && row.classeAbc) {
           cellData.cell.styles.fillColor = ABC_BG[row.classeAbc]

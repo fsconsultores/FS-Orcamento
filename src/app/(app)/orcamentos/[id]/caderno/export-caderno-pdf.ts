@@ -2,6 +2,7 @@ import type { jsPDF } from 'jspdf'
 import type { RowInput } from 'jspdf-autotable'
 import { fmt, fmtQtd, fmtPct, type AbcItem } from '@/lib/curva-abc'
 import type { CadernoData, CadernoNode, AbcClasse } from '@/lib/orcamento/caderno'
+import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import {
   PDF_COLORS,
   drawAbcChart,
@@ -22,7 +23,7 @@ import {
   type DonutSegment,
 } from '@/lib/pdf/charts'
 
-const GROUP_FILL = '#ede9f3'
+const GROUP_FILL = '#f1f5f9'
 
 // Classe ABC por item — mesmo mapeamento canônico da Curva ABC (ver
 // src/components/ui/badge.tsx): A = verde (maior prioridade de acompanhamento,
@@ -611,7 +612,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
         return
       }
       if (row.tipo !== 'item') return
-      cellData.cell.styles.fillColor = '#e9d5ff'
+      cellData.cell.styles.fillColor = '#e2e8f0'
       cellData.cell.styles.fontStyle = 'bold'
       if (cellData.column.index === 7 && row.classeAbc) {
         cellData.cell.styles.fillColor = ABC_BG[row.classeAbc]
@@ -657,7 +658,7 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
       foot: [['', '', '', '', '', 'TOTAL DO GRUPO', fmt(totalGrupo)]],
       showFoot: 'lastPage',
       styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: '#e9d5ff', textColor: '#4c1d4f', fontStyle: 'bold', halign: 'center' },
+      headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', halign: 'right', lineWidth: 0.1 },
       columnStyles: {
         0: { cellWidth: 28 },
@@ -774,5 +775,5 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
     doc.text(`Página ${p - 1} de ${pageCount - 1}`, pageW - margin, pageH - 4, { align: 'right' })
   }
 
-  doc.save(`caderno_orcamento_${new Date().toISOString().split('T')[0]}.pdf`)
+  doc.save(`${slugFilename(data.orcamento.nome_obra, 'caderno_orcamento')}_caderno_${new Date().toISOString().split('T')[0]}.pdf`)
 }

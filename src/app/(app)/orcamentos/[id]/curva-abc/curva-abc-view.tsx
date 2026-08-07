@@ -6,6 +6,7 @@ import { Download, FileText, Printer, BarChart3 } from 'lucide-react'
 import type { AbcItem, AbcItemComCategoria, CategoriaAbc } from '@/lib/curva-abc'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
 import { exportCurvaAbcPdf } from './export-pdf'
+import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
 import { AbcBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -289,7 +290,7 @@ export function CurvaAbcView({
     const buf = await wb.xlsx.writeBuffer()
     const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
     const a   = document.createElement('a')
-    a.href = url; a.download = `curva_abc_${categoria}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
+    a.href = url; a.download = `${slugFilename(orcamentoNome || '', 'curva_abc')}_curva_abc_${categoria}_${new Date().toISOString().split('T')[0]}.xlsx`; a.click()
     URL.revokeObjectURL(url)
   }
 

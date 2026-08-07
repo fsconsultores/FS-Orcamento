@@ -1,4 +1,5 @@
 import type { AbcItem } from '@/lib/curva-abc'
+import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import {
   PDF_COLORS,
   drawAbcChart,
@@ -106,5 +107,5 @@ export async function exportCurvaAbcPdf(
     doc.text(`Página ${p} de ${pageCount}`, pageW - margin, pageH - 4, { align: 'right' })
   }
 
-  doc.save(`curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.pdf`)
+  doc.save(`${slugFilename(orcamentoNome || '', 'curva_abc')}_curva_abc_${tab}_${new Date().toISOString().split('T')[0]}.pdf`)
 }

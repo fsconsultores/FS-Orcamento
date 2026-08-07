@@ -11,6 +11,7 @@ import { AnaliticaFilters } from './filters/analitica-filters'
 import { defaultAnaliticaFilterState, buildAnaliticaRows, exportPlanilhaAnaliticaXlsx } from './exporters/export-planilha-analitica'
 import { exportPlanilhaSinteticaXlsx, countPlanilhaSinteticaItens, previewPlanilhaSintetica } from './exporters/export-planilha-sintetica'
 import { exportCurvaAbcXlsx } from './exporters/export-curva-abc-xlsx'
+import { slugFilename } from './exporters/xlsx-shared'
 import { exportPlanilhaSinteticaPdf } from './exporters/export-planilha-sintetica-pdf'
 import { exportPlanilhaAnaliticaPdf } from './exporters/export-planilha-analitica-pdf'
 import { CadernoInfoForm } from './caderno-info-form'
@@ -99,7 +100,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
       } else if (report.kind.type === 'curva-abc') {
         const items = getAbcItems(data, report.kind.tab)
         if (formato === 'xlsx') {
-          await exportCurvaAbcXlsx(items, ABC_TAB_LABELS[report.kind.tab], `curva_abc_${report.kind.tab}`)
+          await exportCurvaAbcXlsx(items, ABC_TAB_LABELS[report.kind.tab], `${slugFilename(data.orcamento.nome_obra, 'curva_abc')}_curva_abc_${report.kind.tab}`)
         } else {
           const { exportCurvaAbcPdf } = await import('../curva-abc/export-pdf')
           await exportCurvaAbcPdf(items, report.kind.tab, data.orcamento.nome_obra)

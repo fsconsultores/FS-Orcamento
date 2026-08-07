@@ -3,12 +3,17 @@ import type { RowInput } from 'jspdf-autotable'
 import type { AbcItem } from '@/lib/curva-abc'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
 
+// Estrutura principal (banners, cabeçalhos de seção/tabela) em neutro —
+// destaques reais (totais, KPIs) ficam reservados pro azul (totalBg), que é
+// a única cor "forte" recorrente no documento. Antes, bannerBg/totalBg eram
+// tons de rosa/roxo (#442246/#7c4180) aplicados em toda a estrutura do
+// Caderno de Orçamento — pedido explícito pra trocar por algo mais neutro.
 export const PDF_COLORS = {
-  bannerBg: '#442246',
+  bannerBg: '#475569',
   bannerFg: '#ffffff',
-  totalBg: '#7c4180',
+  totalBg: '#2563eb',
   totalFg: '#ffffff',
-  totalSubFg: '#e9d5ff',
+  totalSubFg: '#bfdbfe',
   a: { bg: '#ecfdf5', fg: '#047857', sub: '#34d399' },
   b: { bg: '#fffbeb', fg: '#b45309', sub: '#fbbf24' },
   c: { bg: '#fff1f2', fg: '#be123c', sub: '#fb7185' },

@@ -227,7 +227,19 @@ export function OrcamentoInsumosTable({
   const [insumos, setInsumos] = useState(initialInsumos)
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
+  const [filtroOrigem, setFiltroOrigem] = useState<'todos' | 'proprios' | 'importados'>('todos')
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
+  const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+
+  // Bases presentes entre os insumos AVULSOS (composicao_id null) — insumos
+  // embutidos numa composição são desfeitos junto com ela, na aba Composições.
+  const basesPresentesAvulsos = useMemo(() => {
+    const contagem = new Map<string, number>()
+    for (const ins of insumos) {
+      if (ins.composicao_id === null && ins.base) contagem.set(ins.base, (contagem.get(ins.base) ?? 0) + 1)
+    }
+    return [...contagem.entries()].sort((a, b) => b[1] - a[1])
+  }, [insumos])
 
   useEffect(() => { setInsumos(initialInsumos) }, [initialInsumos])
   const [currentPage, setCurrentPage] = useState(1)
@@ -261,14 +273,20 @@ export function OrcamentoInsumosTable({
       ? porTexto
       : porTexto.filter(ins => usadosSet.has(ins.codigo) === (filtroUso === 'usados'))
 
+    // base === null: criado direto neste orçamento (formulário "Novo insumo").
+    // base !== null: veio de uma importação (guarda o nome da base de origem).
+    const porOrigem = filtroOrigem === 'todos'
+      ? porUso
+      : porUso.filter(ins => (ins.base === null) === (filtroOrigem === 'proprios'))
+
     const hoje = hojeISO()
     const ha30dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const porCotacao = filtroCotacao === 'todos' ? porUso
-      : filtroCotacao === 'sem_fornecedor' ? porUso.filter(i => !i.fornecedor)
-      : filtroCotacao === 'sem_data' ? porUso.filter(i => !i.data_cotacao)
-      : filtroCotacao === 'hoje' ? porUso.filter(i => i.data_cotacao === hoje)
-      : filtroCotacao === 'ultimos_30' ? porUso.filter(i => i.data_cotacao && i.data_cotacao >= ha30dias)
-      : porUso.filter(i => i.fornecedor === filtroCotacao) // fornecedor específico
+    const porCotacao = filtroCotacao === 'todos' ? porOrigem
+      : filtroCotacao === 'sem_fornecedor' ? porOrigem.filter(i => !i.fornecedor)
+      : filtroCotacao === 'sem_data' ? porOrigem.filter(i => !i.data_cotacao)
+      : filtroCotacao === 'hoje' ? porOrigem.filter(i => i.data_cotacao === hoje)
+      : filtroCotacao === 'ultimos_30' ? porOrigem.filter(i => i.data_cotacao && i.data_cotacao >= ha30dias)
+      : porOrigem.filter(i => i.fornecedor === filtroCotacao) // fornecedor específico
 
     if (!sortField) return porCotacao
     const dir = sortDir === 'asc' ? 1 : -1
@@ -278,9 +296,9 @@ export function OrcamentoInsumosTable({
       const bv = b[sortField] ?? ''
       return av.localeCompare(bv, 'pt-BR') * dir
     })
-  }, [insumos, q, filtroUso, filtroCotacao, sortField, sortDir, usadosSet])
+  }, [insumos, q, filtroUso, filtroOrigem, filtroCotacao, sortField, sortDir, usadosSet])
 
-  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroCotacao, sortField, sortDir])
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroOrigem, filtroCotacao, sortField, sortDir])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -584,6 +602,41 @@ export function OrcamentoInsumosTable({
     startTransition(() => router.refresh())
   }
 
+  /**
+   * Desfaz uma importação específica: remove só os insumos avulsos que
+   * vieram daquela base, sem mexer nos avulsos de outras bases nem nos
+   * insumos embutidos em composições (esses são desfeitos junto com a
+   * composição, na aba Composições — ver handleRemoverBase de lá).
+   */
+  async function handleRemoverBase(base: string) {
+    const qtd = insumos.filter(ins => ins.composicao_id === null && ins.base === base).length
+    if (qtd === 0) return
+    if (!confirm(`Excluir os ${qtd} insumo(s) avulso(s) importado(s) da base "${base}" deste orçamento? Esta ação não pode ser desfeita.`)) return
+
+    setRemovendoBase(base)
+    const sb = createClient() as any
+    const { error, count } = await sb
+      .from('orcamento_insumos')
+      .delete({ count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .eq('base', base)
+      .is('composicao_id', null)
+    if (error) {
+      alert(`Erro ao remover a base "${base}": ${error.message}`)
+      setRemovendoBase(null)
+      return
+    }
+    setInsumos(prev => prev.filter(ins => !(ins.composicao_id === null && ins.base === base)))
+    registrarHistorico(sb, {
+      orcamentoId,
+      entidade: 'insumo',
+      tipo: 'info',
+      acao: 'remover_base_importada',
+      mensagem: `${count ?? qtd} insumo(s) avulso(s) da base "${base}" removido(s) do orçamento`,
+    }).catch(console.error)
+    setRemovendoBase(null)
+  }
+
   async function handleExport() {
     const XLSX = await import('xlsx')
     const rows = insumos.map(ins => ({
@@ -646,6 +699,25 @@ export function OrcamentoInsumosTable({
             </button>
           ))}
         </div>
+        <div className="flex gap-1">
+          {([
+            { v: 'todos', label: 'Todos' },
+            { v: 'proprios', label: 'Criados no projeto' },
+            { v: 'importados', label: 'Importados de base' },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              onClick={() => setFiltroOrigem(v)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                filtroOrigem === v
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <select
           value={filtroCotacao}
           onChange={e => setFiltroCotacao(e.target.value)}
@@ -663,6 +735,20 @@ export function OrcamentoInsumosTable({
             </optgroup>
           )}
         </select>
+        {basesPresentesAvulsos.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) handleRemoverBase(e.target.value); e.target.value = '' }}
+            disabled={removendoBase !== null}
+            title="Remove os insumos avulsos que vieram de uma importação específica — sem afetar avulsos de outras bases nem insumos embutidos em composições"
+            className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500 disabled:opacity-40"
+          >
+            <option value="">{removendoBase ? `Removendo "${removendoBase}"…` : 'Remover base importada…'}</option>
+            {basesPresentesAvulsos.map(([base, count]) => (
+              <option key={base} value={base}>{base} ({count})</option>
+            ))}
+          </select>
+        )}
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >

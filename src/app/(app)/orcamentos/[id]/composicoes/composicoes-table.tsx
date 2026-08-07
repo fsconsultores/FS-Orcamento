@@ -20,10 +20,22 @@ export function ComposicoesTable({
   const [composicoes, setComposicoes] = useState(initialComposicoes)
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
+  const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'proprias' | 'importadas'>('todas')
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
+  const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+
+  // Bases presentes entre as composições importadas (base === null = criada
+  // no projeto, já coberta pelo filtro de origem — não entra aqui).
+  const basesPresentes = useMemo(() => {
+    const contagem = new Map<string, number>()
+    for (const c of composicoes) {
+      if (c.base) contagem.set(c.base, (contagem.get(c.base) ?? 0) + 1)
+    }
+    return [...contagem.entries()].sort((a, b) => b[1] - a[1])
+  }, [composicoes])
 
   const q = query.trim().toLowerCase()
   // Memoizado pelo mesmo motivo de insumos-table.tsx: evita refiltrar a
@@ -37,12 +49,17 @@ export function ComposicoesTable({
             c.descricao.toLowerCase().includes(q)
         )
       : composicoes
-    return filtroUso === 'todos'
+    const porUso = filtroUso === 'todos'
       ? porTexto
       : porTexto.filter((c) => usadosSet.has(c.codigo) === (filtroUso === 'usados'))
-  }, [composicoes, q, filtroUso, usadosSet])
+    // base === null: criada direto neste orçamento (formulário "Nova composição").
+    // base !== null: veio de uma importação (guarda o nome da base de origem).
+    return filtroOrigem === 'todas'
+      ? porUso
+      : porUso.filter((c) => (c.base === null) === (filtroOrigem === 'proprias'))
+  }, [composicoes, q, filtroUso, filtroOrigem, usadosSet])
 
-  useEffect(() => { setCurrentPage(1) }, [q, filtroUso])
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroOrigem])
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -89,6 +106,61 @@ export function ComposicoesTable({
     setClearing(false)
   }
 
+  /**
+   * Desfaz uma importação específica: remove só as composições (+ insumos
+   * vinculados a elas) e os insumos avulsos que vieram daquela base — sem
+   * mexer em nada criado direto no projeto ou importado de outra base.
+   * Existe porque um código reaproveitado entre bases diferentes (ex.:
+   * mesmo "CZ7044" usado em dois projetos com significados diferentes) pode
+   * fazer a sincronização de custos pisar num item que já existia no
+   * orçamento com o mesmo código — a única forma segura de reverter isso é
+   * apagando de volta tudo que entrou naquela importação.
+   */
+  async function handleRemoverBase(base: string) {
+    const compsDaBase = composicoes.filter(c => c.base === base)
+    if (compsDaBase.length === 0) return
+    if (!confirm(
+      `Excluir as ${compsDaBase.length} composição(ões) importada(s) da base "${base}" deste orçamento, ` +
+      `os insumos vinculados a elas e os insumos avulsos vindos da mesma base? Esta ação não pode ser desfeita.`
+    )) return
+
+    setRemovendoBase(base)
+    const sb = createClient() as any
+    const ids = compsDaBase.map(c => c.id)
+    try {
+      // Insumos embutidos nessas composições primeiro (mesma ordem de handleClear,
+      // mesmo motivo: composicao_id é ON DELETE SET NULL).
+      for (let i = 0; i < ids.length; i += 100) {
+        const { error: errIns } = await sb
+          .from('orcamento_insumos')
+          .delete()
+          .in('composicao_id', ids.slice(i, i + 100))
+        if (errIns) throw new Error(errIns.message)
+      }
+      // Insumos avulsos da mesma base (não vinculados a nenhuma composição,
+      // mas que vieram do mesmo lote de importação).
+      const { error: errAvulsos } = await sb
+        .from('orcamento_insumos')
+        .delete()
+        .eq('orcamento_id', orcamentoId)
+        .eq('base', base)
+        .is('composicao_id', null)
+      if (errAvulsos) throw new Error(errAvulsos.message)
+
+      const { error } = await sb
+        .from('orcamento_composicoes')
+        .delete()
+        .eq('orcamento_id', orcamentoId)
+        .eq('base', base)
+      if (error) throw new Error(error.message)
+
+      setComposicoes(prev => prev.filter(c => c.base !== base))
+    } catch (err) {
+      alert(`Erro ao remover a base "${base}": ${err instanceof Error ? err.message : String(err)}`)
+    }
+    setRemovendoBase(null)
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
@@ -125,6 +197,39 @@ export function ComposicoesTable({
             </button>
           ))}
         </div>
+        <div className="flex gap-1">
+          {([
+            { v: 'todas', label: 'Todas' },
+            { v: 'proprias', label: 'Criadas no projeto' },
+            { v: 'importadas', label: 'Importadas de base' },
+          ] as const).map(({ v, label }) => (
+            <button
+              key={v}
+              onClick={() => setFiltroOrigem(v)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                filtroOrigem === v
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {basesPresentes.length > 0 && (
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) handleRemoverBase(e.target.value); e.target.value = '' }}
+            disabled={removendoBase !== null}
+            title="Remove as composições (e insumos vinculados/avulsos) que vieram de uma importação específica — sem afetar o resto do orçamento"
+            className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500 disabled:opacity-40"
+          >
+            <option value="">{removendoBase ? `Removendo "${removendoBase}"…` : 'Remover base importada…'}</option>
+            {basesPresentes.map(([base, count]) => (
+              <option key={base} value={base}>{base} ({count})</option>
+            ))}
+          </select>
+        )}
         <button
           onClick={handleClear}
           disabled={composicoes.length === 0 || clearing}
