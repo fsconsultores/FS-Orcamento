@@ -10,6 +10,7 @@ interface Props {
 
 const TABS = [
   { suffix: 'planilha', label: 'Planilha' },
+  { suffix: 'levantamentos', label: 'Levantamentos' },
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'curva-abc', label: 'Curva ABC' },

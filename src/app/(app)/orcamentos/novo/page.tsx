@@ -8,6 +8,7 @@ import { registrarHistorico } from '@/lib/log';
 import { listBases, importarDaBase } from '../[id]/importar/import-action';
 import type { BaseInfo } from '../[id]/importar/import-action';
 import { createPlanilha } from '@/lib/orcamento/planilhas';
+import { seedLevantamentosPadrao } from '@/lib/orcamento/levantamentos';
 import { listModelosAction, criarOrcamentoDeModeloAction } from '../actions';
 import type { ModeloInfo } from '../actions';
 
@@ -124,6 +125,11 @@ export default function NovoOrcamentoPage() {
       // Cria a planilha principal já aqui — sem isso, ela só nasceria de forma
       // preguiçosa quando a tela /planilha fosse aberta pela primeira vez.
       await createPlanilha(supabase, data.id, 'Planilha Principal', bdi);
+
+      // Semeia a lista padrão de áreas de levantamento — orçamento criado a
+      // partir de modelo não passa por aqui (já recebe a estrutura clonada
+      // do modelo, ver criarOrcamentoAPartirDeModelo).
+      await seedLevantamentosPadrao(supabase, data.id).catch(console.error);
 
       // Importa as bases selecionadas, uma de cada vez (evita corrida entre
       // duas importações mexendo nas mesmas tabelas do orçamento ao mesmo tempo).

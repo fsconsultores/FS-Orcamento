@@ -199,6 +199,45 @@ async function clonarInsumos(
   erros.forEach(({ error: e }: any) => { if (e) console.error('[dup] insumos insert:', e) })
 }
 
+/**
+ * Clona a estrutura de levantamento (áreas + checklist) — status resetado
+ * para 'nao_iniciado', datas para null e itens para concluido=false: uma
+ * cópia/orçamento novo a partir de modelo não deve herdar progresso de
+ * execução de outra obra, só a lista de áreas/itens em si. Pendências NÃO
+ * são clonadas — são da execução real, não fazem parte da "estrutura".
+ */
+async function clonarLevantamentos(sb: any, fromId: string, toId: string): Promise<void> {
+  const { data: levantamentos } = await sb
+    .from('orcamento_levantamentos')
+    .select('id, nome, ordem')
+    .eq('orcamento_id', fromId)
+    .order('ordem')
+
+  if (!levantamentos?.length) return
+
+  const { data: inserted, error } = await sb
+    .from('orcamento_levantamentos')
+    .insert(levantamentos.map((l: any) => ({ orcamento_id: toId, nome: l.nome, ordem: l.ordem })))
+    .select('id')
+
+  if (error) { console.error('[dup] levantamentos:', error); return }
+  const idMap: Record<string, string> = {}
+  levantamentos.forEach((l: any, i: number) => { if (inserted?.[i]) idMap[l.id] = inserted[i].id })
+
+  const { data: itens } = await sb
+    .from('orcamento_levantamento_itens')
+    .select('levantamento_id, descricao, ordem')
+    .in('levantamento_id', levantamentos.map((l: any) => l.id))
+
+  if (!itens?.length) return
+  const rows = itens
+    .filter((it: any) => idMap[it.levantamento_id])
+    .map((it: any) => ({ levantamento_id: idMap[it.levantamento_id], descricao: it.descricao, ordem: it.ordem }))
+
+  const { error: itensErr } = await sb.from('orcamento_levantamento_itens').insert(rows)
+  if (itensErr) console.error('[dup] levantamento_itens:', itensErr)
+}
+
 export type DuplicateResult = {
   id: string
   nome_obra: string
@@ -224,6 +263,7 @@ async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<vo
     clonarEstrutura(sb, fromId, toId, planilhaIdMap),
     clonarItens(sb, fromId, toId),
     clonarComposicoes(sb, fromId, toId),
+    clonarLevantamentos(sb, fromId, toId),
   ])
   await clonarInsumos(sb, fromId, toId, compIdMap)
 }

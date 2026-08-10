@@ -15,6 +15,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { Truck, CalendarDays, Sparkles } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
+import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
@@ -144,73 +145,6 @@ function HistoricoChartTooltip({ active, payload }: any) {
       <p className="mt-0.5 tabular-nums text-gray-500">{fmtMoeda(p.preco_novo)}</p>
       {p.fornecedor && <p className="mt-0.5 text-gray-400">{p.fornecedor}</p>}
     </div>
-  )
-}
-
-function InlineInput({
-  value,
-  type = 'text',
-  align = 'left',
-  onCommit,
-  onCancel,
-}: {
-  value: string
-  type?: 'text' | 'number'
-  align?: 'left' | 'right'
-  onCommit: (v: string) => void
-  onCancel: () => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  const [draft, setDraft] = useState(value)
-
-  useEffect(() => { ref.current?.focus(); ref.current?.select() }, [])
-
-  return (
-    <input
-      ref={ref}
-      type={type}
-      value={draft}
-      step={type === 'number' ? 'any' : undefined}
-      min={type === 'number' ? '0' : undefined}
-      onChange={e => setDraft(e.target.value)}
-      onBlur={e => onCommit(e.target.value)}
-      onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); onCommit(ref.current?.value ?? draft) }
-        if (e.key === 'Escape') { e.preventDefault(); onCancel() }
-      }}
-      className={`block w-full rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20 ${align === 'right' ? 'text-right' : 'text-left'}`}
-    />
-  )
-}
-
-function InlineSelect({
-  value,
-  options,
-  onCommit,
-  onCancel,
-}: {
-  value: string
-  options: { value: string; label: string }[]
-  onCommit: (v: string) => void
-  onCancel: () => void
-}) {
-  const ref = useRef<HTMLSelectElement>(null)
-  useEffect(() => { ref.current?.focus() }, [])
-
-  return (
-    <select
-      ref={ref}
-      defaultValue={value}
-      onChange={e => onCommit(e.target.value)}
-      onBlur={() => onCancel()}
-      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onCancel() } }}
-      className="block w-full rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20"
-    >
-      <option value="">—</option>
-      {options.map(o => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
   )
 }
 
