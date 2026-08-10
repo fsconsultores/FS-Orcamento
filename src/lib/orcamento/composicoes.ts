@@ -104,34 +104,40 @@ export async function getComposicoesByOrcamentoDetalhado(
             .order('codigo')
             .range(from, to) as any
       )
+  // Códigos com avulso têm prioridade sobre o cálculo por composição e nunca
+  // são sobrescritos abaixo — mesmo que o avulso também exista como código de
+  // sub-composição em algum lugar (ex.: código reaproveitado por engano).
+  const avulsoCodigos = new Set<string>()
   for (const av of avulsosRows) {
     precoMap.set(av.codigo, av.custo)
+    avulsoCodigos.add(av.codigo)
   }
 
   // Para códigos sem avulso: verifica se é uma composição filha e usa o custo_unitario dela.
-  // Passo 1 — calcula custo_unitario de cada composição usando apenas precoMap (avulsos)
-  const custoMap: Record<string, number> = {}
-  for (const ins of allInsData) {
-    if (ins.composicao_id) {
-      const c = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
-      custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + c * (ins.indice ?? 1)
+  // Composições podem se referenciar em cadeia (A usa B, B usa C, ...) — uma
+  // única passada só resolve 1 nível de aninhamento além dos avulsos diretos.
+  // Itera até o resultado estabilizar (nenhum custo mudou), com um teto de
+  // segurança contra ciclos — cobre qualquer profundidade real de cadeia sem
+  // travar caso duas composições acabem se referenciando uma à outra.
+  const MAX_ITERACOES = 10
+  let custoMapFinal: Record<string, number> = {}
+  for (let iter = 0; iter < MAX_ITERACOES; iter++) {
+    const custoMap: Record<string, number> = {}
+    for (const ins of allInsData) {
+      if (ins.composicao_id) {
+        const c = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
+        custoMap[ins.composicao_id] = (custoMap[ins.composicao_id] ?? 0) + c * (ins.indice ?? 1)
+      }
     }
-  }
-
-  // Passo 2 — enriquece precoMap com custo_unitario das composições (para itens tipo C)
-  for (const c of composicoes) {
-    if (!precoMap.has(c.codigo) && custoMap[c.id] !== undefined) {
-      precoMap.set(c.codigo, custoMap[c.id])
+    let mudou = false
+    for (const c of composicoes) {
+      if (avulsoCodigos.has(c.codigo)) continue
+      const novo = custoMap[c.id] ?? 0
+      if (precoMap.get(c.codigo) !== novo) mudou = true
+      precoMap.set(c.codigo, novo)
     }
-  }
-
-  // Passo 3 — recalcula com precoMap completo (avulsos + composições filhas)
-  const custoMapFinal: Record<string, number> = {}
-  for (const ins of allInsData) {
-    if (ins.composicao_id) {
-      const c = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : (ins.custo ?? 0)
-      custoMapFinal[ins.composicao_id] = (custoMapFinal[ins.composicao_id] ?? 0) + c * (ins.indice ?? 1)
-    }
+    custoMapFinal = custoMap
+    if (!mudou) break
   }
 
   return {
