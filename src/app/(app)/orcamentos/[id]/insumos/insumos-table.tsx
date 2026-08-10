@@ -7,11 +7,12 @@ import { createClient } from '@/lib/supabase/client'
 import { upsertAvulsoInsumo } from '@/lib/orcamento/insumos'
 import { recalcularAutoAction } from '../planilha/calcular-action'
 import { atualizarPrecoInsumoAction } from '../atualizar-preco-insumo-action'
-import type { OrcamentoInsumo, OrcamentoInsumoCotacao } from '@/lib/orcamento'
+import { aplicarSugestoesCotacaoAction } from '../aplicar-sugestoes-cotacao-action'
+import type { OrcamentoInsumo, OrcamentoInsumoCotacao, SugestaoCotacao } from '@/lib/orcamento'
 import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Truck, CalendarDays } from 'lucide-react'
+import { Truck, CalendarDays, Sparkles } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 
@@ -217,19 +218,32 @@ export function OrcamentoInsumosTable({
   initialInsumos,
   orcamentoId,
   codigosUtilizados,
+  sugestoes,
 }: {
   initialInsumos: OrcamentoInsumo[]
   orcamentoId: string
   codigosUtilizados: string[]
+  /** Sugestão de preço por código, a partir de cotações de OUTRAS obras — ver getSugestoesCotacaoCrossOrcamento. */
+  sugestoes: Record<string, SugestaoCotacao>
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [insumos, setInsumos] = useState(initialInsumos)
+  const [sugestoesState, setSugestoesState] = useState(sugestoes)
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
   const [filtroOrigem, setFiltroOrigem] = useState<'todos' | 'proprios' | 'importados'>('todos')
+  const [somenteSugestao, setSomenteSugestao] = useState(false)
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
+  const [aplicandoSugestoes, setAplicandoSugestoes] = useState(false)
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+
+  useEffect(() => { setSugestoesState(sugestoes) }, [sugestoes])
+
+  function temSugestao(insumo: OrcamentoInsumo): boolean {
+    return insumo.composicao_id === null && insumo.custo === 0 && !!sugestoesState[insumo.codigo]
+  }
 
   // Bases presentes entre os insumos AVULSOS (composicao_id null) — insumos
   // embutidos numa composição são desfeitos junto com ela, na aba Composições.
@@ -288,17 +302,83 @@ export function OrcamentoInsumosTable({
       : filtroCotacao === 'ultimos_30' ? porOrigem.filter(i => i.data_cotacao && i.data_cotacao >= ha30dias)
       : porOrigem.filter(i => i.fornecedor === filtroCotacao) // fornecedor específico
 
-    if (!sortField) return porCotacao
+    const porSugestao = somenteSugestao ? porCotacao.filter(temSugestao) : porCotacao
+
+    if (!sortField) return porSugestao
     const dir = sortDir === 'asc' ? 1 : -1
-    return [...porCotacao].sort((a, b) => {
+    return [...porSugestao].sort((a, b) => {
       if (sortField === 'custo') return (a.custo - b.custo) * dir
       const av = a[sortField] ?? ''
       const bv = b[sortField] ?? ''
       return av.localeCompare(bv, 'pt-BR') * dir
     })
-  }, [insumos, q, filtroUso, filtroOrigem, filtroCotacao, sortField, sortDir, usadosSet])
+  }, [insumos, q, filtroUso, filtroOrigem, filtroCotacao, somenteSugestao, sugestoesState, sortField, sortDir, usadosSet])
 
-  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroOrigem, filtroCotacao, sortField, sortDir])
+  useEffect(() => { setCurrentPage(1) }, [q, filtroUso, filtroOrigem, filtroCotacao, somenteSugestao, sortField, sortDir])
+
+  const sugeridasVisiveis = useMemo(() => visible.filter(temSugestao), [visible, sugestoesState])
+  const todasSugeridasSelecionadas = sugeridasVisiveis.length > 0 && sugeridasVisiveis.every(i => selecionadas.has(i.id))
+
+  function alternarSelecaoTodas() {
+    setSelecionadas(prev => {
+      if (todasSugeridasSelecionadas) {
+        const next = new Set(prev)
+        for (const i of sugeridasVisiveis) next.delete(i.id)
+        return next
+      }
+      const next = new Set(prev)
+      for (const i of sugeridasVisiveis) next.add(i.id)
+      return next
+    })
+  }
+
+  function alternarSelecao(id: string) {
+    setSelecionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleAplicarSugestoes() {
+    const itens = [...selecionadas]
+      .map(id => insumos.find(i => i.id === id))
+      .filter((i): i is OrcamentoInsumo => !!i && temSugestao(i))
+      .map(i => {
+        const s = sugestoesState[i.codigo]
+        return { codigo: i.codigo, valor: s.valor, fornecedor: s.fornecedor, dataCotacao: s.data_cotacao, origemOrcamentoNome: s.orcamentoNome }
+      })
+    if (itens.length === 0) { setSelecionadas(new Set()); return }
+
+    const codigosAplicados = new Set(itens.map(i => i.codigo))
+    const insumosAnteriores = insumos
+    const sugestoesAnteriores = sugestoesState
+
+    setInsumos(prev => prev.map(ins => {
+      if (!codigosAplicados.has(ins.codigo) || ins.composicao_id !== null) return ins
+      const s = sugestoesAnteriores[ins.codigo]
+      if (!s) return ins
+      return { ...ins, custo: s.valor, fornecedor: s.fornecedor, data_cotacao: s.data_cotacao,
+        cotacao_observacoes: `Sugestão aplicada de outra obra (${s.orcamentoNome})`, custo_atualizado_em: new Date().toISOString() }
+    }))
+    setSugestoesState(prev => {
+      const next = { ...prev }
+      for (const c of codigosAplicados) delete next[c]
+      return next
+    })
+    setSelecionadas(new Set())
+    setAplicandoSugestoes(true)
+    try {
+      await aplicarSugestoesCotacaoAction(orcamentoId, itens)
+    } catch (e) {
+      setInsumos(insumosAnteriores)
+      setSugestoesState(sugestoesAnteriores)
+      alert(e instanceof Error ? e.message : 'Erro ao aplicar as sugestões. Tente novamente.')
+    } finally {
+      setAplicandoSugestoes(false)
+    }
+  }
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
@@ -718,6 +798,20 @@ export function OrcamentoInsumosTable({
             </button>
           ))}
         </div>
+        {sugeridasVisiveis.length > 0 && (
+          <button
+            onClick={() => setSomenteSugestao(v => !v)}
+            title="Insumos avulsos sem preço com uma cotação já registrada em outra obra para o mesmo código"
+            className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              somenteSugestao
+                ? 'bg-amber-500 border-amber-500 text-white'
+                : 'bg-white border-amber-300 text-amber-700 hover:border-amber-400'
+            }`}
+          >
+            <Sparkles size={12} />
+            Com sugestão ({sugeridasVisiveis.length})
+          </button>
+        )}
         <select
           value={filtroCotacao}
           onChange={e => setFiltroCotacao(e.target.value)}
@@ -748,6 +842,16 @@ export function OrcamentoInsumosTable({
               <option key={base} value={base}>{base} ({count})</option>
             ))}
           </select>
+        )}
+        {selecionadas.size > 0 && (
+          <button
+            onClick={handleAplicarSugestoes}
+            disabled={aplicandoSugestoes}
+            className="flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            <Sparkles size={14} />
+            {aplicandoSugestoes ? 'Aplicando…' : `Aplicar ${selecionadas.size} sugestão(ões)`}
+          </button>
         )}
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
@@ -785,6 +889,15 @@ export function OrcamentoInsumosTable({
               <th className="px-4 py-3 cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('data_cotacao')}>
                 Data cotação <SortIcon field="data_cotacao" sortField={sortField} sortDir={sortDir} />
               </th>
+              <th className="px-4 py-3">
+                {sugeridasVisiveis.length > 0 ? (
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={todasSugeridasSelecionadas} onChange={alternarSelecaoTodas}
+                      className="h-3.5 w-3.5 accent-amber-500 cursor-pointer" />
+                    Sugestão
+                  </label>
+                ) : 'Sugestão'}
+              </th>
               <th className="px-4 py-3 text-center" title="Insumo estimado — aparece destacado no Resumo do Orçamento">Estim.</th>
               <th className="px-4 py-3">Grupo</th>
               <th className="px-4 py-3">Base</th>
@@ -795,7 +908,7 @@ export function OrcamentoInsumosTable({
           <tbody className="divide-y divide-gray-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={12} className="px-4 py-8 text-center text-gray-400">
                   {q ? 'Nenhum insumo encontrado para essa busca.' : 'Nenhum insumo cadastrado neste orçamento.'}
                 </td>
               </tr>
@@ -848,6 +961,28 @@ export function OrcamentoInsumosTable({
                         {insumo.data_cotacao && <CalendarDays size={12} className="shrink-0 text-gray-400" />}
                         {insumo.data_cotacao ? fmtDataCotacao(insumo.data_cotacao) : <span className="text-gray-300">—</span>}
                       </span>
+                    </td>
+
+                    {/* Sugestão — cotação já registrada em outra obra pro mesmo código,
+                        só aparece pra avulsos ainda sem preço (ver temSugestao). */}
+                    <td className="px-4 py-3 text-gray-500">
+                      {temSugestao(insumo) ? (() => {
+                        const s = sugestoesState[insumo.codigo]
+                        return (
+                          <label className="flex items-center gap-2 cursor-pointer"
+                            title={`${fmtMoeda(s.valor)} · ${s.fornecedor ?? 'sem fornecedor'} · ${s.orcamentoNome}${s.data_cotacao ? ` · ${fmtDataCotacao(s.data_cotacao)}` : ''}`}>
+                            <input type="checkbox" checked={selecionadas.has(insumo.id)}
+                              onChange={() => alternarSelecao(insumo.id)}
+                              className="h-3.5 w-3.5 accent-amber-500 cursor-pointer shrink-0" />
+                            <span className="min-w-0">
+                              <span className="block tabular-nums font-medium text-amber-700">{fmtMoeda(s.valor)}</span>
+                              <span className="block truncate max-w-[140px] text-[11px] text-gray-400">
+                                {s.fornecedor ?? 'sem fornecedor'} · {s.orcamentoNome}
+                              </span>
+                            </span>
+                          </label>
+                        )
+                      })() : <span className="text-gray-300">—</span>}
                     </td>
 
                     {/* Estimado — reflete a cotação ativa deste insumo; marcar/

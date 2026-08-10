@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getInsumosByOrcamentoDetalhado, getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados, type InsumoDeComposicao } from '@/lib/orcamento'
+import { getInsumosByOrcamentoDetalhado, getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados, getSugestoesCotacaoCrossOrcamento, type InsumoDeComposicao, type SugestaoCotacao } from '@/lib/orcamento'
 import { OrcamentoInsumosTable } from './insumos-table'
 import { DevProfiler } from '@/components/dev-profiler'
 
@@ -26,6 +26,13 @@ export default async function OrcamentoInsumosPage({
     // tipo genérico de OrcamentoInsumo não expressa essa garantia.
     insumosDeComposicao: insumosDeComposicao as unknown as InsumoDeComposicao[],
   })
+
+  // Sugestão de preço a partir de cotações de OUTRAS obras — só faz sentido
+  // pros avulsos que ainda não têm preço (é exatamente quem precisa de
+  // preenchimento), então o conjunto de códigos consultado já nasce restrito.
+  const codigosSemPreco = avulsos.filter(a => a.custo === 0).map(a => a.codigo)
+  const sugestoesMap = await getSugestoesCotacaoCrossOrcamento(sb, orcamentoId, codigosSemPreco)
+  const sugestoes: Record<string, SugestaoCotacao> = Object.fromEntries(sugestoesMap)
 
   const codigosUtilizados = calcularCodigosUtilizados(
     (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),
@@ -81,7 +88,7 @@ export default async function OrcamentoInsumosPage({
       </div>
 
       <DevProfiler id="OrcamentoInsumosTable">
-        <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} />
+        <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} sugestoes={sugestoes} />
       </DevProfiler>
     </div>
   )
