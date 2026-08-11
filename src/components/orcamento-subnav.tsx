@@ -10,7 +10,10 @@ interface Props {
 
 const TABS = [
   { suffix: 'planilha', label: 'Planilha' },
-  { suffix: 'levantamentos', label: 'Levantamentos' },
+  // 'levantamentos' propositalmente fora da nav — feature construída e
+  // funcional (schema + página em /orcamentos/[id]/levantamentos), mas
+  // usuário decidiu adiar/engavetar por ora. Ver memória
+  // project_levantamentos_engavetado — reativar é só devolver esta linha.
   { suffix: 'insumos', label: 'Insumos' },
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'curva-abc', label: 'Curva ABC' },

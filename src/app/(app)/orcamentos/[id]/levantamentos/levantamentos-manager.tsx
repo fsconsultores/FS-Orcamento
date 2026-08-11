@@ -246,7 +246,18 @@ export function LevantamentosManager({
       <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
         {levantamentos.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-gray-400">Nenhum levantamento cadastrado ainda.</p>
-        ) : levantamentos.map(l => {
+        ) : (
+        <>
+        <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 text-xs font-medium uppercase text-gray-500">
+          <span className="w-4 shrink-0" />
+          <span className="w-48 shrink-0">Levantamento</span>
+          <span className="w-36 shrink-0">Responsável</span>
+          <span className="w-40 shrink-0">Status</span>
+          <span className="w-24 shrink-0">Início</span>
+          <span className="w-24 shrink-0">Prazo</span>
+          <span className="w-16 shrink-0">Progresso</span>
+        </div>
+        {levantamentos.map(l => {
           const aberto = expandidos.has(l.id)
           const progresso = l.itens.length > 0 ? `${l.itens.filter(i => i.concluido).length}/${l.itens.length}` : '—'
           const draftPendencia = novaPendenciaDraft[l.id] ?? { item: '', problema: '', pergunta: '' }
@@ -283,6 +294,7 @@ export function LevantamentosManager({
                     options={STATUS_OPTIONS}
                     onCommit={v => commitStatus(l.id, v as LevantamentoStatus)}
                     onCancel={() => {}}
+                    allowEmpty={false}
                   />
                 </div>
 
@@ -414,6 +426,8 @@ export function LevantamentosManager({
             </div>
           )
         })}
+        </>
+        )}
       </div>
     </div>
   )

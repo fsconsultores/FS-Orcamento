@@ -39,17 +39,24 @@ export function InlineInput({
   )
 }
 
-/** Select de edição inline — mesmo comportamento de foco/commit/cancel do InlineInput. */
+/**
+ * Select de edição inline — mesmo comportamento de foco/commit/cancel do InlineInput.
+ * `allowEmpty` (default true) mostra a opção "—" pra limpar o campo — desligue
+ * para colunas NOT NULL/com CHECK constraint (ex.: status), onde uma seleção
+ * vazia não é um valor válido para commitar.
+ */
 export function InlineSelect({
   value,
   options,
   onCommit,
   onCancel,
+  allowEmpty = true,
 }: {
   value: string
   options: { value: string; label: string }[]
   onCommit: (v: string) => void
   onCancel: () => void
+  allowEmpty?: boolean
 }) {
   const ref = useRef<HTMLSelectElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
@@ -63,7 +70,7 @@ export function InlineSelect({
       onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onCancel() } }}
       className="block w-full rounded border border-blue-400 bg-white px-2 py-0.5 text-sm outline-none ring-2 ring-blue-400/20"
     >
-      <option value="">—</option>
+      {allowEmpty && <option value="">—</option>}
       {options.map(o => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
