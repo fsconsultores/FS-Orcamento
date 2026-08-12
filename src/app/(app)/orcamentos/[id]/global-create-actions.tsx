@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useId, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -62,6 +62,11 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
 
   const [composicoes, setComposicoes] = useState<{ id: string; codigo: string; descricao: string }[]>([])
   const [composicoesCarregadas, setComposicoesCarregadas] = useState(false)
+
+  // Namespace de ids estável — label/input aqui eram só visualmente
+  // adjacentes (sem htmlFor/id), então nem leitor de tela nem
+  // Playwright getByLabel() associavam um ao outro.
+  const uid = useId()
 
   // Atalhos globais: F2 abre Novo Insumo, F4 abre Nova Composição — em
   // qualquer aba do projeto, não só nas telas de Insumos/Composições.
@@ -182,8 +187,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
         <form id="global-novo-insumo-form" onSubmit={handleSubmitInsumo} className="space-y-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Código *</label>
+              <label htmlFor={`${uid}-insumo-codigo`} className="block text-xs font-medium text-gray-600 mb-1">Código *</label>
               <input
+                id={`${uid}-insumo-codigo`}
                 required
                 autoFocus
                 value={insumoForm.codigo}
@@ -193,8 +199,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
             </div>
 
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Descrição *</label>
+              <label htmlFor={`${uid}-insumo-descricao`} className="block text-xs font-medium text-gray-600 mb-1">Descrição *</label>
               <input
+                id={`${uid}-insumo-descricao`}
                 required
                 value={insumoForm.descricao}
                 onChange={(e) => setInsumoForm(p => ({ ...p, descricao: e.target.value }))}
@@ -203,8 +210,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Unidade *</label>
+              <label htmlFor={`${uid}-insumo-unidade`} className="block text-xs font-medium text-gray-600 mb-1">Unidade *</label>
               <input
+                id={`${uid}-insumo-unidade`}
                 required
                 value={insumoForm.unidade}
                 onChange={(e) => setInsumoForm(p => ({ ...p, unidade: e.target.value }))}
@@ -213,8 +221,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Custo *</label>
+              <label htmlFor={`${uid}-insumo-custo`} className="block text-xs font-medium text-gray-600 mb-1">Custo *</label>
               <input
+                id={`${uid}-insumo-custo`}
                 required
                 type="number"
                 step="0.0001"
@@ -226,8 +235,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Grupo</label>
+              <label htmlFor={`${uid}-insumo-grupo`} className="block text-xs font-medium text-gray-600 mb-1">Grupo</label>
               <select
+                id={`${uid}-insumo-grupo`}
                 value={insumoForm.grupo ?? ''}
                 onChange={(e) => setInsumoForm(p => ({ ...p, grupo: e.target.value || null }))}
                 className={inp}
@@ -240,8 +250,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Base</label>
+              <label htmlFor={`${uid}-insumo-base`} className="block text-xs font-medium text-gray-600 mb-1">Base</label>
               <input
+                id={`${uid}-insumo-base`}
                 value={insumoForm.base ?? ''}
                 onChange={(e) => setInsumoForm(p => ({ ...p, base: e.target.value || null }))}
                 className={inp}
@@ -250,8 +261,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
 
             {composicoes.length > 0 && (
               <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Composição pai</label>
+                <label htmlFor={`${uid}-insumo-composicao-pai`} className="block text-xs font-medium text-gray-600 mb-1">Composição pai</label>
                 <select
+                  id={`${uid}-insumo-composicao-pai`}
                   value={insumoForm.composicao_id ?? ''}
                   onChange={(e) => setInsumoForm(p => ({ ...p, composicao_id: e.target.value || null }))}
                   className={inp}
@@ -298,8 +310,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
       >
         <form id="global-nova-composicao-form" onSubmit={handleSubmitComposicao} className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Código *</label>
+            <label htmlFor={`${uid}-comp-codigo`} className="block text-xs font-medium text-gray-600 mb-1">Código *</label>
             <input
+              id={`${uid}-comp-codigo`}
               required
               autoFocus
               value={compForm.codigo}
@@ -309,8 +322,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Unidade *</label>
+            <label htmlFor={`${uid}-comp-unidade`} className="block text-xs font-medium text-gray-600 mb-1">Unidade *</label>
             <input
+              id={`${uid}-comp-unidade`}
               required
               value={compForm.unidade}
               onChange={(e) => setCompForm(p => ({ ...p, unidade: e.target.value }))}
@@ -319,8 +333,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
           </div>
 
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Descrição *</label>
+            <label htmlFor={`${uid}-comp-descricao`} className="block text-xs font-medium text-gray-600 mb-1">Descrição *</label>
             <input
+              id={`${uid}-comp-descricao`}
               required
               value={compForm.descricao}
               onChange={(e) => setCompForm(p => ({ ...p, descricao: e.target.value }))}
@@ -329,8 +344,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
           </div>
 
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Base</label>
+            <label htmlFor={`${uid}-comp-base`} className="block text-xs font-medium text-gray-600 mb-1">Base</label>
             <input
+              id={`${uid}-comp-base`}
               value={compForm.base ?? ''}
               onChange={(e) => setCompForm(p => ({ ...p, base: e.target.value || null }))}
               className={inp}

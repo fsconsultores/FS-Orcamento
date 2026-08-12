@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { MOTIVOS_ESTIMADO_PRESET, OUTRO_ESTIMADO_SENTINEL } from '@/lib/orcamento/estimado-motivos'
 
 export interface CotacaoModalAlvo {
@@ -61,6 +61,11 @@ export function CotacaoInsumoModal({
   const [motivoTextoLivre, setMotivoTextoLivre] = useState(motivoEhPreset ? '' : (motivoAtual ?? ''))
   const [salvando, setSalvando] = useState(false)
 
+  const idPreco = useId()
+  const idFornecedor = useId()
+  const idDataCotacao = useId()
+  const idObservacoes = useId()
+
   async function handleSalvar() {
     if (salvando) return
     const str = preco.trim().replace(',', '.')
@@ -111,8 +116,9 @@ export function CotacaoInsumoModal({
         </div>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Preço</label>
+            <label htmlFor={idPreco} className="mb-1 block text-xs font-medium text-gray-600">Preço</label>
             <input
+              id={idPreco}
               autoFocus type="number" min="0" step="any"
               value={preco}
               onChange={e => setPreco(e.target.value)}
@@ -121,8 +127,9 @@ export function CotacaoInsumoModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Fornecedor</label>
+            <label htmlFor={idFornecedor} className="mb-1 block text-xs font-medium text-gray-600">Fornecedor</label>
             <input
+              id={idFornecedor}
               type="text" placeholder="Ex.: Construmax"
               value={fornecedor}
               onChange={e => setFornecedor(e.target.value)}
@@ -131,8 +138,9 @@ export function CotacaoInsumoModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Data da cotação</label>
+            <label htmlFor={idDataCotacao} className="mb-1 block text-xs font-medium text-gray-600">Data da cotação</label>
             <input
+              id={idDataCotacao}
               type="date"
               value={dataCotacao}
               onChange={e => setDataCotacao(e.target.value)}
@@ -140,8 +148,9 @@ export function CotacaoInsumoModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Observações <span className="font-normal text-gray-400">(opcional)</span></label>
+            <label htmlFor={idObservacoes} className="mb-1 block text-xs font-medium text-gray-600">Observações <span className="font-normal text-gray-400">(opcional)</span></label>
             <textarea
+              id={idObservacoes}
               rows={2} placeholder="Ex.: Preço negociado para compra acima de 500 unidades."
               value={observacoes}
               onChange={e => setObservacoes(e.target.value)}
