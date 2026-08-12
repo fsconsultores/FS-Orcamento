@@ -3,6 +3,7 @@ import type { CadernoData, CadernoNode } from '@/lib/orcamento/caderno'
 import { fmt, fmtQtd } from '@/lib/curva-abc'
 import { PDF_COLORS } from '@/lib/pdf/abc-section'
 import { slugFilename } from './xlsx-shared'
+import { formatDate } from '@/lib/format-date'
 
 const GROUP_FILL = '#f1f5f9'
 
@@ -41,7 +42,7 @@ export async function exportPlanilhaSinteticaPdf(data: CadernoData) {
   doc.setFontSize(9)
   const subtitle = [
     [data.orcamento.codigo, data.orcamento.nome_obra].filter(Boolean).join(' - '),
-    `Gerado em ${new Date().toLocaleDateString('pt-BR')}`,
+    `Gerado em ${formatDate(new Date())}`,
   ].filter(Boolean).join('   •   ')
   doc.text(subtitle, margin + 4, margin + 12.5)
 

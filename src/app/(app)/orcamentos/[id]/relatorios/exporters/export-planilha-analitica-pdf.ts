@@ -4,6 +4,7 @@ import { fmt, fmtQtd } from '@/lib/curva-abc'
 import { PDF_COLORS } from '@/lib/pdf/abc-section'
 import { slugFilename } from './xlsx-shared'
 import { buildAnaliticaRows, TITULOS, SUFIXOS, fmtDataCotacao, type AnaliticaFilterState } from './export-planilha-analitica'
+import { formatDate } from '@/lib/format-date'
 
 const ABC_BG: Record<AbcClasse, string> = { A: '#dcfce7', B: '#fef3c7', C: '#fee2e2' }
 const ABC_FG: Record<AbcClasse, string> = { A: '#15803d', B: '#b45309', C: '#b91c1c' }
@@ -42,7 +43,7 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
   doc.setFontSize(9)
   const subtitle = [
     [data.orcamento.codigo, data.orcamento.nome_obra].filter(Boolean).join(' - '),
-    `Gerado em ${new Date().toLocaleDateString('pt-BR')}`,
+    `Gerado em ${formatDate(new Date())}`,
   ].filter(Boolean).join('   •   ')
   doc.text(subtitle, margin + 4, margin + 12.5)
 

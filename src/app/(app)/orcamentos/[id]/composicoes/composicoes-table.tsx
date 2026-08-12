@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
 import { ClientPagination } from '@/components/client-pagination'
+import { formatCurrency } from '@/lib/costs'
 
 const PAGE_SIZE = 100
 
@@ -289,7 +290,7 @@ export function ComposicoesTable({
                   <td className="p-0 text-right tabular-nums text-gray-700">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
                       {c.custo_unitario > 0
-                        ? c.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                        ? formatCurrency(c.custo_unitario)
                         : <span className="text-gray-300">—</span>}
                     </Link>
                   </td>

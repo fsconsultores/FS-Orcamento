@@ -8,6 +8,7 @@ import { recalcularComposicaoAction } from '../../planilha/calcular-action'
 import { atualizarInsumoComposicaoAction } from '../../atualizar-insumo-composicao-action'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
+import { formatCurrency } from '@/lib/costs'
 
 type InsumoRow = {
   id: string
@@ -40,7 +41,7 @@ type Sugestao = {
   tipo: 'insumo' | 'composicao'
 }
 
-const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const BRL = formatCurrency
 const NUM = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 6 })
 
 // ─── Autocomplete ─────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import type { CadernoData, PlanilhaAnaliticaRow, AbcClasse } from '@/lib/orcamento/caderno'
 import { filterAnaliticaRows, buildAgrupadaRows, type CategoriaAnalitica } from '@/lib/orcamento/analitica-filtros'
 import { sanitize, XLSX_COLORS as C, xlsxFill as fill, xlsxBorder as bdr, addSheetHeader, downloadWorkbook, slugFilename } from './xlsx-shared'
+import { formatDateOnly } from '@/lib/format-date'
 
 export type AnaliticaModo = 'normal' | 'decomposta' | 'agrupada'
 
@@ -52,8 +53,7 @@ export const SUFIXOS: Record<AnaliticaModo, string> = {
 // arriscar deslocar de fuso.
 export function fmtDataCotacao(dataIso: string | null | undefined): string {
   if (!dataIso) return ''
-  const [ano, mes, dia] = dataIso.split('-')
-  return `${dia}/${mes}/${ano}`
+  return formatDateOnly(dataIso)
 }
 
 export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: AnaliticaFilterState) {

@@ -16,6 +16,8 @@ import { Truck, CalendarDays, Sparkles } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
+import { formatCurrency } from '@/lib/costs'
+import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
@@ -76,7 +78,7 @@ interface HistoricoModal {
 
 function fmtMoeda(value: number | null | undefined): string {
   if (value == null) return '—'
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return formatCurrency(value)
 }
 
 function fmtDataHora(iso: string): string {
@@ -85,17 +87,12 @@ function fmtDataHora(iso: string): string {
   })
 }
 
-function fmtDataCurta(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-}
+const fmtDataCurta = formatDateShort
 
-// data_cotacao é DATE puro ('AAAA-MM-DD', sem hora) — new Date(string) trataria
-// como UTC meia-noite e poderia exibir o dia anterior em fusos negativos.
-function fmtDataCotacao(dataIso: string | null | undefined): string {
-  if (!dataIso) return '—'
-  const [ano, mes, dia] = dataIso.split('-')
-  return `${dia}/${mes}/${ano}`
-}
+// data_cotacao é DATE puro ('AAAA-MM-DD', sem hora) — formatDateOnly evita o
+// mesmo problema de fuso que new Date(string) teria (UTC meia-noite poderia
+// exibir o dia anterior em fusos negativos).
+const fmtDataCotacao = formatDateOnly
 
 function hojeISO(): string {
   const d = new Date()
@@ -870,7 +867,7 @@ export function OrcamentoInsumosTable({
                         className={`block text-right tabular-nums ${cellClass()} ${isSaving ? 'text-gray-400' : 'text-gray-900'}`}
                         title="Clique para editar preço e cotação"
                       >
-                        {isSaving ? '…' : insumo.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {isSaving ? '…' : fmtMoeda(insumo.custo)}
                       </span>
                     </td>
 

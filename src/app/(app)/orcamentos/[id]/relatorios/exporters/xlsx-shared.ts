@@ -1,4 +1,5 @@
 import type { CadernoData } from '@/lib/orcamento/caderno'
+import { formatDate, formatDateOnly } from '@/lib/format-date'
 
 export function sanitize(v: string | null | undefined): string {
   return (v ?? '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
@@ -24,9 +25,7 @@ export function xlsxBorder(style: 'thin' | 'medium', argb: string) {
 export async function addSheetHeader(wb: any, ws: any, titulo: string, orcamento: CadernoData['orcamento']) {
   const hFill = xlsxFill
   const hBdr = xlsxBorder
-  const dataStr = orcamento.data
-    ? new Date(orcamento.data + 'T00:00:00').toLocaleDateString('pt-BR')
-    : new Date().toLocaleDateString('pt-BR')
+  const dataStr = orcamento.data ? formatDateOnly(orcamento.data) : formatDate(new Date())
 
   const r1 = ws.addRow([]); r1.height = 32
   const r2 = ws.addRow([]); r2.height = 22

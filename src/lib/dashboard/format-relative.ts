@@ -1,3 +1,5 @@
+import { formatDateShort } from '@/lib/format-date'
+
 export function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const min = Math.floor(diffMs / 60_000)
@@ -8,5 +10,5 @@ export function formatRelative(iso: string): string {
   const d = Math.floor(h / 24)
   if (d === 1) return 'ontem'
   if (d < 7) return `há ${d} dias`
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  return formatDateShort(iso)
 }

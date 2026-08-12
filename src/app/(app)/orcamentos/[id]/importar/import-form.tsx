@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ImportResultBox } from '@/components/import-result-box'
 import { WizardSteps } from '@/components/ui/import-wizard'
 import { Database } from 'lucide-react'
+import { formatCurrency } from '@/lib/costs'
 
 const STEPS_3 = [
   { key: 'arquivo', label: 'Arquivo' },
@@ -440,7 +441,7 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
                     <td className="px-3 py-2">{ins.descricao}</td>
                     <td className="px-3 py-2 text-gray-500">{ins.unidade}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {ins.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      {formatCurrency(ins.custo)}
                     </td>
                     <td className="px-3 py-2 text-gray-400">{ins.grupo ?? '—'}</td>
                     <td className="px-3 py-2 text-gray-400">{ins.base ?? '—'}</td>
@@ -639,7 +640,7 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
                         <td className="px-3 py-2 text-gray-700">{ins.descricao}</td>
                         <td className="px-3 py-2 text-gray-500">{ins.unidade}</td>
                         <td className="px-3 py-2 text-gray-400">
-                          {format === 'sudecap' ? ins.codigo : ins.custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          {format === 'sudecap' ? ins.codigo : formatCurrency(ins.custo)}
                         </td>
                       </tr>
                     ))}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { importarEstrutura } from './planilha-action'
 import type { EstruturaRow, ImportResult } from './planilha-action'
 import { WizardSteps } from '@/components/ui/import-wizard'
+import { formatCurrency } from '@/lib/costs'
 
 // ─── Campos do sistema e mapeamento de colunas ───────────────────────────────
 // Em vez de assumir posição fixa de coluna (a planilha do usuário pode ter
@@ -544,7 +545,7 @@ function PreviewTable({ preview }: { preview: EstruturaRow[] }) {
               </td>
               <td className="px-3 py-1.5 text-right tabular-nums">
                 {r.custo_unitario != null
-                  ? r.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                  ? formatCurrency(r.custo_unitario)
                   : '—'}
               </td>
             </tr>

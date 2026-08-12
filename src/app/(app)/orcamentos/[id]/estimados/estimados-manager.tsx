@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import type { CadernoNode } from '@/lib/orcamento/caderno'
 import { atualizarItensEstimadosAction, type AlteracaoEstimado } from './estimados-action'
+import { formatCurrency } from '@/lib/costs'
 
 // Mesma ideia do antigo sufixo "- Estimado" no nome, só que agora é só uma
 // SUGESTÃO de partida (pré-marcada), nunca a decisão em si — quem decide de
@@ -23,9 +24,7 @@ function achatar(nodes: CadernoNode[], depth = 0, out: Linha[] = []): Linha[] {
   return out
 }
 
-function fmt(v: number) {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
+const fmt = formatCurrency
 
 interface EstadoItem {
   estimado: boolean

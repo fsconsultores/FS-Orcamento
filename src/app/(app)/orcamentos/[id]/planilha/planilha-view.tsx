@@ -20,6 +20,8 @@ import { Plus, Trash2, Save, Check } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { EstimadoBadge } from '@/components/estimado-badge'
+import { formatCurrency } from '@/lib/costs'
+import { formatDate, formatDateOnly } from '@/lib/format-date'
 
 export type { EstruturaItem }
 
@@ -134,7 +136,7 @@ function flattenTree(nodos: Nodo[], depth = 0): { nodo: Nodo; depth: number }[] 
   return nodos.flatMap(n => [{ nodo: n, depth }, ...flattenTree(n.filhos, depth + 1)])
 }
 
-const BRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const BRL = formatCurrency
 
 function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
   const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
@@ -254,7 +256,7 @@ function CodigoAutocomplete({
               <span className="text-gray-500 truncate flex-1">{s.descricao}</span>
               {s.custo_unitario != null && (
                 <span className="shrink-0 tabular-nums text-gray-600">
-                  {s.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {BRL(s.custo_unitario)}
                 </span>
               )}
             </li>
@@ -979,9 +981,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   async function addSheetHeader(wb: any, ws: any, titulo: string) {
     const hFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
     const hBdr  = (style: 'thin' | 'medium', argb: string) => ({ style, color: { argb } })
-    const dataStr = dataOrcamento
-      ? new Date(dataOrcamento + 'T00:00:00').toLocaleDateString('pt-BR')
-      : new Date().toLocaleDateString('pt-BR')
+    const dataStr = dataOrcamento ? formatDateOnly(dataOrcamento) : formatDate(new Date())
 
     const r1 = ws.addRow([]); r1.height = 32
     const r2 = ws.addRow([]); r2.height = 22
@@ -1536,7 +1536,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Data</p>
               <p className="text-sm font-medium text-gray-800 mt-0.5">
-                {new Date(dataOrcamento + 'T00:00:00').toLocaleDateString('pt-BR')}
+                {formatDateOnly(dataOrcamento)}
               </p>
             </div>
           )}

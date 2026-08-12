@@ -10,6 +10,7 @@ import { StatRow, StatCard } from '@/components/ui/stat-row'
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Button } from '@/components/ui/button'
+import { formatDateOnly } from '@/lib/format-date'
 import { baseLabelFromOrgao } from '@/components/base-labels'
 import { formatCurrency } from '@/lib/costs'
 import { BaseTabs } from './base-tabs'
@@ -132,7 +133,7 @@ export default async function BaseDetailPage({
                   <Td className="text-gray-600">{ins.grupo ?? '—'}</Td>
                   <Td className="text-gray-600">{ins.unidade}</Td>
                   <Td className="text-right font-medium tabular-nums text-gray-900">{formatCurrency(ins.preco_base)}</Td>
-                  <Td className="text-gray-500">{ins.data_referencia ? new Date(ins.data_referencia).toLocaleDateString('pt-BR') : '—'}</Td>
+                  <Td className="text-gray-500">{formatDateOnly(ins.data_referencia)}</Td>
                 </Tr>
               ))}
             </Tbody>

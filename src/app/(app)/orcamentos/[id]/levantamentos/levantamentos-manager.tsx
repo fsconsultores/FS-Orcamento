@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Levantamento, LevantamentoStatus } from '@/lib/orcamento'
 import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
 import { LevantamentoStatusBadge } from '@/components/levantamento-status-badge'
+import { formatDateOnly } from '@/lib/format-date'
 import { ChevronRight, Plus, Trash2 } from 'lucide-react'
 
 const STATUS_OPTIONS: { value: LevantamentoStatus; label: string }[] = [
@@ -17,12 +18,6 @@ const STATUS_OPTIONS: { value: LevantamentoStatus; label: string }[] = [
 
 type EditableField = 'nome' | 'responsavel' | 'data_inicio' | 'data_prazo'
 interface Editing { id: string; field: EditableField }
-
-function fmtData(iso: string | null): string {
-  if (!iso) return '—'
-  const [ano, mes, dia] = iso.split('-')
-  return `${dia}/${mes}/${ano}`
-}
 
 function cellClass(base = '') {
   return `cursor-text hover:bg-blue-50 rounded px-1 -mx-1 ${base}`
@@ -303,7 +298,7 @@ export function LevantamentosManager({
                     <InlineInput type="date" value={l.data_inicio ?? ''} onCommit={v => commitEdit(l.id, 'data_inicio', v)} onCancel={() => setEditing(null)} />
                   ) : (
                     <span onClick={() => setEditing({ id: l.id, field: 'data_inicio' })} className={cellClass()} title="Início — clique para editar">
-                      {fmtData(l.data_inicio)}
+                      {formatDateOnly(l.data_inicio)}
                     </span>
                   )}
                 </div>
@@ -313,7 +308,7 @@ export function LevantamentosManager({
                     <InlineInput type="date" value={l.data_prazo ?? ''} onCommit={v => commitEdit(l.id, 'data_prazo', v)} onCancel={() => setEditing(null)} />
                   ) : (
                     <span onClick={() => setEditing({ id: l.id, field: 'data_prazo' })} className={cellClass()} title="Prazo — clique para editar">
-                      {fmtData(l.data_prazo)}
+                      {formatDateOnly(l.data_prazo)}
                     </span>
                   )}
                 </div>

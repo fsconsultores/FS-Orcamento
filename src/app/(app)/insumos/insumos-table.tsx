@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package, Download } from 'lucide-react';
 import { formatCurrency } from '@/lib/costs';
+import { formatDateOnly } from '@/lib/format-date';
 import { baseBadgeClass } from '@/components/base-filter';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import type { InsumoComBase } from '@/lib/supabase/types';
@@ -219,7 +220,7 @@ export function InsumosTable({
               </Td>
               <Td className="!p-0 text-gray-500">
                 <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">
-                  {ins.data_referencia ? new Date(ins.data_referencia).toLocaleDateString('pt-BR') : '—'}
+                  {formatDateOnly(ins.data_referencia)}
                 </Link>
               </Td>
             </Tr>

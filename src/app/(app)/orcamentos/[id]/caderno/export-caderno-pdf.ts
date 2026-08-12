@@ -1,6 +1,7 @@
 import type { jsPDF } from 'jspdf'
 import type { RowInput } from 'jspdf-autotable'
 import { fmt, fmtQtd, fmtPct, type AbcItem } from '@/lib/curva-abc'
+import { formatDate } from '@/lib/format-date'
 import type { CadernoData, CadernoNode, AbcClasse } from '@/lib/orcamento/caderno'
 import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import {
@@ -51,7 +52,7 @@ function drawDocumentHeader(
   const ty = margin
 
   const { nome_obra, cliente } = data.orcamento
-  const dateStr = new Date().toLocaleDateString('pt-BR')
+  const dateStr = formatDate(new Date())
 
   // Fundo único
   doc.setFillColor(PDF_COLORS.bannerBg)
@@ -123,7 +124,7 @@ function addCoverPage(doc: jsPDF, data: CadernoData, pageW: number, pageH: numbe
   if (linha2) doc.text(linha2, pageW / 2, pageH / 2 + 4, { align: 'center' })
 
   doc.setFontSize(9)
-  doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, pageW / 2, pageH - 14, { align: 'center' })
+  doc.text(`Gerado em ${formatDate(new Date())}`, pageW / 2, pageH - 14, { align: 'center' })
 }
 
 function addDivider(doc: jsPDF, pageW: number, pageH: number, numero: string, titulo: string, subtitle?: string) {
@@ -705,7 +706,7 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
 
   const subtitle = [
     [data.orcamento.codigo, data.orcamento.nome_obra].filter(Boolean).join(' - '),
-    `Gerado em ${new Date().toLocaleDateString('pt-BR')}`,
+    `Gerado em ${formatDate(new Date())}`,
   ].filter(Boolean).join('   •   ')
 
   const SEM_DADOS = 'Seção sem dados disponíveis no software'

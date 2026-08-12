@@ -1,5 +1,7 @@
+import { formatCurrency } from './costs'
+
 export function fmt(n: number) {
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return formatCurrency(n)
 }
 
 export function fmtQtd(n: number) {

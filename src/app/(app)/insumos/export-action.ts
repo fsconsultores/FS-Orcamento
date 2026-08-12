@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { baseLabelFromOrgao } from '@/components/base-labels'
 import type { InsumoComBase } from '@/lib/supabase/types'
+import { formatDateOnly } from '@/lib/format-date'
 
 /**
  * Busca todos os insumos que casam com os filtros da tela (não só a página
@@ -57,8 +58,6 @@ export async function exportInsumosAction(filtros: { q?: string; orgao?: string;
     'Unidade': ins.unidade,
     'Custo': ins.preco_base,
     'Base': ins.base_origem ?? (ins.tabela_bases ? baseLabelFromOrgao(ins.tabela_bases.orgao) : ''),
-    'Data Ref.': ins.data_referencia
-      ? new Date(ins.data_referencia).toLocaleDateString('pt-BR')
-      : '',
+    'Data Ref.': ins.data_referencia ? formatDateOnly(ins.data_referencia) : '',
   }))
 }

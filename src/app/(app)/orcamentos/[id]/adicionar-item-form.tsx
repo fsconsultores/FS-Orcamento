@@ -6,6 +6,7 @@ import { Star } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { registrarHistorico } from '@/lib/log';
+import { formatCurrency } from '@/lib/costs';
 
 type Composicao = {
   id: string;
@@ -336,7 +337,7 @@ export function AdicionarItemForm({
                       ) : null}
                       <span className="text-xs text-gray-400">{c.unidade}</span>
                       <span className="text-xs font-medium text-gray-600">
-                        {c.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {formatCurrency(c.custo_unitario)}
                       </span>
                     </span>
                   </button>
@@ -370,7 +371,7 @@ export function AdicionarItemForm({
             <p className="text-xs text-gray-500">
               Custo unit.:{' '}
               <span className="font-medium text-gray-700">
-                {selectedComp.custo_unitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                {formatCurrency(selectedComp.custo_unitario)}
               </span>
               {' '}/ {selectedComp.unidade}
               {selectedComp.orgao && (
@@ -416,7 +417,7 @@ export function AdicionarItemForm({
             <p className="text-xs text-gray-500">
               Subtotal:{' '}
               <span className="font-semibold text-gray-800">
-                {custoPreview.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                {formatCurrency(custoPreview)}
               </span>
             </p>
           )}

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { StatRow, StatCard } from '@/components/ui/stat-row'
 import { ImportResultBox } from '@/components/import-result-box'
 import { WizardSteps } from '@/components/ui/import-wizard'
+import { formatCurrency } from '@/lib/costs'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -505,10 +506,10 @@ export default function ImportarCotacaoPage() {
                           <td className="px-3 py-1.5 font-mono text-gray-700">{r.codigo}</td>
                           <td className="px-3 py-1.5 text-gray-800 max-w-xs truncate">{r.descricao}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">
-                            {r.preco_atual!.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {formatCurrency(r.preco_atual!)}
                           </td>
                           <td className="px-3 py-1.5 text-right tabular-nums font-medium text-gray-900">
-                            {r.preco_novo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {formatCurrency(r.preco_novo)}
                           </td>
                           <td className={`px-3 py-1.5 text-right tabular-nums text-xs font-medium ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
                             {diff > 0 ? '+' : ''}{pct.toFixed(1)}%

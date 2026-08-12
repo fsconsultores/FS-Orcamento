@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import { formatCurrency } from '@/lib/costs'
 
 const ORIGEM_LABEL: Record<string, string> = {
   manual:     'Edição manual',
@@ -13,7 +14,7 @@ const ORIGEM_LABEL: Record<string, string> = {
 
 function fmt(value: number | null | undefined): string {
   if (value == null) return '—'
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return formatCurrency(value)
 }
 
 function fmtDate(iso: string): string {

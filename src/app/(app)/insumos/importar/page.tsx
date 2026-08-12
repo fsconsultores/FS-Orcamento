@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/toolbar';
 import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { ImportResultBox } from '@/components/import-result-box';
+import { formatCurrency } from '@/lib/costs';
 import { WizardSteps } from '@/components/ui/import-wizard';
 
 const STEPS = [
@@ -389,7 +390,7 @@ export default function ImportarInsumosPage() {
                   <Td className="text-xs text-gray-600">{r.unidade || <span className="text-gray-300">—</span>}</Td>
                   <Td className="text-xs text-right text-gray-700">
                     {r.preco_base > 0
-                      ? r.preco_base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      ? formatCurrency(r.preco_base)
                       : <span className="text-gray-300">—</span>}
                   </Td>
                   <Td className="text-xs text-gray-500">{r.grupo ?? <span className="text-gray-300">—</span>}</Td>

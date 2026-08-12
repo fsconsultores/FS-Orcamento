@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { ImportResultBox } from '@/components/import-result-box'
 import { Checkbox } from '@/components/ui/checkbox'
 import { WizardSteps } from '@/components/ui/import-wizard'
+import { formatCurrency } from '@/lib/costs'
 
 const STEPS = [
   { key: 'arquivo', label: 'Arquivo' },
@@ -590,7 +591,7 @@ export default function ImportarSinapiPage() {
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">
                       {r.preco > 0
-                        ? r.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                        ? formatCurrency(r.preco)
                         : <span className="text-gray-300">—</span>}
                     </td>
                   </tr>

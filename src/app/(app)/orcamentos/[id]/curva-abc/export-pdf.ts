@@ -1,5 +1,6 @@
 import type { AbcItem } from '@/lib/curva-abc'
 import { slugFilename } from '../relatorios/exporters/xlsx-shared'
+import { formatDate } from '@/lib/format-date'
 import {
   PDF_COLORS,
   drawAbcChart,
@@ -46,7 +47,7 @@ export async function exportCurvaAbcPdf(
   doc.text(`CURVA ABC — ${TAB_TITLES[tab] ?? tab.toUpperCase()}`, margin + 4, margin + 7)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  const subtitle = [orcamentoNome, `Gerado em ${new Date().toLocaleDateString('pt-BR')}`]
+  const subtitle = [orcamentoNome, `Gerado em ${formatDate(new Date())}`]
     .filter(Boolean)
     .join('   •   ')
   doc.text(subtitle, margin + 4, margin + 12.5)

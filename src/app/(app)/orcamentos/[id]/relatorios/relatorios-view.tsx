@@ -11,6 +11,7 @@ import { ReportDetailPanel } from './report-detail-panel'
 import type { EscopoPlanilha, PlanilhaResumo } from './filters/planilha-selector'
 import { PageHeader } from '@/components/ui/toolbar'
 import { StatRow, StatCard } from '@/components/ui/stat-row'
+import { formatCurrency } from '@/lib/costs'
 
 interface ServicoEstimadoManual {
   id?: string
@@ -65,7 +66,7 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
     })
   }
 
-  const fmt = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const fmt = formatCurrency
 
   // "Resumo da revisão" — reutiliza data.servicosEstimados (já calculado em
   // getCadernoData, sem consulta extra) para dar uma visão rápida antes de
