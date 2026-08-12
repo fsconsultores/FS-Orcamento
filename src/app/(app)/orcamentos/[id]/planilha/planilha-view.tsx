@@ -2,16 +2,12 @@
 
 import { useState, useRef, useEffect, Fragment, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, buscarSugestoesCodigo, moverItem, buscarItensEstrutura, restaurarEstruturaSnapshot } from './planilha-crud-action'
+import { atualizarItemEstrutura, deletarItemEstrutura, adicionarItemEstrutura, adicionarItemNaPosicao, buscarSugestoesCodigo, moverItem } from './planilha-crud-action'
 import type { SugestaoCodigo, EstruturaItem } from './planilha-crud-action'
-import { limparPlanilha, validarComposicoes } from './planilha-import-action'
+import { limparPlanilha } from './planilha-import-action'
 import { salvarNumeros } from './planilha-numeracao-action'
-import { calcularPlanilhaAtualAction, recalcularProjetoAction, verificarConsistenciaAction, detectarOrfaosAction, confirmarLimpezaAction } from './calcular-action'
 import { atualizarPrecoInsumoAction } from '../atualizar-preco-insumo-action'
-import type { CalculoResult, ConsistenciaReport, TotaisPlanilha } from '@/lib/orcamento/motor-calculo'
-import type { OrfaosDetectados } from '@/lib/orcamento/types'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   DragOverlay, type DragEndEvent, type DragStartEvent, type DragMoveEvent,
@@ -29,6 +25,8 @@ import { CodigoAutocomplete } from './codigo-autocomplete'
 import { AddItemForm } from './add-item-form'
 import { type Nodo, buildTree, calcTotais, atribuirNumeros, coletarNumeros, flattenTree, editableFields, fieldToStr } from './planilha-tree'
 import { usePlanilhaExport, type AnaliticaInsumoRow } from './use-planilha-export'
+import { usePlanilhaSave } from './use-planilha-save'
+import { usePlanilhaCalculo } from './use-planilha-calculo'
 
 export type { EstruturaItem }
 
@@ -55,29 +53,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
 
-  // "Estado confirmado" da planilha ativa — usado para desfazer operações
-  // estruturais (adicionar/excluir/mover) se o usuário sair sem salvar. Essas
-  // operações persistem no banco na hora do clique (diferente das edições de
-  // célula, que só vão ao banco no "Salvar Planilha"), então precisam de um
-  // snapshot próprio para serem revertidas. Ver handleConfirmLeave.
-  const baselineRef = useRef<EstruturaItem[]>(initialItems.map(it => ({ ...it })))
-  const structuralDirtyRef = useRef(false)
   // Toda Server Action (adicionar/excluir/mover item já são Server Actions)
   // faz o Next.js re-renderizar implicitamente os Server Components da rota
   // atual — isso muda a prop `initialItems` MESMO sem navegação real. Por
   // isso o reset do baseline não pode depender só de `initialItems` mudar;
   // só deve acontecer quando a planilha ativa de fato muda (troca de aba).
   const activePlanilhaIdRef = useRef(activePlanilhaId)
-
-  useEffect(() => {
-    setItems(initialItems)
-    if (activePlanilhaIdRef.current !== activePlanilhaId) {
-      baselineRef.current = initialItems.map(it => ({ ...it }))
-      structuralDirtyRef.current = false
-      activePlanilhaIdRef.current = activePlanilhaId
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialItems])
   const [deletingId, setDeletingId]     = useState<string | null>(null)
   const [addingParentId, setAddingParentId] = useState<string | null | 'root'>()
   const [collapsed, setCollapsed]       = useState<Set<string>>(new Set())
@@ -108,233 +89,38 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const [dragActiveId, setDragActiveId] = useState<string | null>(null)
   const dragDeltaX                      = useRef(0)
   const scrollContainerRef             = useRef<HTMLDivElement>(null)
-  const [calcMode, setCalcMode] = useState<'planilha' | 'projeto' | null>(null)
-  const [calcPanelOpen, setCalcPanelOpen] = useState(false)
-  const calcPanelRef = useRef<HTMLDivElement>(null)
-  const [calcLogs, setCalcLogs] = useState<string[]>([])
-  const [calcErro, setCalcErro] = useState<string | null>(null)
-  const [calcResultado, setCalcResultado] = useState<{ itens: number; comps: number } | null>(null)
-  const [orfaosDetectados, setOrfaosDetectados] = useState<OrfaosDetectados | null>(null)
-  const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
-  const [limpandoOrfaos, setLimpandoOrfaos] = useState(false)
-  const [consistenciaReport, setConsistenciaReport] = useState<ConsistenciaReport | null>(null)
-  const [verificando, setVerificando] = useState(false)
-  const [totaisProjetoResult, setTotaisProjetoResult] = useState<TotaisPlanilha[] | null>(null)
-
-  const [tipoValorFinal, setTipoValorFinal] = useState<'custo' | 'venda'>('custo')
-  const [valorFinalInput, setValorFinalInput] = useState('')
-
-  // ── Dirty state / save tracking ───────────────────────────────────────────
-  const router = useRouter()
-  const [isDirty, setIsDirty] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [invalidCodigos, setInvalidCodigos] = useState<Set<string>>(new Set())
-  const [showLeaveModal, setShowLeaveModal] = useState(false)
-  const [showInvalidModal, setShowInvalidModal] = useState(false)
-  const pendingHrefRef = useRef<string | null>(null)
-  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dirtyItemsRef = useRef<Map<string, Partial<EstruturaItem>>>(new Map())
-  const isSaving = saveStatus === 'saving'
-
-  function scheduleSaved() {
-    if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current)
-    setSaveStatus('saved')
-    saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000)
-  }
-
-  // Avisa o browser ao fechar aba / recarregar com alterações pendentes
-  useEffect(() => {
-    if (!isDirty) return
-    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', h)
-    return () => window.removeEventListener('beforeunload', h)
-  }, [isDirty])
-
-  // Auto-dismiss do toast de resultado do cálculo — evita que fique preso na tela
-  useEffect(() => {
-    if (!calcResultado) return
-    const t = setTimeout(() => setCalcResultado(null), 6000)
-    return () => clearTimeout(t)
-  }, [calcResultado])
-
-  // Intercepta cliques em links internos quando há alterações pendentes
-  useEffect(() => {
-    if (!isDirty) return
-    function handle(e: MouseEvent) {
-      const a = (e.target as HTMLElement).closest('a')
-      if (!a) return
-      const href = a.getAttribute('href')
-      if (!href || href.startsWith('#') || href === window.location.pathname) return
-      e.preventDefault()
-      e.stopPropagation()
-      pendingHrefRef.current = href
-      setShowLeaveModal(true)
-    }
-    document.addEventListener('click', handle, true)
-    return () => document.removeEventListener('click', handle, true)
-  }, [isDirty])
-
-  async function handleSave() {
-    if (editingCell) {
-      saveField(editingCell.id, editingCell.field, cellDraft)
-      setEditingCell(null)
-    }
-    setSaveStatus('saving')
-    try {
-      // 1. Validar composições antes de persistir
-      const codigos = [...new Set(
-        items.filter(i => i.tipo === 'item' && i.codigo).map(i => i.codigo!)
-      )]
-      if (codigos.length > 0) {
-        const invalidos = await validarComposicoes(orcamentoId, codigos)
-        if (invalidos.length > 0) {
-          setInvalidCodigos(new Set(invalidos))
-          setShowInvalidModal(true)
-          setSaveStatus('error')
-          return
-        }
-      }
-      // 2. Persistir todos os campos acumulados desde o último save
-      const pending = [...dirtyItemsRef.current.entries()]
-      if (pending.length > 0) {
-        await Promise.all(
-          pending.map(([id, fields]) => atualizarItemEstrutura(id, orcamentoId, fields as any))
-        )
-        dirtyItemsRef.current.clear()
-      }
-      setInvalidCodigos(new Set())
-      setIsDirty(false)
-      // Tudo até aqui (edições de célula + qualquer add/excluir/mover feito
-      // nesta sessão) agora está confirmado no banco — vira o novo baseline.
-      baselineRef.current = items.map(it => ({ ...it }))
-      structuralDirtyRef.current = false
-      scheduleSaved()
-    } catch {
-      setSaveStatus('error')
-    }
-  }
-
-  async function handleConfirmLeave() {
-    setShowLeaveModal(false)
-    console.log('[DEBUG sair-sem-salvar]', {
-      structuralDirty: structuralDirtyRef.current,
-      baselineCount: baselineRef.current.length,
-      currentCount: items.length,
-      activePlanilhaId,
-      baselineIds: baselineRef.current.map(it => it.id),
-      currentIds: items.map(it => it.id),
-    })
-    if (structuralDirtyRef.current) {
-      try {
-        await restaurarEstruturaSnapshot(orcamentoId, activePlanilhaId, baselineRef.current)
-        console.log('[DEBUG sair-sem-salvar] restaurarEstruturaSnapshot OK')
-      } catch (e) {
-        // Best-effort: não trava a navegação por causa disso — pior caso é
-        // igual ao bug original (item adicionado/excluído/movido permanece).
-        console.error('[Planilha] Falha ao descartar alterações estruturais:', e)
-      }
-      structuralDirtyRef.current = false
-    }
-    dirtyItemsRef.current.clear()
-    setIsDirty(false)
-    const href = pendingHrefRef.current
-    pendingHrefRef.current = null
-    if (href) router.push(href as any)
-  }
-
-  async function handleCalcular(modo: 'planilha' | 'projeto') {
-    if (calcMode) return
-    if (modo === 'planilha' && !activePlanilhaId) return
-    setCalcMode(modo)
-    setCalcLogs([])
-    setCalcErro(null)
-    setCalcResultado(null)
-    if (modo === 'projeto') setTotaisProjetoResult(null)
-    setCalcPanelOpen(false)
-    try {
-      const result: CalculoResult = modo === 'planilha'
-        ? await calcularPlanilhaAtualAction(orcamentoId, activePlanilhaId!)
-        : await recalcularProjetoAction(orcamentoId)
-      setCalcLogs(result.logs.map(l => l.msg))
-      if (!result.ok) {
-        setCalcErro(result.erro ?? 'Erro desconhecido.')
-      } else {
-        setCalcResultado({ itens: result.itensAtualizados, comps: result.composicoesRecalculadas })
-      }
-      if (modo === 'projeto' && result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
-      const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
-      setItems(fresh)
-      // Calcular também persiste no servidor — os itens recém-buscados são
-      // um novo ponto confirmado, igual a um "Salvar Planilha".
-      baselineRef.current = fresh.map(it => ({ ...it }))
-      structuralDirtyRef.current = false
-    } finally {
-      setCalcMode(null)
-    }
-  }
-
-  async function handleVerificarConsistencia() {
-    setVerificando(true)
-    setCalcPanelOpen(false)
-    try {
-      const report = await verificarConsistenciaAction(orcamentoId)
-      setConsistenciaReport(report)
-    } finally {
-      setVerificando(false)
-    }
-  }
-
-  async function handleLimparProjeto() {
-    setCalcPanelOpen(false)
-    const orfaos = await detectarOrfaosAction(orcamentoId)
-    if (orfaos.composicoes.length === 0) {
-      alert('Nenhuma composição órfã encontrada. O projeto está limpo.')
-      return
-    }
-    setOrfaosDetectados(orfaos)
-    setConfirmarLimpeza(true)
-  }
-
-  async function handleLimparOrfaos() {
-    if (!orfaosDetectados || limpandoOrfaos) return
-    setLimpandoOrfaos(true)
-    try {
-      const ids = orfaosDetectados.composicoes.map(c => c.id)
-      await confirmarLimpezaAction(orcamentoId, ids)
-      setConfirmarLimpeza(false)
-      setOrfaosDetectados(null)
-    } finally {
-      setLimpandoOrfaos(false)
-    }
-  }
+  const {
+    isDirty, setIsDirty, saveStatus, isSaving,
+    invalidCodigos, setInvalidCodigos,
+    showLeaveModal, setShowLeaveModal, showInvalidModal, setShowInvalidModal,
+    dirtyItemsRef, baselineRef, structuralDirtyRef,
+    handleSave, handleConfirmLeave, resetBaseline,
+  } = usePlanilhaSave({
+    orcamentoId, activePlanilhaId, items,
+    flushPendingEdit: () => {
+      if (editingCell) { saveField(editingCell.id, editingCell.field, cellDraft); setEditingCell(null) }
+    },
+  })
 
   useEffect(() => {
-    if (!calcPanelOpen) return
-    function handleClickOutside(e: MouseEvent) {
-      if (calcPanelRef.current && !calcPanelRef.current.contains(e.target as Node)) {
-        setCalcPanelOpen(false)
-      }
+    setItems(initialItems)
+    if (activePlanilhaIdRef.current !== activePlanilhaId) {
+      resetBaseline(initialItems)
+      activePlanilhaIdRef.current = activePlanilhaId
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [calcPanelOpen])
-
-  // Atalhos de teclado: F9 calcula a planilha ativa, F7 salva as alterações
-  useEffect(() => {
-    function handleShortcut(e: KeyboardEvent) {
-      if (e.repeat) return
-      if (e.key === 'F9') {
-        e.preventDefault()
-        if (calcMode === null) handleCalcular('planilha')
-      } else if (e.key === 'F7') {
-        e.preventDefault()
-        if (!isSaving && invalidCodigos.size === 0) handleSave()
-      }
-    }
-    window.addEventListener('keydown', handleShortcut)
-    return () => window.removeEventListener('keydown', handleShortcut)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calcMode, isSaving, invalidCodigos, activePlanilhaId])
+  }, [initialItems])
+
+  const {
+    calcMode, calcPanelOpen, setCalcPanelOpen, calcPanelRef,
+    calcLogs, calcErro, calcResultado, setCalcResultado,
+    orfaosDetectados, setOrfaosDetectados, confirmarLimpeza, setConfirmarLimpeza, limpandoOrfaos,
+    consistenciaReport, setConsistenciaReport, verificando,
+    totaisProjetoResult, setTotaisProjetoResult,
+    tipoValorFinal, setTipoValorFinal, valorFinalInput, setValorFinalInput,
+    handleCalcular, handleVerificarConsistencia, handleLimparProjeto, handleLimparOrfaos,
+  } = usePlanilhaCalculo({ orcamentoId, activePlanilhaId, setItems, onRecalculated: resetBaseline })
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
