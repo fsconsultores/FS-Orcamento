@@ -114,7 +114,7 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
     expect(orcamentoId).toBeTruthy();
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
 
-    const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1 });
+    const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1, hasNotText: 'Antes de restaurar' });
     await expect(item).toBeVisible({ timeout: 20_000 });
     await item.getByRole('button', { name: 'Restaurar' }).click();
 
@@ -145,14 +145,18 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
     expect(orcamentoId).toBeTruthy();
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
 
-    const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1 });
+    const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1, hasNotText: 'Antes de restaurar' });
     await expect(item).toBeVisible({ timeout: 20_000 });
     await item.getByRole('button', { name: 'Criar orçamento' }).click();
 
     const overlay = modalOverlay(page);
     await expect(overlay).toBeVisible();
-    await overlay.getByLabel('Nome do novo orçamento').fill(NOVO_ORC_DE_VERSAO_NOME);
-    await overlay.getByLabel('Mensagem inicial').fill('Primeira versão do orçamento derivado (Playwright)');
+    // O <label> do componente compartilhado Input/Textarea (src/components/ui/input.tsx)
+    // não tem htmlFor/id associando ao campo — getByLabel não funciona em
+    // nenhum modal do sistema. Usa posição: Nome(0)/Código(1)/Cliente(2) nos
+    // inputs, Descrição(0)/Mensagem inicial(1) nas textareas.
+    await overlay.locator('input').nth(0).fill(NOVO_ORC_DE_VERSAO_NOME);
+    await overlay.locator('textarea').nth(1).fill('Primeira versão do orçamento derivado (Playwright)');
     await overlay.getByRole('button', { name: 'Criar orçamento' }).click();
 
     await page.waitForURL(/\/orcamentos\/[0-9a-f-]{8,}\/planilha/, { timeout: 20_000 });

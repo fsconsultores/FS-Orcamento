@@ -74,27 +74,37 @@ test.describe.serial('Fluxo completo de orçamento', () => {
 
     await page.goto(`/orcamentos/${orcamentoId}/insumos`);
 
-    // Abre formulário de novo insumo
-    await page.click('button:has-text("Novo Insumo")');
+    // Abre o modal global de novo insumo ("+ Insumo F2" no cabeçalho —
+    // substituiu o antigo formulário inline, cujo componente foi removido
+    // por estar morto; ver GlobalCreateActions em global-create-actions.tsx).
+    await page.click('button[title="Novo Insumo (F2)"]');
 
-    // Aguarda o formulário aparecer
-    const form = page.locator('form').filter({ hasText: 'Novo Insumo' });
-    await expect(form).toBeVisible();
+    // Modal não tem role="dialog"; escopar pelo overlay desambigua de
+    // qualquer botão/texto igual que já esteja na página por trás.
+    const overlay = page.locator('.fixed.inset-0.z-50');
+    await expect(overlay).toBeVisible();
 
     // Inputs de texto (não-numéricos) na ordem: Código, Descrição, Unidade, Base
-    const textInputs = form.locator('input:not([type="number"])');
+    const textInputs = overlay.locator('input:not([type="number"])');
     await textInputs.nth(0).fill(INSUMO_CODE);
     await textInputs.nth(1).fill(INSUMO_DESCRICAO);
     await textInputs.nth(2).fill('SC');
 
     // Custo inicial
-    await form.locator('input[type="number"]').first().fill(INSUMO_CUSTO_INICIAL);
+    await overlay.locator('input[type="number"]').first().fill(INSUMO_CUSTO_INICIAL);
 
-    await form.getByRole('button', { name: 'Salvar Insumo' }).click();
+    await overlay.getByRole('button', { name: 'Salvar Insumo' }).click();
+    await expect(overlay).not.toBeVisible({ timeout: 10_000 });
 
-    // Insumo aparece na tabela após refresh
+    // Modal fechado = createInsumo já resolveu no cliente. router.refresh()
+    // (startTransition, baixa prioridade) pode não ter repintado a tabela
+    // ainda — reload força um fetch novo em vez de confiar no timing do
+    // refresh assíncrono (mesmo padrão de versionamento-flow.spec.ts).
+    await page.reload();
+
+    // Insumo aparece na tabela após o reload
     await expect(page.locator('tbody').getByText(INSUMO_CODE)).toBeVisible({
-      timeout: 10_000,
+      timeout: 15_000,
     });
   });
 
@@ -109,18 +119,24 @@ test.describe.serial('Fluxo completo de orçamento', () => {
     const row = page.locator('tbody tr').filter({ hasText: INSUMO_CODE });
     await expect(row).toBeVisible({ timeout: 5_000 });
 
-    // 4ª coluna = Custo (índice 3). Clica no span de edição inline
+    // 4ª coluna = Custo (índice 3). O clique não edita mais inline — abre o
+    // CotacaoInsumoModal (preço + fornecedor + data + observações), parte da
+    // feature de Gestão de Cotações construída depois deste teste ter sido
+    // escrito originalmente (mesma classe de teste desatualizado já corrigida
+    // no passo 3 — "Novo Insumo").
     const custoCell = row.locator('td').nth(3);
-    await custoCell.locator('span[title="Clique para editar"]').click();
+    await custoCell.locator('span[title="Clique para editar preço e cotação"]').click();
 
-    // Input de edição aparece
-    const editInput = custoCell.locator('input[type="number"]');
-    await expect(editInput).toBeVisible();
-    await editInput.fill(INSUMO_CUSTO_EDITADO);
-    await editInput.press('Enter');
+    const overlay = page.locator('.fixed.inset-0.z-50');
+    await expect(overlay).toBeVisible();
+    // O <label> "Preço" não tem htmlFor/id associando ao input (getByLabel
+    // não funciona aqui) — é sempre o 1º campo numérico do modal.
+    await overlay.locator('input[type="number"]').first().fill(INSUMO_CUSTO_EDITADO);
+    await overlay.getByRole('button', { name: 'Salvar' }).click();
+    await expect(overlay).not.toBeVisible({ timeout: 10_000 });
 
     // Valor atualizado visível na célula
-    await expect(custoCell).toContainText('150', { timeout: 5_000 });
+    await expect(custoCell).toContainText('150', { timeout: 10_000 });
   });
 
   // ─── 5. Criar composição ──────────────────────────────────────────────────
@@ -133,19 +149,24 @@ test.describe.serial('Fluxo completo de orçamento', () => {
       page.getByRole('heading', { name: 'Composições do Orçamento' }),
     ).toBeVisible();
 
-    // Abre formulário de nova composição
-    await page.getByRole('button', { name: 'Nova Composição' }).click();
+    // Abre o modal global de nova composição ("+ Composição F4" no
+    // cabeçalho — mesma migração de UI do passo 3: o formulário inline
+    // antigo (nova-composicao-form.tsx) está morto, substituído por
+    // GlobalCreateActions).
+    await page.click('button[title="Nova Composição (F4)"]');
 
-    const form = page.locator('form').filter({ hasText: 'Nova Composição' });
-    await expect(form).toBeVisible();
+    const overlay = page.locator('.fixed.inset-0.z-50');
+    await expect(overlay).toBeVisible();
 
-    // Inputs na ordem: Código, Descrição, Unidade, Base
-    const inputs = form.locator('input');
+    // Inputs na ordem do modal novo: Código, Unidade, Descrição, Base
+    // (ordem diferente do formulário antigo — conferir sempre contra o JSX
+    // atual de global-create-actions.tsx antes de reordenar).
+    const inputs = overlay.locator('input');
     await inputs.nth(0).fill(COMP_CODE);
-    await inputs.nth(1).fill(COMP_DESCRICAO);
-    await inputs.nth(2).fill(COMP_UNIDADE);
+    await inputs.nth(1).fill(COMP_UNIDADE);
+    await inputs.nth(2).fill(COMP_DESCRICAO);
 
-    await form.getByRole('button', { name: /Criar e adicionar insumos/ }).click();
+    await overlay.getByRole('button', { name: /Salvar e adicionar insumos/ }).click();
 
     // Redireciona para detalhe com ?addItem=1
     // Usa timeout maior pois next dev compila a página na primeira visita
