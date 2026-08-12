@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { importarEstrutura } from './planilha-action'
-import type { EstruturaRow, ImportResult } from './planilha-action'
+import { importarEstrutura } from './planilha-import-action'
+import type { EstruturaRow, ImportResult } from './planilha-import-action'
 import { WizardSteps } from '@/components/ui/import-wizard'
 import { formatCurrency } from '@/lib/costs'
 

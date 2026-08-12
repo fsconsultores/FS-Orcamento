@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { salvarConfigNumeracao } from '../planilha/planilha-action'
+import { salvarConfigNumeracao } from '../planilha/planilha-numeracao-action'
 import { salvarDadosCadastrais } from '@/lib/orcamento/dados-cadastrais'
 import { salvarPavimentos, type OrcamentoPavimento } from '@/lib/orcamento/pavimentos'
 import { registrarHistorico } from '@/lib/log'

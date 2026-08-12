@@ -3,7 +3,7 @@ import { PlanilhaView } from './planilha-view'
 import { ImportPlanilhaForm } from './import-planilha-form'
 import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
 import { DevProfiler } from '@/components/dev-profiler'
-import type { EstruturaItem } from './planilha-action'
+import type { EstruturaItem } from './planilha-crud-action'
 
 export default async function PlanilhaPage({
   params,
