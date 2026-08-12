@@ -93,8 +93,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     isDirty, setIsDirty, saveStatus, isSaving,
     invalidCodigos, setInvalidCodigos,
     showLeaveModal, setShowLeaveModal, showInvalidModal, setShowInvalidModal,
-    dirtyItemsRef, baselineRef, structuralDirtyRef,
-    handleSave, handleConfirmLeave, resetBaseline,
+    dirtyItemsRef, baselineRef, structuralChangeSeqRef,
+    handleSave, handleConfirmLeave, resetBaseline, markStructuralChange,
   } = usePlanilhaSave({
     orcamentoId, activePlanilhaId, items,
     flushPendingEdit: () => {
@@ -119,7 +119,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     totaisProjetoResult, setTotaisProjetoResult,
     tipoValorFinal, setTipoValorFinal, valorFinalInput, setValorFinalInput,
     handleCalcular, handleVerificarConsistencia, handleLimparProjeto, handleLimparOrfaos,
-  } = usePlanilhaCalculo({ orcamentoId, activePlanilhaId, setItems, onRecalculated: resetBaseline })
+  } = usePlanilhaCalculo({ orcamentoId, activePlanilhaId, setItems, structuralChangeSeqRef, onRecalculated: resetBaseline })
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -343,7 +343,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleInsert(nodo: Nodo, position: 'above' | 'below') {
     setIsDirty(true)
-    structuralDirtyRef.current = true
+    markStructuralChange()
     setContextMenu(null)
 
     // "Adicionar abaixo" num agrupador → cria filho
@@ -376,7 +376,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleAfterCreate(newItem: EstruturaItem) {
     setIsDirty(true)
-    structuralDirtyRef.current = true
+    markStructuralChange()
     setItems(prev => {
       const next = [...prev, newItem]
       agendarSincronizacaoComItems(next)
@@ -389,7 +389,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   async function handleDelete(id: string) {
     if (!confirm('Remover este item e todos seus sub-itens?')) return
     setIsDirty(true)
-    structuralDirtyRef.current = true
+    markStructuralChange()
     setDeletingId(id)
     const toRemove = new Set<string>()
     function collect(itemId: string) {
@@ -404,7 +404,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
     setIsDirty(true)
-    structuralDirtyRef.current = true
+    markStructuralChange()
     const siblings = childrenMap.get(nodo.parent_id) ?? []
     const idx = siblings.findIndex(it => it.id === nodo.id)
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1
@@ -499,7 +499,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     setDragActiveId(null)
     if (!over || active.id === over.id) return
     setIsDirty(true)
-    structuralDirtyRef.current = true
+    markStructuralChange()
 
     const proj = computeProjection(String(active.id), String(over.id), dragDeltaX.current)
     if (!proj) return

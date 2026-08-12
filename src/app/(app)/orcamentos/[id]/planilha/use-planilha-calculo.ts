@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { buscarItensEstrutura, type EstruturaItem } from './planilha-crud-action'
 import {
   calcularPlanilhaAtualAction, recalcularProjetoAction, verificarConsistenciaAction,
@@ -13,15 +13,21 @@ export function usePlanilhaCalculo({
   orcamentoId,
   activePlanilhaId,
   setItems,
+  structuralChangeSeqRef,
   onRecalculated,
 }: {
   orcamentoId: string
   activePlanilhaId: string | null
   setItems: (items: EstruturaItem[]) => void
+  /** Do usePlanilhaSave — deixa onRecalculated (resetBaseline) saber se uma
+   * mudança estrutural mais nova aconteceu enquanto este cálculo buscava os
+   * itens frescos, pra não apagar o sinal de que ela ainda não foi salva
+   * (mesma race do achado 🔴 do F7, ver usePlanilhaSave). */
+  structuralChangeSeqRef: RefObject<number>
   /** Chamado com os itens recém-buscados depois de um cálculo bem-sucedido —
    * "Calcular" também persiste no servidor, então isso conta como um novo
    * ponto confirmado, igual a um "Salvar Planilha" (ver usePlanilhaSave). */
-  onRecalculated: (freshItems: EstruturaItem[]) => void
+  onRecalculated: (freshItems: EstruturaItem[], expectedSeq?: number) => void
 }) {
   const [calcMode, setCalcMode] = useState<'planilha' | 'projeto' | null>(null)
   const [calcPanelOpen, setCalcPanelOpen] = useState(false)
@@ -65,9 +71,10 @@ export function usePlanilhaCalculo({
         setCalcResultado({ itens: result.itensAtualizados, comps: result.composicoesRecalculadas })
       }
       if (modo === 'projeto' && result.totaisPlanilhas) setTotaisProjetoResult(result.totaisPlanilhas)
+      const seqAtStart = structuralChangeSeqRef.current
       const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
       setItems(fresh)
-      onRecalculated(fresh)
+      onRecalculated(fresh, seqAtStart)
     } finally {
       setCalcMode(null)
     }

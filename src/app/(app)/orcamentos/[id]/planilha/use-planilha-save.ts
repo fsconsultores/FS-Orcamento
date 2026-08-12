@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { atualizarItemEstrutura, restaurarEstruturaSnapshot, type EstruturaItem } from './planilha-crud-action'
+import { atualizarItemEstrutura, restaurarEstruturaSnapshot, buscarItensEstrutura, type EstruturaItem } from './planilha-crud-action'
 import { validarComposicoes } from './planilha-import-action'
 
 export function usePlanilhaSave({
@@ -32,6 +32,13 @@ export function usePlanilhaSave({
   // snapshot próprio para serem revertidas. Ver handleConfirmLeave.
   const baselineRef = useRef<EstruturaItem[]>(items.map(it => ({ ...it })))
   const structuralDirtyRef = useRef(false)
+  // Incrementado a cada mudança estrutural (ver markStructuralChange) — usado
+  // por resetBaseline pra saber se uma mudança mais nova aconteceu ENQUANTO
+  // um fetch de confirmação (handleSave/handleCalcular buscando os itens
+  // frescos do servidor) ainda estava em voo. Sem isso, um resetBaseline que
+  // termina depois de um novo insert/excluir/mover apagaria o sinal de que
+  // essa mudança mais nova ainda não foi salva (achado 🔴 da Fase C).
+  const structuralChangeSeqRef = useRef(0)
   const isSaving = saveStatus === 'saving'
 
   function scheduleSaved() {
@@ -40,9 +47,21 @@ export function usePlanilhaSave({
     saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 3000)
   }
 
-  function resetBaseline(freshItems: EstruturaItem[]) {
+  function markStructuralChange() {
+    structuralDirtyRef.current = true
+    structuralChangeSeqRef.current++
+  }
+
+  // `expectedSeq`: se informado, só reseta a flag de dirty estrutural quando
+  // nenhuma mudança estrutural mais nova aconteceu desde que o chamador
+  // capturou `structuralChangeSeqRef.current` (antes do próprio fetch
+  // assíncrono). O baseline em si é sempre atualizado — reflete o que já
+  // está confirmado no banco até aqui.
+  function resetBaseline(freshItems: EstruturaItem[], expectedSeq?: number) {
     baselineRef.current = freshItems.map(it => ({ ...it }))
-    structuralDirtyRef.current = false
+    if (expectedSeq === undefined || structuralChangeSeqRef.current === expectedSeq) {
+      structuralDirtyRef.current = false
+    }
   }
 
   // Avisa o browser ao fechar aba / recarregar com alterações pendentes
@@ -99,7 +118,17 @@ export function usePlanilhaSave({
       setIsDirty(false)
       // Tudo até aqui (edições de célula + qualquer add/excluir/mover feito
       // nesta sessão) agora está confirmado no banco — vira o novo baseline.
-      resetBaseline(items)
+      // Busca do servidor em vez de usar o `items` local: a prop
+      // `initialItems` (revalidada após qualquer Server Action estrutural)
+      // pode demorar a chegar e sobrescrever `items` de volta pra um estado
+      // mais antigo entre a criação de um item e o F7 — gravando um
+      // baseline sem esse item, que "Sair sem salvar" depois apagaria por
+      // engano mesmo já estando salvo. Mesma race que `handleCalcular` já
+      // evita buscando fresco antes de confirmar o baseline (achado 🔴 da
+      // Fase C).
+      const seqAtStart = structuralChangeSeqRef.current
+      const fresh = await buscarItensEstrutura(orcamentoId, activePlanilhaId)
+      resetBaseline(fresh, seqAtStart)
       scheduleSaved()
     } catch {
       setSaveStatus('error')
@@ -152,7 +181,7 @@ export function usePlanilhaSave({
     isDirty, setIsDirty, saveStatus, isSaving,
     invalidCodigos, setInvalidCodigos,
     showLeaveModal, setShowLeaveModal, showInvalidModal, setShowInvalidModal,
-    dirtyItemsRef, baselineRef, structuralDirtyRef,
-    handleSave, handleConfirmLeave, resetBaseline,
+    dirtyItemsRef, baselineRef, structuralDirtyRef, structuralChangeSeqRef,
+    handleSave, handleConfirmLeave, resetBaseline, markStructuralChange,
   }
 }
