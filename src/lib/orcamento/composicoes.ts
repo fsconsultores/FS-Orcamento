@@ -27,6 +27,28 @@ export interface ComposicoesByOrcamentoDetalhado {
 }
 
 /**
+ * Só as composições (código/descrição/unidade/base/etc), SEM custo_unitario
+ * — não busca `vw_insumos_de_composicao` nem avulsos. Rápido mesmo em
+ * orçamentos com milhares de composições (é a única busca que a tela de
+ * Composições precisa pra pintar a tabela; custo é carregado depois em
+ * background, ver `getComposicoesDetalhadoAction`).
+ */
+export async function getComposicoesBasico(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<Omit<OrcamentoComposicao, 'custo_unitario'>[]> {
+  return fetchAllPaginatedParallel<Omit<OrcamentoComposicao, 'custo_unitario'>>(
+    (from, to) =>
+      supabase
+        .from('orcamento_composicoes')
+        .select('*', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .order('codigo')
+        .range(from, to) as any
+  )
+}
+
+/**
  * Versão que expõe também `insumosDeComposicao` (dado já buscado
  * internamente para o cálculo de custo_unitario) — evita que cada chamador
  * que precisa dessa relação (tela de Composições) rode sua própria
@@ -51,15 +73,7 @@ export async function getComposicoesByOrcamentoDetalhado(
     insumosDeComposicao: InsumoDeComposicao[]
   }
 ): Promise<ComposicoesByOrcamentoDetalhado> {
-  const composicoes = await fetchAllPaginatedParallel<Omit<OrcamentoComposicao, 'custo_unitario'>>(
-    (from, to) =>
-      supabase
-        .from('orcamento_composicoes')
-        .select('*', { count: 'exact' })
-        .eq('orcamento_id', orcamentoId)
-        .order('codigo')
-        .range(from, to) as any
-  )
+  const composicoes = await getComposicoesBasico(supabase, orcamentoId)
 
   if (composicoes.length === 0) return { composicoes: [], insumosDeComposicao: [] }
 

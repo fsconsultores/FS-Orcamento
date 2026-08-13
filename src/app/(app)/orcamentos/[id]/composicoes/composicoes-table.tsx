@@ -6,27 +6,54 @@ import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
 import { ClientPagination } from '@/components/client-pagination'
 import { formatCurrency } from '@/lib/costs'
+import { getComposicoesDetalhadoAction } from './actions'
 
 const PAGE_SIZE = 100
 
 export function ComposicoesTable({
   composicoes: initialComposicoes,
   orcamentoId,
-  codigosUtilizados,
 }: {
-  composicoes: OrcamentoComposicao[]
+  /** Sem custo_unitario — carregado à parte, em background (ver useEffect abaixo). */
+  composicoes: Omit<OrcamentoComposicao, 'custo_unitario'>[]
   orcamentoId: string
-  codigosUtilizados: string[]
 }) {
-  const [composicoes, setComposicoes] = useState(initialComposicoes)
+  const [composicoes, setComposicoes] = useState<OrcamentoComposicao[]>(
+    () => initialComposicoes.map((c) => ({ ...c, custo_unitario: 0 }))
+  )
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'proprias' | 'importadas'>('todas')
+  const [codigosUtilizados, setCodigosUtilizados] = useState<string[]>([])
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+
+  // Custo unitário (cálculo em cadeia) e "usados/não usados" dependem do
+  // grafo completo de composições+insumos do orçamento — caro demais pra
+  // calcular antes da primeira renderização (ver actions.ts). Busca em
+  // background assim que a tabela monta; enquanto isso a coluna Custo
+  // mostra um skeleton e os filtros de uso ficam desabilitados.
+  const [custosStatus, setCustosStatus] = useState<'carregando' | 'pronto' | 'erro'>('carregando')
+
+  useEffect(() => {
+    let cancelado = false
+    getComposicoesDetalhadoAction(orcamentoId)
+      .then(({ custosPorId, codigosUtilizados }) => {
+        if (cancelado) return
+        setComposicoes((prev) => prev.map((c) => ({ ...c, custo_unitario: custosPorId[c.id] ?? c.custo_unitario })))
+        setCodigosUtilizados(codigosUtilizados)
+        setCustosStatus('pronto')
+      })
+      .catch((err) => {
+        if (cancelado) return
+        console.error('[ComposicoesTable] erro ao carregar custos', err)
+        setCustosStatus('erro')
+      })
+    return () => { cancelado = true }
+  }, [orcamentoId])
 
   // Bases presentes entre as composições importadas (base === null = criada
   // no projeto, já coberta pelo filtro de origem — não entra aqui).
@@ -68,12 +95,13 @@ export function ComposicoesTable({
     e.preventDefault()
     e.stopPropagation()
     if (!confirm('Excluir esta composição? Os insumos vinculados não serão excluídos.')) return
+    const anterior = composicoes
     setDeletingId(id)
     setComposicoes(prev => prev.filter(c => c.id !== id))
     const sb = createClient() as any
     const { error } = await sb.from('orcamento_composicoes').delete().eq('id', id)
     if (error) {
-      setComposicoes(initialComposicoes)
+      setComposicoes(anterior)
       alert(`Erro ao excluir: ${error.message}`)
     }
     setDeletingId(null)
@@ -184,19 +212,24 @@ export function ComposicoesTable({
             { v: 'todos', label: 'Todos' },
             { v: 'usados', label: 'Utilizados no projeto' },
             { v: 'nao_usados', label: 'Não utilizados' },
-          ] as const).map(({ v, label }) => (
-            <button
-              key={v}
-              onClick={() => setFiltroUso(v)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                filtroUso === v
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          ] as const).map(({ v, label }) => {
+            const disabled = v !== 'todos' && custosStatus !== 'pronto'
+            return (
+              <button
+                key={v}
+                onClick={() => setFiltroUso(v)}
+                disabled={disabled}
+                title={disabled ? 'Carregando dados de uso…' : undefined}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  filtroUso === v
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
         <div className="flex gap-1">
           {([
@@ -244,6 +277,12 @@ export function ComposicoesTable({
         </button>
       </div>
 
+      {custosStatus === 'erro' && (
+        <p className="text-xs text-amber-600">
+          Não foi possível calcular os custos e o uso das composições. Recarregue a página para tentar de novo.
+        </p>
+      )}
+
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] rounded-lg border border-gray-200">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
@@ -289,9 +328,11 @@ export function ComposicoesTable({
                   </td>
                   <td className="p-0 text-right tabular-nums text-gray-700">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
-                      {c.custo_unitario > 0
-                        ? formatCurrency(c.custo_unitario)
-                        : <span className="text-gray-300">—</span>}
+                      {custosStatus === 'carregando'
+                        ? <span className="ml-auto block h-3.5 w-16 animate-pulse rounded bg-gray-200" />
+                        : c.custo_unitario > 0
+                          ? formatCurrency(c.custo_unitario)
+                          : <span className="text-gray-300">—</span>}
                     </Link>
                   </td>
                   <td className="p-0 text-gray-500">

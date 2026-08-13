@@ -20,17 +20,28 @@ export type ComposicaoParaExport = {
 
 export function ExportComposicoesButton({
   composicoes,
+  fetchComposicoes,
 }: {
-  composicoes: ComposicaoParaExport[];
+  /** Linhas já prontas (dataset pequeno, já carregado na tela). */
+  composicoes?: ComposicaoParaExport[];
+  /**
+   * Alternativa a `composicoes` para telas que não pré-carregam o dataset
+   * completo (custo em cadeia é caro demais pra calcular só pra alimentar
+   * um botão que pode nunca ser clicado) — busca sob demanda ao clicar,
+   * mesmo padrão de `ExportXlsxButton`.
+   */
+  fetchComposicoes?: () => Promise<ComposicaoParaExport[]>;
 }) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   async function handleClick() {
-    if (loading || !composicoes?.length) return;
+    if (loading) return;
     setLoading(true);
     setErro(null);
     try {
+      const composicoesData = fetchComposicoes ? await fetchComposicoes() : (composicoes ?? []);
+      if (composicoesData.length === 0) return;
       const ExcelJS = (await import('exceljs')).default;
       const wb = new ExcelJS.Workbook();
       wb.creator = 'FS Orçamento';
@@ -54,7 +65,7 @@ export function ExportComposicoesButton({
         cell.border = { top: bdr('FF475569'), bottom: bdr('FF475569'), left: bdr(BORDER), right: bdr(BORDER) };
       });
 
-      for (const comp of composicoes) {
+      for (const comp of composicoesData) {
         const cRow = ws.addRow([
           comp.codigo,
           comp.descricao.toUpperCase(),
