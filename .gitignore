@@ -21,6 +21,9 @@ yarn-error.log*
 *.pem
 Thumbs.db
 
+# TypeScript incremental build cache (artefato local, muda a cada tsc/build)
+tsconfig.tsbuildinfo
+
 # playwright
 /playwright-report/
 /test-results/
