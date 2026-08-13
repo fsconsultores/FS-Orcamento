@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npx tsc *)",
       "Bash(cd /tmp/trace-extract && grep -o '\"method\":\"[a-zA-Z]*\"' 0-trace.trace | sort | uniq -c | sort -rn | head -20)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(grep \"NEXT_PUBLIC_SUPABASE_URL\\\\|NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\" .env)",
+      "Bash(node -e ' *)"
     ]
   }
 }
