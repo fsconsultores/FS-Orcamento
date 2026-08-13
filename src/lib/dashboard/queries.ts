@@ -118,6 +118,26 @@ export async function getEstruturaItens(sb: SB): Promise<EstruturaItemResumo[]> 
   return data ?? []
 }
 
+export interface InsumoAvulsoResumo {
+  orcamento_id: string
+  grupo: string | null
+  custo: number
+}
+
+/** Insumos avulsos (composicao_id null) de todos os orçamentos do usuário —
+ * cada insumo aparece uma única vez por projeto nesse conjunto (cópias
+ * embutidas em composições, uma por composição que usa o insumo, ficariam
+ * de fora), então somar `custo` aqui não conta o mesmo preço em dobro.
+ * Alimenta o widget "Insumos por categoria, por obra" do dashboard — ver
+ * computeInsumosPorCategoria em curva-abc-geral.ts. */
+export async function getInsumosAvulsosResumo(sb: SB): Promise<InsumoAvulsoResumo[]> {
+  const { data } = await sb
+    .from('orcamento_insumos')
+    .select('orcamento_id, grupo, custo')
+    .is('composicao_id', null)
+  return data ?? []
+}
+
 /** Janela de atividade maior que o exibido (8 grupos) porque a agregação em
  * JS colapsa várias linhas por grupo — precisa de matéria-prima suficiente. */
 export async function getAtividadesRecentes(sb: SB, userId: string): Promise<AtividadeResumo[]> {

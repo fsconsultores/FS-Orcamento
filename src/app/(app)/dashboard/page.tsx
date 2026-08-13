@@ -11,12 +11,13 @@ import {
   getBasePropriaResumo,
   getResumoSistema,
   getFavoritosRecentes,
+  getInsumosAvulsosResumo,
   type PlanilhaResumo,
   type BaseResumo,
 } from '@/lib/dashboard/queries'
 import { derivarStatusProjeto } from '@/lib/dashboard/status-projeto'
 import { agruparAtividades } from '@/lib/dashboard/agrupar-atividades'
-import { computeCurvaAbcGeral, resumoPorClasse } from '@/lib/dashboard/curva-abc-geral'
+import { computeCurvaAbcGeral, resumoPorClasse, computeInsumosPorCategoria } from '@/lib/dashboard/curva-abc-geral'
 import { gerarAlertas } from '@/lib/dashboard/alertas'
 import { formatRelative } from '@/lib/dashboard/format-relative'
 
@@ -25,6 +26,7 @@ import { AcoesRapidas } from './sections/acoes-rapidas'
 import { Alertas } from './sections/alertas'
 import { ChartDistribuicao, type DistribuicaoItem } from './sections/chart-distribuicao'
 import { ChartCurvaAbc } from './sections/chart-curva-abc'
+import { ChartInsumosCategoria } from './sections/chart-insumos-categoria'
 import { ProjetosRecentes, type ProjetoRecenteItem } from './sections/projetos-recentes'
 import { FavoritosRecentes } from './sections/favoritos-recentes'
 import { AtividadeRecente } from './sections/atividade-recente'
@@ -56,7 +58,7 @@ export default async function DashboardPage() {
   const sb = supabase as any
   const { data: { user } } = await sb.auth.getUser()
 
-  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes] =
+  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes, insumosAvulsos] =
     await Promise.all([
       getOrcamentosResumo(sb),
       getPlanilhasResumo(sb),
@@ -67,6 +69,7 @@ export default async function DashboardPage() {
       getBasePropriaResumo(sb),
       getResumoSistema(sb),
       user ? getFavoritosRecentes(sb, user.id) : Promise.resolve([]),
+      getInsumosAvulsosResumo(sb),
     ])
 
   // --- Derivações em memória, sem I/O extra ---
@@ -124,6 +127,13 @@ export default async function DashboardPage() {
   const curvaAbcGeral = computeCurvaAbcGeral(estruturaItensValidos)
   const resumoClasses = resumoPorClasse(curvaAbcGeral) // não precisa dos nomes de orçamento, só das classes
 
+  const nomesPorOrcamento = new Map(orcamentos.map((o) => [o.id, o.nome_obra]))
+  const insumosAvulsosValidos = insumosAvulsos.filter((i) => orcamentoIdsValidos.has(i.orcamento_id))
+  const insumosPorCategoria = computeInsumosPorCategoria(insumosAvulsosValidos, nomesPorOrcamento)
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 6)
+
   const atividadeAgrupada = agruparAtividades(atividadesRaw, 8)
 
   const alertas = gerarAlertas({ orcamentos, planilhas: planilhasValidas, versoes, bases, resumoSistema })
@@ -172,6 +182,10 @@ export default async function DashboardPage() {
           <ChartCurvaAbc resumo={resumoClasses} />
         </SectionCard>
       </div>
+
+      <SectionCard title="Insumos por categoria, por obra" description="Preço de insumos avulsos cadastrados em cada orçamento, por categoria">
+        <ChartInsumosCategoria items={insumosPorCategoria} />
+      </SectionCard>
 
       <SectionCard title="Projetos Recentes" action={<Link href="/orcamentos" className="text-xs font-medium text-primary-700 hover:underline">Ver todos →</Link>}>
         <ProjetosRecentes items={projetosRecentes} />

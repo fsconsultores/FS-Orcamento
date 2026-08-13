@@ -1,5 +1,5 @@
-import { calcularCurvaAbc, type AbcItem } from '@/lib/curva-abc'
-import type { EstruturaItemResumo } from './queries'
+import { calcularCurvaAbc, classificarCategoriaAbc, type AbcItem } from '@/lib/curva-abc'
+import type { EstruturaItemResumo, InsumoAvulsoResumo } from './queries'
 
 export interface AbcItemGeral extends AbcItem {
   orcamento_id: string
@@ -54,4 +54,52 @@ export function resumoPorClasse(items: AbcItem[]): ResumoClasseAbc[] {
       percentualFinanceiro: doGrupo.reduce((s, i) => s + i.percentual, 0),
     }
   })
+}
+
+export interface CategoriaPorProjeto {
+  orcamentoId: string
+  orcamentoNome: string
+  materiais: number
+  equipamentos: number
+  /** Já inclui mão de obra — mesma convenção de exibição de resumo-sistema.tsx
+   * (3 categorias visíveis: Materiais/Equipamentos/Serviços). */
+  servicos: number
+  total: number
+}
+
+/**
+ * Preço de insumo por categoria, agrupado por projeto — alimenta o widget
+ * "Insumos por categoria, por obra" do dashboard. Soma só insumos AVULSOS
+ * (ver getInsumosAvulsosResumo): cada insumo entra uma única vez por
+ * projeto, então não é "quanto a categoria custa na planilha final"
+ * (precisaria decompor composições recursivamente, como computeAbcCurvaUnica
+ * já faz por-projeto) — é uma aproximação barata o suficiente pra rodar em
+ * todos os projetos de uma vez, mesmo princípio de computeCurvaAbcGeral.
+ */
+export function computeInsumosPorCategoria(
+  insumos: InsumoAvulsoResumo[],
+  nomesPorOrcamento: Map<string, string>
+): CategoriaPorProjeto[] {
+  const porProjeto = new Map<string, CategoriaPorProjeto>()
+  for (const i of insumos) {
+    let acc = porProjeto.get(i.orcamento_id)
+    if (!acc) {
+      acc = {
+        orcamentoId: i.orcamento_id,
+        orcamentoNome: nomesPorOrcamento.get(i.orcamento_id) ?? '—',
+        materiais: 0,
+        equipamentos: 0,
+        servicos: 0,
+        total: 0,
+      }
+      porProjeto.set(i.orcamento_id, acc)
+    }
+    const categoria = classificarCategoriaAbc(i.grupo)
+    const custo = i.custo ?? 0
+    if (categoria === 'equipamentos') acc.equipamentos += custo
+    else if (categoria === 'materiais') acc.materiais += custo
+    else acc.servicos += custo // mao_de_obra + servicos
+    acc.total += custo
+  }
+  return [...porProjeto.values()]
 }
