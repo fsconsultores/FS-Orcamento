@@ -1,5 +1,5 @@
 import { calcularCurvaAbc, classificarCategoriaAbc, type AbcItem } from '@/lib/curva-abc'
-import type { EstruturaItemResumo, InsumoAvulsoResumo } from './queries'
+import type { EstruturaItemResumo, InsumoAvulsoResumo, HistoricoPrecoResumo } from './queries'
 
 export interface AbcItemGeral extends AbcItem {
   orcamento_id: string
@@ -102,4 +102,48 @@ export function computeInsumosPorCategoria(
     acc.total += custo
   }
   return [...porProjeto.values()]
+}
+
+export interface VariacaoPreco {
+  orcamentoId: string
+  orcamentoNome: string
+  codigo: string
+  precoAnterior: number
+  precoNovo: number
+  variacaoPct: number
+  criadoEm: string
+}
+
+/**
+ * Ranking dos insumos com maior variação de preço (edição manual), cross-
+ * obra — alimenta o widget "Maiores variações de preço" do dashboard. Só a
+ * edição mais recente por (orcamento_id, codigo) entra no ranking (evita
+ * repetir o mesmo insumo várias vezes se ele foi editado mais de uma vez);
+ * `historico` precisa vir ordenado created_at desc (ver
+ * getHistoricoPrecosResumo) pra "a primeira que aparecer" ser a mais
+ * recente.
+ */
+export function computeMaioresVariacoes(
+  historico: HistoricoPrecoResumo[],
+  nomesPorOrcamento: Map<string, string>,
+  limite = 8
+): VariacaoPreco[] {
+  const maisRecentePorChave = new Map<string, HistoricoPrecoResumo>()
+  for (const h of historico) {
+    if (!h.preco_anterior) continue
+    const chave = `${h.orcamento_id}|${h.codigo}`
+    if (!maisRecentePorChave.has(chave)) maisRecentePorChave.set(chave, h)
+  }
+  return [...maisRecentePorChave.values()]
+    .map(h => ({
+      orcamentoId: h.orcamento_id,
+      orcamentoNome: nomesPorOrcamento.get(h.orcamento_id) ?? '—',
+      codigo: h.codigo,
+      precoAnterior: h.preco_anterior!,
+      precoNovo: h.preco_novo,
+      variacaoPct: ((h.preco_novo - h.preco_anterior!) / h.preco_anterior!) * 100,
+      criadoEm: h.created_at,
+    }))
+    .sort((a, b) => Math.abs(b.variacaoPct) - Math.abs(a.variacaoPct))
+    .slice(0, limite)
 }

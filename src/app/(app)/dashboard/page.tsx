@@ -12,12 +12,13 @@ import {
   getResumoSistema,
   getFavoritosRecentes,
   getInsumosAvulsosResumo,
+  getHistoricoPrecosResumo,
   type PlanilhaResumo,
   type BaseResumo,
 } from '@/lib/dashboard/queries'
 import { derivarStatusProjeto } from '@/lib/dashboard/status-projeto'
 import { agruparAtividades } from '@/lib/dashboard/agrupar-atividades'
-import { computeCurvaAbcGeral, resumoPorClasse, computeInsumosPorCategoria } from '@/lib/dashboard/curva-abc-geral'
+import { computeCurvaAbcGeral, resumoPorClasse, computeInsumosPorCategoria, computeMaioresVariacoes } from '@/lib/dashboard/curva-abc-geral'
 import { gerarAlertas } from '@/lib/dashboard/alertas'
 import { formatRelative } from '@/lib/dashboard/format-relative'
 
@@ -27,6 +28,7 @@ import { Alertas } from './sections/alertas'
 import { ChartDistribuicao, type DistribuicaoItem } from './sections/chart-distribuicao'
 import { ChartCurvaAbc } from './sections/chart-curva-abc'
 import { ChartInsumosCategoria } from './sections/chart-insumos-categoria'
+import { ChartVariacaoPreco } from './sections/chart-variacao-preco'
 import { ProjetosRecentes, type ProjetoRecenteItem } from './sections/projetos-recentes'
 import { FavoritosRecentes } from './sections/favoritos-recentes'
 import { AtividadeRecente } from './sections/atividade-recente'
@@ -58,7 +60,7 @@ export default async function DashboardPage() {
   const sb = supabase as any
   const { data: { user } } = await sb.auth.getUser()
 
-  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes, insumosAvulsos] =
+  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes, insumosAvulsos, historicoPrecos] =
     await Promise.all([
       getOrcamentosResumo(sb),
       getPlanilhasResumo(sb),
@@ -70,6 +72,7 @@ export default async function DashboardPage() {
       getResumoSistema(sb),
       user ? getFavoritosRecentes(sb, user.id) : Promise.resolve([]),
       getInsumosAvulsosResumo(sb),
+      getHistoricoPrecosResumo(sb),
     ])
 
   // --- Derivações em memória, sem I/O extra ---
@@ -134,6 +137,9 @@ export default async function DashboardPage() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 6)
 
+  const historicoPrecosValidos = historicoPrecos.filter((h) => orcamentoIdsValidos.has(h.orcamento_id))
+  const maioresVariacoes = computeMaioresVariacoes(historicoPrecosValidos, nomesPorOrcamento)
+
   const atividadeAgrupada = agruparAtividades(atividadesRaw, 8)
 
   const alertas = gerarAlertas({ orcamentos, planilhas: planilhasValidas, versoes, bases, resumoSistema })
@@ -185,6 +191,10 @@ export default async function DashboardPage() {
 
       <SectionCard title="Insumos por categoria, por obra" description="Preço de insumos avulsos cadastrados em cada orçamento, por categoria">
         <ChartInsumosCategoria items={insumosPorCategoria} />
+      </SectionCard>
+
+      <SectionCard title="Maiores variações de preço" description="Insumos com preço editado manualmente que mais subiram/desceram, entre todos os orçamentos">
+        <ChartVariacaoPreco items={maioresVariacoes} />
       </SectionCard>
 
       <SectionCard title="Projetos Recentes" action={<Link href="/orcamentos" className="text-xs font-medium text-primary-700 hover:underline">Ver todos →</Link>}>

@@ -138,6 +138,29 @@ export async function getInsumosAvulsosResumo(sb: SB): Promise<InsumoAvulsoResum
   return data ?? []
 }
 
+export interface HistoricoPrecoResumo {
+  orcamento_id: string
+  codigo: string
+  preco_anterior: number | null
+  preco_novo: number
+  created_at: string
+}
+
+/** Histórico de edição manual de preço de insumo, de todos os orçamentos do
+ * usuário — a tabela só grava em edição manual (aba Insumos, Curva ABC,
+ * Planilha Analítica), reimportação em massa de base não gera entrada de
+ * propósito, então é pequena o bastante pra buscar tudo de uma vez. Alimenta
+ * o widget "Maiores variações de preço" — ver computeMaioresVariacoes em
+ * curva-abc-geral.ts. */
+export async function getHistoricoPrecosResumo(sb: SB): Promise<HistoricoPrecoResumo[]> {
+  const { data } = await sb
+    .from('orcamento_insumo_historico_precos')
+    .select('orcamento_id, codigo, preco_anterior, preco_novo, created_at')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+  return data ?? []
+}
+
 /** Janela de atividade maior que o exibido (8 grupos) porque a agregação em
  * JS colapsa várias linhas por grupo — precisa de matéria-prima suficiente. */
 export async function getAtividadesRecentes(sb: SB, userId: string): Promise<AtividadeResumo[]> {
