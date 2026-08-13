@@ -322,7 +322,9 @@ function ImportarInsumosTab({ orcamentoId }: { orcamentoId: string }) {
     setResult(null); setPreview(null); setParseErros([])
 
     if (file.name.toLowerCase().endsWith('.csv')) {
-      const text = await file.text()
+      const buffer = await file.arrayBuffer()
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+      const text = utf8.includes('�') ? new TextDecoder('windows-1252').decode(buffer) : utf8
       const data = parseCsvText(text)
       const { rows, erros } = parseFlat(data, fonte || undefined)
       setPreview(rows); setParseErros(erros)
@@ -481,7 +483,9 @@ function ImportarComposicoesTab({ orcamentoId }: { orcamentoId: string }) {
     if (!fileBase) setFileBase(baseName)
 
     if (file.name.toLowerCase().endsWith('.csv')) {
-      const text = await file.text()
+      const buffer = await file.arrayBuffer()
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+      const text = utf8.includes('�') ? new TextDecoder('windows-1252').decode(buffer) : utf8
       const data = parseCsvText(text)
       const header = (data[0] as unknown[]).map(String)
       const detected = isSudecap(header) ? 'sudecap' : 'simples'
