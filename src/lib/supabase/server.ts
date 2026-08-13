@@ -67,10 +67,22 @@ export async function createClient() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set({ name, value, ...options });
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {
+            // Chamado durante o render de um Server Component (não Server
+            // Action/Route Handler) — Next.js não permite escrever cookies
+            // nesse contexto. Seguro ignorar: o middleware (src/middleware.ts)
+            // já renova a sessão e grava os cookies atualizados antes da
+            // página renderizar.
+          }
         },
         remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: '', ...options });
+          try {
+            cookieStore.set({ name, value: '', ...options });
+          } catch {
+            // Mesmo motivo do set() acima.
+          }
         },
       },
       global: DEV ? { fetch: instrumentedFetch } : undefined,
