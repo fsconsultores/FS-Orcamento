@@ -33,7 +33,7 @@ export function SidebarShell({
       <div className="min-h-screen bg-gray-50 transition-[padding-left] duration-200" style={{ paddingLeft: open ? 288 : 64 }}>
         <Nav open={open} onToggle={toggle} />
         <Header userEmail={userEmail} />
-        <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+        <main className="px-6 py-8">{children}</main>
       </div>
     </ToastProvider>
   )
