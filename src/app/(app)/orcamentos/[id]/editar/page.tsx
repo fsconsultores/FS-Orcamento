@@ -4,6 +4,7 @@ import { useState, useEffect, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { ConfirmDialog } from '@/components/ui/modal';
 
 export default function EditarOrcamentoPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +24,7 @@ export default function EditarOrcamentoPage() {
     area_equivalente: '',
   });
   const [servicosEstimados, setServicosEstimados] = useState<{ id?: string; descricao: string; valor: string }[]>([]);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -120,7 +122,7 @@ export default function EditarOrcamentoPage() {
   }
 
   async function handleDelete() {
-    if (!confirm('Excluir este orçamento e todos os seus itens? Esta ação não pode ser desfeita.')) return;
+    setConfirmandoExclusao(false);
     setLoading(true);
     try {
       const sb = createClient() as any;
@@ -149,13 +151,24 @@ export default function EditarOrcamentoPage() {
         </div>
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => setConfirmandoExclusao(true)}
           disabled={loading}
           className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
         >
           Excluir
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmandoExclusao}
+        onClose={() => setConfirmandoExclusao(false)}
+        onConfirm={handleDelete}
+        title="Excluir orçamento"
+        description="Excluir este orçamento e todos os seus itens? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        danger
+        loading={loading}
+      />
 
       <form onSubmit={handleSubmit} className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
         <div className="space-y-1">

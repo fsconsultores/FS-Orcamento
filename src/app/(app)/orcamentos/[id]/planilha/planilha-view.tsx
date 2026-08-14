@@ -27,6 +27,8 @@ import { type Nodo, buildTree, calcTotais, atribuirNumeros, coletarNumeros, flat
 import { usePlanilhaExport, type AnaliticaInsumoRow } from './use-planilha-export'
 import { usePlanilhaSave } from './use-planilha-save'
 import { usePlanilhaCalculo } from './use-planilha-calculo'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
 
 export type { EstruturaItem }
 
@@ -52,6 +54,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   activePlanilhaId?: string | null
 }) {
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
+  const toast = useToast()
+  const [confirmarRemoverId, setConfirmarRemoverId] = useState<string | null>(null)
+  const [confirmarLimparPlanilha, setConfirmarLimparPlanilha] = useState(false)
 
   // Toda Server Action (adicionar/excluir/mover item já são Server Actions)
   // faz o Next.js re-renderizar implicitamente os Server Components da rota
@@ -386,8 +391,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     setTimeout(() => openCell(newItem.id, 'descricao'), 50)
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Remover este item e todos seus sub-itens?')) return
+  async function handleDelete() {
+    if (!confirmarRemoverId) return
+    const id = confirmarRemoverId
+    setConfirmarRemoverId(null)
     setIsDirty(true)
     markStructuralChange()
     setDeletingId(id)
@@ -400,6 +407,17 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     setItems(prev => { const next = prev.filter(it => !toRemove.has(it.id)); agendarSincronizacaoComItems(next); return next })
     await deletarItemEstrutura(id, orcamentoId)
     setDeletingId(null)
+  }
+
+  async function handleLimparPlanilha() {
+    setConfirmarLimparPlanilha(false)
+    try {
+      const { removidos } = await limparPlanilha(orcamentoId, activePlanilhaId)
+      setItems([])
+      toast.show(`${removidos} item(ns) removido(s) com sucesso.`)
+    } catch (err) {
+      toast.show((err as Error).message, 'error')
+    }
   }
 
   async function handleMoveRow(nodo: Nodo, direction: 'up' | 'down') {
@@ -447,7 +465,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         return next
       })
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Erro ao salvar custo do insumo.')
+      toast.show(e instanceof Error ? e.message : 'Erro ao salvar custo do insumo.', 'error')
     } finally {
       setSalvandoInsumoCodigo(null)
     }
@@ -592,16 +610,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               Novo Capítulo
             </button>
             <button
-              onClick={async () => {
-                if (!confirm('Excluir toda a planilha orçamentária? Esta ação não pode ser desfeita.')) return
-                try {
-                  const { removidos } = await limparPlanilha(orcamentoId, activePlanilhaId)
-                  setItems([])
-                  alert(`${removidos} item(ns) removido(s) com sucesso.`)
-                } catch (err) {
-                  alert((err as Error).message)
-                }
-              }}
+              onClick={() => setConfirmarLimparPlanilha(true)}
               className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
             >
               <Trash2 size={14} />
@@ -1068,6 +1077,26 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         </div>
       )}
 
+      <ConfirmDialog
+        open={!!confirmarRemoverId}
+        onClose={() => setConfirmarRemoverId(null)}
+        onConfirm={handleDelete}
+        title="Remover item"
+        description={confirmarRemoverId ? <>Remover <strong>{itemMap.get(confirmarRemoverId)?.descricao || 'este item'}</strong> e todos os seus sub-itens?</> : null}
+        confirmLabel="Remover"
+        danger
+      />
+
+      <ConfirmDialog
+        open={confirmarLimparPlanilha}
+        onClose={() => setConfirmarLimparPlanilha(false)}
+        onConfirm={handleLimparPlanilha}
+        title="Excluir planilha"
+        description="Excluir toda a planilha orçamentária? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        danger
+      />
+
       {/* Menu de contexto (botão direito) */}
       {contextMenu && (
         <>
@@ -1124,7 +1153,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             </button>
             <div className="my-1 border-t border-gray-100" />
             <button
-              onClick={() => { setContextMenu(null); handleDelete(contextMenu.nodo.id) }}
+              onClick={() => { setConfirmarRemoverId(contextMenu.nodo.id); setContextMenu(null) }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1423,7 +1452,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </button>
-                        <button onClick={() => handleDelete(nodo.id)} title="Remover"
+                        <button onClick={() => setConfirmarRemoverId(nodo.id)} title="Remover"
                           className="rounded p-0.5 hover:bg-red-500/20 hover:text-red-600 transition-colors">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

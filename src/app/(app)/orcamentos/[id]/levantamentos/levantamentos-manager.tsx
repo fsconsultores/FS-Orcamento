@@ -7,6 +7,8 @@ import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
 import { LevantamentoStatusBadge } from '@/components/levantamento-status-badge'
 import { formatDateOnly } from '@/lib/format-date'
 import { ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
 
 const STATUS_OPTIONS: { value: LevantamentoStatus; label: string }[] = [
   { value: 'nao_iniciado', label: 'Não iniciado' },
@@ -30,10 +32,12 @@ export function LevantamentosManager({
   orcamentoId: string
   initialLevantamentos: Levantamento[]
 }) {
+  const toast = useToast()
   const [levantamentos, setLevantamentos] = useState(initialLevantamentos)
   useEffect(() => { setLevantamentos(initialLevantamentos) }, [initialLevantamentos])
 
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  const [confirmarExcluir, setConfirmarExcluir] = useState<{ id: string; nome: string } | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [novoNome, setNovoNome] = useState('')
   const [addingLevantamento, setAddingLevantamento] = useState(false)
@@ -72,18 +76,20 @@ export function LevantamentosManager({
       .select('id, orcamento_id, nome, responsavel, status, data_inicio, data_prazo, ordem, created_at')
       .single()
     setAddingLevantamento(false)
-    if (error) { alert(`Erro ao criar levantamento: ${error.message}`); return }
+    if (error) { toast.show(`Erro ao criar levantamento: ${error.message}`, 'error'); return }
     setLevantamentos(prev => [...prev, { ...data, itens: [], pendencias: [] }])
     setNovoNome('')
   }
 
-  async function handleDeleteLevantamento(id: string, nome: string) {
-    if (!confirm(`Excluir o levantamento "${nome}"? Isso remove também o checklist e as pendências dessa área.`)) return
+  async function handleDeleteLevantamento() {
+    if (!confirmarExcluir) return
+    const { id } = confirmarExcluir
+    setConfirmarExcluir(null)
     const anterior = levantamentos
     setLevantamentos(prev => prev.filter(l => l.id !== id))
     const sb = createClient() as any
     const { error } = await sb.from('orcamento_levantamentos').delete().eq('id', id)
-    if (error) { setLevantamentos(anterior); alert(`Erro ao excluir: ${error.message}`) }
+    if (error) { setLevantamentos(anterior); toast.show(`Erro ao excluir: ${error.message}`, 'error') }
   }
 
   async function commitEdit(id: string, field: EditableField, valorBruto: string) {
@@ -99,7 +105,7 @@ export function LevantamentosManager({
     const { error } = await sb.from('orcamento_levantamentos').update({ [field]: novoValor }).eq('id', id)
     if (error) {
       setLevantamentos(prev => prev.map(l => l.id === id ? { ...l, [field]: valorAtual } : l))
-      alert(`Erro ao salvar: ${error.message}`)
+      toast.show(`Erro ao salvar: ${error.message}`, 'error')
     }
   }
 
@@ -112,7 +118,7 @@ export function LevantamentosManager({
     const { error } = await sb.from('orcamento_levantamentos').update({ status }).eq('id', id)
     if (error) {
       setLevantamentos(prev => prev.map(l => l.id === id ? { ...l, status: anterior } : l))
-      alert(`Erro ao salvar status: ${error.message}`)
+      toast.show(`Erro ao salvar status: ${error.message}`, 'error')
     }
   }
 
@@ -128,7 +134,7 @@ export function LevantamentosManager({
       .insert({ levantamento_id: levantamentoId, descricao, ordem: alvo.itens.length })
       .select('id, levantamento_id, descricao, concluido, ordem, created_at')
       .single()
-    if (error) { alert(`Erro ao adicionar item: ${error.message}`); return }
+    if (error) { toast.show(`Erro ao adicionar item: ${error.message}`, 'error'); return }
     setLevantamentos(prev => prev.map(l => l.id === levantamentoId ? { ...l, itens: [...l.itens, data] } : l))
     setNovoItemDraft(prev => ({ ...prev, [levantamentoId]: '' }))
   }
@@ -143,7 +149,7 @@ export function LevantamentosManager({
       setLevantamentos(prev => prev.map(l => l.id !== levantamentoId ? l : {
         ...l, itens: l.itens.map(i => i.id === itemId ? { ...i, concluido: !concluido } : i),
       }))
-      alert(`Erro ao atualizar item: ${error.message}`)
+      toast.show(`Erro ao atualizar item: ${error.message}`, 'error')
     }
   }
 
@@ -152,7 +158,7 @@ export function LevantamentosManager({
     setLevantamentos(prev => prev.map(l => l.id !== levantamentoId ? l : { ...l, itens: l.itens.filter(i => i.id !== itemId) }))
     const sb = createClient() as any
     const { error } = await sb.from('orcamento_levantamento_itens').delete().eq('id', itemId)
-    if (error) { setLevantamentos(anterior); alert(`Erro ao excluir item: ${error.message}`) }
+    if (error) { setLevantamentos(anterior); toast.show(`Erro ao excluir item: ${error.message}`, 'error') }
   }
 
   // ─── Pendências ────────────────────────────────────────────────────────
@@ -182,7 +188,7 @@ export function LevantamentosManager({
       })
       .select('id, levantamento_id, item, problema, pergunta, status, usuario, resolvida_em, created_at')
       .single()
-    if (error) { alert(`Erro ao registrar pendência: ${error.message}`); return }
+    if (error) { toast.show(`Erro ao registrar pendência: ${error.message}`, 'error'); return }
     setLevantamentos(prev => prev.map(l => l.id === levantamentoId ? { ...l, pendencias: [data, ...l.pendencias] } : l))
     setNovaPendenciaDraft(prev => ({ ...prev, [levantamentoId]: { item: '', problema: '', pergunta: '' } }))
     setMostrarFormPendencia(prev => { const next = new Set(prev); next.delete(levantamentoId); return next })
@@ -200,7 +206,7 @@ export function LevantamentosManager({
       setLevantamentos(prev => prev.map(l => l.id !== levantamentoId ? l : {
         ...l, pendencias: l.pendencias.map(p => p.id === pendenciaId ? { ...p, status: 'aberta', resolvida_em: null } : p),
       }))
-      alert(`Erro ao resolver pendência: ${error.message}`)
+      toast.show(`Erro ao resolver pendência: ${error.message}`, 'error')
     }
   }
 
@@ -321,7 +327,7 @@ export function LevantamentosManager({
                   </span>
                 )}
 
-                <button onClick={() => handleDeleteLevantamento(l.id, l.nome)}
+                <button onClick={() => setConfirmarExcluir({ id: l.id, nome: l.nome })}
                   title="Excluir levantamento"
                   className="ml-auto opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all shrink-0">
                   <Trash2 size={14} />
@@ -424,6 +430,16 @@ export function LevantamentosManager({
         </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmarExcluir}
+        onClose={() => setConfirmarExcluir(null)}
+        onConfirm={handleDeleteLevantamento}
+        title="Excluir levantamento"
+        description={confirmarExcluir ? <>Excluir o levantamento <strong>{confirmarExcluir.nome}</strong>? Isso remove também o checklist e as pendências dessa área.</> : null}
+        confirmLabel="Excluir"
+        danger
+      />
     </div>
   )
 }

@@ -60,6 +60,7 @@ export function CotacaoInsumoModal({
   const [motivoSelecionado, setMotivoSelecionado] = useState(motivoEhPreset ? motivoAtual! : (motivoAtual ? OUTRO_ESTIMADO_SENTINEL : MOTIVOS_ESTIMADO_PRESET[0]))
   const [motivoTextoLivre, setMotivoTextoLivre] = useState(motivoEhPreset ? '' : (motivoAtual ?? ''))
   const [salvando, setSalvando] = useState(false)
+  const [erroPreco, setErroPreco] = useState<string | null>(null)
 
   const idPreco = useId()
   const idFornecedor = useId()
@@ -70,7 +71,8 @@ export function CotacaoInsumoModal({
     if (salvando) return
     const str = preco.trim().replace(',', '.')
     const precoNum = str === '' ? 0 : parseFloat(str)
-    if (isNaN(precoNum) || precoNum < 0) { alert('Preço inválido.'); return }
+    if (isNaN(precoNum) || precoNum < 0) { setErroPreco('Preço inválido — use um número maior ou igual a zero.'); return }
+    setErroPreco(null)
 
     const estimadoMotivo = estimado
       ? ((motivoSelecionado === OUTRO_ESTIMADO_SENTINEL ? motivoTextoLivre : motivoSelecionado).trim() || null)
@@ -121,10 +123,16 @@ export function CotacaoInsumoModal({
               id={idPreco}
               autoFocus type="number" min="0" step="any"
               value={preco}
-              onChange={e => setPreco(e.target.value)}
+              onChange={e => { setPreco(e.target.value); if (erroPreco) setErroPreco(null) }}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSalvar() } }}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              aria-invalid={!!erroPreco}
+              className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ${
+                erroPreco
+                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+                  : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500/20'
+              }`}
             />
+            {erroPreco && <p className="mt-1 text-xs text-red-600">{erroPreco}</p>}
           </div>
           <div>
             <label htmlFor={idFornecedor} className="mb-1 block text-xs font-medium text-gray-600">Fornecedor</label>

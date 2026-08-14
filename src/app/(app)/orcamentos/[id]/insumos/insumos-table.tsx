@@ -20,6 +20,8 @@ import { ComposicoesModal, type ComposicoesModalState } from './composicoes-moda
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
 import { getInsumosDetalhadoAction } from './actions'
 import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-button'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
 
 const PAGE_SIZE = 100
 
@@ -88,6 +90,7 @@ export function OrcamentoInsumosTable({
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const toast = useToast()
   const [insumos, setInsumos] = useState(initialInsumos)
   /** Sugestão de preço por código (cotações de OUTRAS obras) — carregada em background, ver useEffect abaixo. */
   const [sugestoesState, setSugestoesState] = useState<Record<string, SugestaoCotacao>>({})
@@ -100,6 +103,11 @@ export function OrcamentoInsumosTable({
   const [codigosUtilizados, setCodigosUtilizados] = useState<string[]>([])
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+  const [confirmarExcluir, setConfirmarExcluir] = useState<{ id: string; codigo: string } | null>(null)
+  const [confirmarExcluirHistorico, setConfirmarExcluirHistorico] = useState<HistoricoPreco | null>(null)
+  const [confirmarLimparAvulsos, setConfirmarLimparAvulsos] = useState<{ total: number; avulsos: OrcamentoInsumo[] } | null>(null)
+  const [limpandoAvulsos, setLimpandoAvulsos] = useState(false)
+  const [baseParaConfirmar, setBaseParaConfirmar] = useState<string | null>(null)
 
   // Insumos embutidos em composições sem avulso equivalente e o vínculo
   // usado pelo filtro "usados/não utilizados" dependem do grafo completo
@@ -266,7 +274,7 @@ export function OrcamentoInsumosTable({
     } catch (e) {
       setInsumos(insumosAnteriores)
       setSugestoesState(sugestoesAnteriores)
-      alert(e instanceof Error ? e.message : 'Erro ao aplicar as sugestões. Tente novamente.')
+      toast.show(e instanceof Error ? e.message : 'Erro ao aplicar as sugestões. Tente novamente.', 'error')
     } finally {
       setAplicandoSugestoes(false)
     }
@@ -296,7 +304,7 @@ export function OrcamentoInsumosTable({
     // legado de importação) deixa a action lançar sem nenhuma edição possível
     // pra corrigir (código não é editável nesta tabela).
     if (!insumo.codigo) {
-      alert('Este insumo não tem código cadastrado, então não é possível editar o preço/cotação por aqui. Exclua esta linha e recadastre o insumo com um código válido.')
+      toast.show('Este insumo não tem código cadastrado, então não é possível editar o preço/cotação por aqui. Exclua esta linha e recadastre o insumo com um código válido.', 'info')
       return
     }
     setCotacaoModal(insumo)
@@ -325,7 +333,7 @@ export function OrcamentoInsumosTable({
       setCotacaoModal(null)
     } catch (e) {
       setInsumos(prev => prev.map(ins => ins.codigo === insumo.codigo ? { ...ins, ...estadoAnterior } : ins))
-      alert(e instanceof Error ? e.message : 'Erro ao salvar a cotação. Tente novamente.')
+      toast.show(e instanceof Error ? e.message : 'Erro ao salvar a cotação. Tente novamente.', 'error')
     } finally {
       setSavingId(null)
     }
@@ -359,8 +367,10 @@ export function OrcamentoInsumosTable({
     setSavingId(null)
   }
 
-  async function handleDelete(id: string, codigo: string) {
-    if (!confirm(`Excluir o insumo "${codigo}"?`)) return
+  async function handleDelete() {
+    if (!confirmarExcluir) return
+    const { id } = confirmarExcluir
+    setConfirmarExcluir(null)
     const anterior = insumos
     setDeletingId(id)
     setInsumos(prev => prev.filter(i => i.id !== id))
@@ -368,7 +378,7 @@ export function OrcamentoInsumosTable({
     const { error } = await sb.from('orcamento_insumos').delete().eq('id', id)
     if (error) {
       setInsumos(anterior)
-      alert(`Erro ao excluir: ${error.message}`)
+      toast.show(`Erro ao excluir: ${error.message}`, 'error')
     }
     setDeletingId(null)
   }
@@ -433,9 +443,10 @@ export function OrcamentoInsumosTable({
    * verdade (deleted_at/deleted_by, mesmo padrão de orcamento_insumos) e a
    * própria remoção fica registrada em historico_alteracoes.
    */
-  async function excluirHistoricoPreco(item: HistoricoPreco) {
-    if (!historicoModal) return
-    if (!confirm('Remover este registro do histórico de preço? Ele some do gráfico e da lista, mas a remoção fica auditada.')) return
+  async function excluirHistoricoPreco() {
+    const item = confirmarExcluirHistorico
+    if (!item || !historicoModal) return
+    setConfirmarExcluirHistorico(null)
 
     setHistoricoModal(prev => prev
       ? { ...prev, historico: prev.historico.filter(h => h.id !== item.id) }
@@ -451,7 +462,7 @@ export function OrcamentoInsumosTable({
     if (error) {
       console.error('[historico-preco] excluir:', error)
       setHistoricoModal(prev => prev ? { ...prev, historico: [...prev.historico, item].sort((a, b) => b.created_at.localeCompare(a.created_at)) } : null)
-      alert('Erro ao remover o registro. Tente novamente.')
+      toast.show('Erro ao remover o registro. Tente novamente.', 'error')
       return
     }
 
@@ -496,7 +507,7 @@ export function OrcamentoInsumosTable({
     }).catch(console.error)
   }
 
-  async function handleClear() {
+  async function handleClearClick() {
     const sb = createClient() as any
 
     // Conta direto no banco — não confia no estado local, que pode estar
@@ -507,7 +518,7 @@ export function OrcamentoInsumosTable({
       .eq('orcamento_id', orcamentoId)
       .is('composicao_id', null)
     if (countErr) {
-      alert(`Erro ao verificar insumos avulsos: ${countErr.message}`)
+      toast.show(`Erro ao verificar insumos avulsos: ${countErr.message}`, 'error')
       return
     }
     const totalAvulsos = avulsosAtuais?.length ?? 0
@@ -517,11 +528,19 @@ export function OrcamentoInsumosTable({
       // composição, não são "avulsos"). Este botão nunca mexe nelas; deixa
       // isso explícito aqui porque "Limpar avulsos" sozinho não deixa óbvio
       // por que a lista continua com linhas depois da limpeza.
-      alert('Não há insumos avulsos (com preço próprio) para remover. Se a lista ainda mostra insumos, eles pertencem a composições — este botão não os apaga.')
+      toast.show('Não há insumos avulsos (com preço próprio) para remover. Se a lista ainda mostra insumos, eles pertencem a composições — este botão não os apaga.', 'info')
       startTransition(() => router.refresh())
       return
     }
-    if (!confirm(`Excluir todos os ${totalAvulsos} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.`)) return
+    setConfirmarLimparAvulsos({ total: totalAvulsos, avulsos: avulsosAtuais })
+  }
+
+  async function handleClear() {
+    if (!confirmarLimparAvulsos) return
+    const { avulsos: avulsosAtuais } = confirmarLimparAvulsos
+    setConfirmarLimparAvulsos(null)
+    setLimpandoAvulsos(true)
+    const sb = createClient() as any
 
     const { error, count } = await sb
       .from('orcamento_insumos')
@@ -529,12 +548,14 @@ export function OrcamentoInsumosTable({
       .eq('orcamento_id', orcamentoId)
       .is('composicao_id', null)
     if (error) {
-      alert(`Erro ao limpar insumos: ${error.message}`)
+      toast.show(`Erro ao limpar insumos: ${error.message}`, 'error')
+      setLimpandoAvulsos(false)
       startTransition(() => router.refresh())
       return
     }
     if (!count) {
-      alert('Nenhum insumo foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados — entre em contato com o suporte para investigar.')
+      toast.show('Nenhum insumo foi removido no banco de dados (0 linhas afetadas). Os dados não foram alterados — entre em contato com o suporte para investigar.', 'error')
+      setLimpandoAvulsos(false)
       startTransition(() => router.refresh())
       return
     }
@@ -547,7 +568,8 @@ export function OrcamentoInsumosTable({
       mensagem: `${count} insumo(s) avulso(s) removido(s) do orçamento`,
       detalhes: { insumos_apagados: avulsosAtuais },
     }).catch(console.error)
-    alert(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
+    toast.show(`${count} insumo(s) avulso(s) removido(s) com sucesso.`)
+    setLimpandoAvulsos(false)
     startTransition(() => router.refresh())
   }
 
@@ -557,10 +579,12 @@ export function OrcamentoInsumosTable({
    * insumos embutidos em composições (esses são desfeitos junto com a
    * composição, na aba Composições — ver handleRemoverBase de lá).
    */
-  async function handleRemoverBase(base: string) {
+  async function handleRemoverBase() {
+    const base = baseParaConfirmar
+    if (!base) return
     const qtd = insumos.filter(ins => ins.composicao_id === null && ins.base === base).length
+    setBaseParaConfirmar(null)
     if (qtd === 0) return
-    if (!confirm(`Excluir os ${qtd} insumo(s) avulso(s) importado(s) da base "${base}" deste orçamento? Esta ação não pode ser desfeita.`)) return
 
     setRemovendoBase(base)
     const sb = createClient() as any
@@ -571,7 +595,7 @@ export function OrcamentoInsumosTable({
       .eq('base', base)
       .is('composicao_id', null)
     if (error) {
-      alert(`Erro ao remover a base "${base}": ${error.message}`)
+      toast.show(`Erro ao remover a base "${base}": ${error.message}`, 'error')
       setRemovendoBase(null)
       return
     }
@@ -706,7 +730,7 @@ export function OrcamentoInsumosTable({
         {basesPresentesAvulsos.length > 0 && (
           <select
             value=""
-            onChange={(e) => { if (e.target.value) handleRemoverBase(e.target.value); e.target.value = '' }}
+            onChange={(e) => { if (e.target.value) setBaseParaConfirmar(e.target.value); e.target.value = '' }}
             disabled={removendoBase !== null}
             title="Remove os insumos avulsos que vieram de uma importação específica — sem afetar avulsos de outras bases nem insumos embutidos em composições"
             className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500 disabled:opacity-40"
@@ -737,14 +761,15 @@ export function OrcamentoInsumosTable({
           Exportar XLSX
         </button>
         <button
-          onClick={handleClear}
+          onClick={handleClearClick}
+          disabled={limpandoAvulsos}
           title="Remove só os insumos avulsos (com preço próprio) — insumos embutidos em composições não são afetados"
           className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-          Limpar avulsos
+          {limpandoAvulsos ? 'Limpando…' : 'Limpar avulsos'}
         </button>
       </div>
 
@@ -924,7 +949,7 @@ export function OrcamentoInsumosTable({
                               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
-                        <button onClick={() => handleDelete(insumo.id, insumo.codigo)}
+                        <button onClick={() => setConfirmarExcluir({ id: insumo.id, codigo: insumo.codigo })}
                           title="Excluir insumo"
                           className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -969,9 +994,49 @@ export function OrcamentoInsumosTable({
       <HistoricoPrecoModal
         modal={historicoModal}
         onClose={() => setHistoricoModal(null)}
-        onExcluirRegistro={excluirHistoricoPreco}
+        onExcluirRegistro={item => setConfirmarExcluirHistorico(item)}
       />
     )}
+
+    <ConfirmDialog
+      open={!!confirmarExcluir}
+      onClose={() => setConfirmarExcluir(null)}
+      onConfirm={handleDelete}
+      title="Excluir insumo"
+      description={confirmarExcluir ? <>Excluir o insumo <strong>{confirmarExcluir.codigo}</strong>?</> : null}
+      confirmLabel="Excluir"
+      danger
+    />
+
+    <ConfirmDialog
+      open={!!confirmarExcluirHistorico}
+      onClose={() => setConfirmarExcluirHistorico(null)}
+      onConfirm={excluirHistoricoPreco}
+      title="Remover registro do histórico"
+      description="Remover este registro do histórico de preço? Ele some do gráfico e da lista, mas a remoção fica auditada."
+      confirmLabel="Remover"
+      danger
+    />
+
+    <ConfirmDialog
+      open={!!confirmarLimparAvulsos}
+      onClose={() => setConfirmarLimparAvulsos(null)}
+      onConfirm={handleClear}
+      title="Limpar insumos avulsos"
+      description={confirmarLimparAvulsos ? `Excluir todos os ${confirmarLimparAvulsos.total} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.` : null}
+      confirmLabel="Excluir todos"
+      danger
+    />
+
+    <ConfirmDialog
+      open={!!baseParaConfirmar}
+      onClose={() => setBaseParaConfirmar(null)}
+      onConfirm={handleRemoverBase}
+      title="Remover base importada"
+      description={baseParaConfirmar ? <>Excluir os {insumos.filter(ins => ins.composicao_id === null && ins.base === baseParaConfirmar).length} insumo(s) avulso(s) importado(s) da base <strong>{baseParaConfirmar}</strong> deste orçamento? Esta ação não pode ser desfeita.</> : null}
+      confirmLabel="Excluir"
+      danger
+    />
     </>
   )
 }

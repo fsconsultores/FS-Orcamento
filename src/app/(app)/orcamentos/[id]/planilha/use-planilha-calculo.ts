@@ -8,6 +8,7 @@ import {
 } from './calcular-action'
 import type { CalculoResult, ConsistenciaReport, TotaisPlanilha } from '@/lib/orcamento/motor-calculo'
 import type { OrfaosDetectados } from '@/lib/orcamento/types'
+import { useToast } from '@/components/ui/toast'
 
 export function usePlanilhaCalculo({
   orcamentoId,
@@ -29,6 +30,7 @@ export function usePlanilhaCalculo({
    * ponto confirmado, igual a um "Salvar Planilha" (ver usePlanilhaSave). */
   onRecalculated: (freshItems: EstruturaItem[], expectedSeq?: number) => void
 }) {
+  const toast = useToast()
   const [calcMode, setCalcMode] = useState<'planilha' | 'projeto' | null>(null)
   const [calcPanelOpen, setCalcPanelOpen] = useState(false)
   const calcPanelRef = useRef<HTMLDivElement>(null)
@@ -95,7 +97,7 @@ export function usePlanilhaCalculo({
     setCalcPanelOpen(false)
     const orfaos = await detectarOrfaosAction(orcamentoId)
     if (orfaos.composicoes.length === 0) {
-      alert('Nenhuma composição órfã encontrada. O projeto está limpo.')
+      toast.show('Nenhuma composição órfã encontrada. O projeto está limpo.', 'info')
       return
     }
     setOrfaosDetectados(orfaos)

@@ -9,6 +9,8 @@ import { atualizarInsumoComposicaoAction } from '../../atualizar-insumo-composic
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 import { formatCurrency } from '@/lib/costs'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
 
 type InsumoRow = {
   id: string
@@ -164,8 +166,10 @@ export function ComposicaoDetail({
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
+  const toast = useToast()
   const [insumos, setInsumos] = useState(initialInsumos)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmarRemover, setConfirmarRemover] = useState<InsumoRow | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [cotacaoModal, setCotacaoModal] = useState<InsumoRow | null>(null)
@@ -174,6 +178,7 @@ export function ComposicaoDetail({
   const [addTipo, setAddTipo] = useState<'insumo' | 'composicao'>('insumo')
   const [addSearch, setAddSearch] = useState('')
   const [addIndice, setAddIndice] = useState('1')
+  const [erroIndice, setErroIndice] = useState<string | null>(null)
   const [selected, setSelected] = useState<Sugestao | null>(null)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'erro'>('idle')
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -192,15 +197,17 @@ export function ComposicaoDetail({
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Remover este item da composição?')) return
+  async function handleDelete() {
+    if (!confirmarRemover) return
+    const id = confirmarRemover.id
+    setConfirmarRemover(null)
     setDeletingId(id)
     setInsumos(prev => prev.filter(i => i.id !== id))
     const sb = createClient() as any
     const { error } = await sb.from('orcamento_insumos').delete().eq('id', id)
     if (error) {
       setInsumos(initialInsumos)
-      alert(`Erro: ${error.message}`)
+      toast.show(`Erro: ${error.message}`, 'error')
     }
     setDeletingId(null)
     sincronizar()
@@ -250,14 +257,15 @@ export function ComposicaoDetail({
         if (i.codigo === ins.codigo) return { ...i, custo: custoAnterior }
         return i
       }))
-      alert(`Erro ao atualizar preço/cotação: ${err instanceof Error ? err.message : String(err)}`)
+      toast.show(`Erro ao atualizar preço/cotação: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
   }
 
   async function handleAdd() {
     if (!selected) return
     const indice = parseFloat(addIndice.replace(',', '.'))
-    if (isNaN(indice) || indice <= 0) { alert('Índice inválido.'); return }
+    if (isNaN(indice) || indice <= 0) { setErroIndice('Índice inválido — use um número maior que zero.'); return }
+    setErroIndice(null)
 
     setSaving(true)
     const sb = createClient() as any
@@ -273,7 +281,7 @@ export function ComposicaoDetail({
       custo_atualizado_em: new Date().toISOString(),
     }
     const { data, error } = await sb.from('orcamento_insumos').insert(row).select('id, codigo, descricao, unidade, custo, indice, grupo, estimado, estimado_motivo').single()
-    if (error) { alert(`Erro: ${error.message}`); setSaving(false); return }
+    if (error) { toast.show(`Erro: ${error.message}`, 'error'); setSaving(false); return }
     setInsumos(prev => [...prev, data as InsumoRow])
     setSelected(null)
     setAddSearch('')
@@ -378,9 +386,13 @@ export function ComposicaoDetail({
                 <input
                   type="number" step="any" min="0.000001"
                   value={addIndice}
-                  onChange={e => setAddIndice(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none text-right"
+                  onChange={e => { setAddIndice(e.target.value); if (erroIndice) setErroIndice(null) }}
+                  aria-invalid={!!erroIndice}
+                  className={`w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none text-right ${
+                    erroIndice ? 'border-red-300 focus:border-red-500' : 'border-gray-300 focus:border-blue-500'
+                  }`}
                 />
+                {erroIndice && <p className="mt-1 text-xs text-red-600">{erroIndice}</p>}
               </div>
               <div className="flex gap-2">
                 <button
@@ -486,7 +498,7 @@ export function ComposicaoDetail({
                   </td>
                   <td className="px-2 py-2.5">
                     <button
-                      onClick={() => handleDelete(ins.id)}
+                      onClick={() => setConfirmarRemover(ins)}
                       className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -535,6 +547,16 @@ export function ComposicaoDetail({
           escopoComposicaoLabel={composicao.descricao}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmarRemover}
+        onClose={() => setConfirmarRemover(null)}
+        onConfirm={handleDelete}
+        title="Remover item"
+        description={confirmarRemover ? <>Remover <strong>{confirmarRemover.codigo || confirmarRemover.descricao}</strong> desta composição?</> : null}
+        confirmLabel="Remover"
+        danger
+      />
     </div>
   )
 }

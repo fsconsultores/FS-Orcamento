@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
+import { ConfirmDialog } from '@/components/ui/modal';
 
 const GRUPOS = [
   { value: 'E',  label: 'Equipamento' },
@@ -33,6 +34,7 @@ export default function EditarInsumoPage() {
   const [baseInfo, setBaseInfo] = useState<{ orgao: string; tipo_base: string } | null>(null);
   const [precoOriginal, setPrecoOriginal] = useState<number>(0);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   const [form, setForm] = useState({
     codigo: '',
     descricao: '',
@@ -142,7 +144,7 @@ export default function EditarInsumoPage() {
   }
 
   async function handleDelete() {
-    if (!confirm('Excluir este insumo? Esta ação não pode ser desfeita.')) return;
+    setConfirmandoExclusao(false);
     setLoading(true);
     try {
       const sb = createClient() as any;
@@ -190,7 +192,7 @@ export default function EditarInsumoPage() {
         {!isExterna && (
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={() => setConfirmandoExclusao(true)}
             disabled={loading}
             className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
           >
@@ -198,6 +200,17 @@ export default function EditarInsumoPage() {
           </button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmandoExclusao}
+        onClose={() => setConfirmandoExclusao(false)}
+        onConfirm={handleDelete}
+        title="Excluir insumo"
+        description="Excluir este insumo? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        danger
+        loading={loading}
+      />
 
       {isExterna && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

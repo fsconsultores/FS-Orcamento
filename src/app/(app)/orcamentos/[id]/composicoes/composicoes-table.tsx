@@ -9,6 +9,8 @@ import { formatCurrency } from '@/lib/costs'
 import { getComposicoesDetalhadoAction, exportComposicoesAction } from './actions'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
 import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
+import { ConfirmDialog } from '@/components/ui/modal'
+import { useToast } from '@/components/ui/toast'
 
 const PAGE_SIZE = 100
 
@@ -20,6 +22,7 @@ export function ComposicoesTable({
   composicoes: Omit<OrcamentoComposicao, 'custo_unitario'>[]
   orcamentoId: string
 }) {
+  const toast = useToast()
   const [composicoes, setComposicoes] = useState<OrcamentoComposicao[]>(
     () => initialComposicoes.map((c) => ({ ...c, custo_unitario: 0 }))
   )
@@ -32,6 +35,9 @@ export function ComposicoesTable({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
+  const [confirmarExcluir, setConfirmarExcluir] = useState<OrcamentoComposicao | null>(null)
+  const [confirmarLimpar, setConfirmarLimpar] = useState(false)
+  const [baseParaConfirmar, setBaseParaConfirmar] = useState<string | null>(null)
 
   // Custo unitário (cálculo em cadeia) e "usados/não usados" dependem do
   // grafo completo de composições+insumos do orçamento — caro demais pra
@@ -93,10 +99,10 @@ export function ComposicoesTable({
 
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  async function handleDelete(e: React.MouseEvent, id: string) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!confirm('Excluir esta composição? Os insumos vinculados não serão excluídos.')) return
+  async function handleDelete() {
+    if (!confirmarExcluir) return
+    const id = confirmarExcluir.id
+    setConfirmarExcluir(null)
     const anterior = composicoes
     setDeletingId(id)
     setComposicoes(prev => prev.filter(c => c.id !== id))
@@ -104,14 +110,14 @@ export function ComposicoesTable({
     const { error } = await sb.from('orcamento_composicoes').delete().eq('id', id)
     if (error) {
       setComposicoes(anterior)
-      alert(`Erro ao excluir: ${error.message}`)
+      toast.show(`Erro ao excluir: ${error.message}`, 'error')
     }
     setDeletingId(null)
   }
 
   async function handleClear() {
     if (composicoes.length === 0) return
-    if (!confirm(`Excluir todas as ${composicoes.length} composições deste orçamento e os insumos vinculados a elas? Esta ação não pode ser desfeita.`)) return
+    setConfirmarLimpar(false)
     setClearing(true)
     const sb = createClient() as any
     const ids = composicoes.map(c => c.id)
@@ -132,7 +138,7 @@ export function ComposicoesTable({
       if (error) throw new Error(error.message)
       setComposicoes([])
     } catch (err) {
-      alert(`Erro ao limpar composições: ${err instanceof Error ? err.message : String(err)}`)
+      toast.show(`Erro ao limpar composições: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
     setClearing(false)
   }
@@ -147,13 +153,12 @@ export function ComposicoesTable({
    * orçamento com o mesmo código — a única forma segura de reverter isso é
    * apagando de volta tudo que entrou naquela importação.
    */
-  async function handleRemoverBase(base: string) {
+  async function handleRemoverBase() {
+    const base = baseParaConfirmar
+    if (!base) return
     const compsDaBase = composicoes.filter(c => c.base === base)
+    setBaseParaConfirmar(null)
     if (compsDaBase.length === 0) return
-    if (!confirm(
-      `Excluir as ${compsDaBase.length} composição(ões) importada(s) da base "${base}" deste orçamento, ` +
-      `os insumos vinculados a elas e os insumos avulsos vindos da mesma base? Esta ação não pode ser desfeita.`
-    )) return
 
     setRemovendoBase(base)
     const sb = createClient() as any
@@ -187,7 +192,7 @@ export function ComposicoesTable({
 
       setComposicoes(prev => prev.filter(c => c.base !== base))
     } catch (err) {
-      alert(`Erro ao remover a base "${base}": ${err instanceof Error ? err.message : String(err)}`)
+      toast.show(`Erro ao remover a base "${base}": ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
     setRemovendoBase(null)
   }
@@ -255,7 +260,7 @@ export function ComposicoesTable({
         {basesPresentes.length > 0 && (
           <select
             value=""
-            onChange={(e) => { if (e.target.value) handleRemoverBase(e.target.value); e.target.value = '' }}
+            onChange={(e) => { if (e.target.value) setBaseParaConfirmar(e.target.value); e.target.value = '' }}
             disabled={removendoBase !== null}
             title="Remove as composições (e insumos vinculados/avulsos) que vieram de uma importação específica — sem afetar o resto do orçamento"
             className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500 disabled:opacity-40"
@@ -269,7 +274,7 @@ export function ComposicoesTable({
         <ExportComposicaoModeloButton />
         <ExportComposicoesButton fetchComposicoes={() => exportComposicoesAction(orcamentoId)} />
         <button
-          onClick={handleClear}
+          onClick={() => setConfirmarLimpar(true)}
           disabled={composicoes.length === 0 || clearing}
           className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
         >
@@ -344,7 +349,7 @@ export function ComposicoesTable({
                   </td>
                   <td className="px-2 py-3">
                     <button
-                      onClick={(e) => handleDelete(e, c.id)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmarExcluir(c) }}
                       title="Excluir composição"
                       className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all"
                     >
@@ -366,6 +371,36 @@ export function ComposicoesTable({
         page={currentPage}
         pageSize={PAGE_SIZE}
         onPageChange={setCurrentPage}
+      />
+
+      <ConfirmDialog
+        open={!!confirmarExcluir}
+        onClose={() => setConfirmarExcluir(null)}
+        onConfirm={handleDelete}
+        title="Excluir composição"
+        description={confirmarExcluir ? <>Excluir a composição <strong>{confirmarExcluir.codigo}</strong> — {confirmarExcluir.descricao}? Os insumos vinculados não serão excluídos.</> : null}
+        confirmLabel="Excluir"
+        danger
+      />
+
+      <ConfirmDialog
+        open={confirmarLimpar}
+        onClose={() => setConfirmarLimpar(false)}
+        onConfirm={handleClear}
+        title="Limpar composições"
+        description={`Excluir todas as ${composicoes.length} composições deste orçamento e os insumos vinculados a elas? Esta ação não pode ser desfeita.`}
+        confirmLabel="Excluir todas"
+        danger
+      />
+
+      <ConfirmDialog
+        open={!!baseParaConfirmar}
+        onClose={() => setBaseParaConfirmar(null)}
+        onConfirm={handleRemoverBase}
+        title="Remover base importada"
+        description={baseParaConfirmar ? <>Excluir as {composicoes.filter(c => c.base === baseParaConfirmar).length} composição(ões) importada(s) da base <strong>{baseParaConfirmar}</strong> deste orçamento, os insumos vinculados a elas e os insumos avulsos vindos da mesma base? Esta ação não pode ser desfeita.</> : null}
+        confirmLabel="Excluir"
+        danger
       />
     </div>
   )

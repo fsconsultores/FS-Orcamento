@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/costs';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { InsumoAutocomplete, InsumoRow } from '@/components/insumo-autocomplete';
+import { ConfirmDialog } from '@/components/ui/modal';
 
 type ItemForm = { insumo_id: string; indice: string };
 
@@ -21,6 +22,7 @@ export default function EditarComposicaoPage() {
   const [baseInfo, setBaseInfo] = useState<{ orgao: string; tipo_base: string } | null>(null);
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: '' });
   const [itens, setItens] = useState<ItemForm[]>([{ insumo_id: '', indice: '' }]);
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -151,7 +153,7 @@ export default function EditarComposicaoPage() {
   }
 
   async function handleDelete() {
-    if (!confirm('Excluir esta composição? Esta ação não pode ser desfeita.')) return;
+    setConfirmandoExclusao(false);
     setLoading(true);
     try {
       const sb = createClient() as any;
@@ -191,13 +193,24 @@ export default function EditarComposicaoPage() {
         </div>
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => setConfirmandoExclusao(true)}
           disabled={loading}
           className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
         >
           Excluir
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmandoExclusao}
+        onClose={() => setConfirmandoExclusao(false)}
+        onConfirm={handleDelete}
+        title="Excluir composição"
+        description="Excluir esta composição? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        danger
+        loading={loading}
+      />
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="rounded-xl border bg-white p-5 shadow-sm space-y-4">
