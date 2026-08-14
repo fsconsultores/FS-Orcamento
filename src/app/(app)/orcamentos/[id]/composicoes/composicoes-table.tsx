@@ -6,7 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
 import { ClientPagination } from '@/components/client-pagination'
 import { formatCurrency } from '@/lib/costs'
-import { getComposicoesDetalhadoAction } from './actions'
+import { getComposicoesDetalhadoAction, exportComposicoesAction } from './actions'
+import { ExportComposicoesButton } from '@/components/export-composicoes-button'
+import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
 
 const PAGE_SIZE = 100
 
@@ -264,6 +266,8 @@ export function ComposicoesTable({
             ))}
           </select>
         )}
+        <ExportComposicaoModeloButton />
+        <ExportComposicoesButton fetchComposicoes={() => exportComposicoesAction(orcamentoId)} />
         <button
           onClick={handleClear}
           disabled={composicoes.length === 0 || clearing}

@@ -19,6 +19,7 @@ import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 import { ComposicoesModal, type ComposicoesModalState } from './composicoes-modal'
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
 import { getInsumosDetalhadoAction } from './actions'
+import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-button'
 
 const PAGE_SIZE = 100
 
@@ -726,6 +727,7 @@ export function OrcamentoInsumosTable({
             {aplicandoSugestoes ? 'Aplicando…' : `Aplicar ${selecionadas.size} sugestão(ões)`}
           </button>
         )}
+        <ExportInsumoModeloButton />
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >
