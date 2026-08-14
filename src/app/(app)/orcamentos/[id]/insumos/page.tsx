@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getInsumosByOrcamentoDetalhado, getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados, getSugestoesCotacaoCrossOrcamento, type InsumoDeComposicao, type SugestaoCotacao } from '@/lib/orcamento'
+import { getAvulsosBasico, getComposicoesBasico } from '@/lib/orcamento'
 import { OrcamentoInsumosTable } from './insumos-table'
 import { DevProfiler } from '@/components/dev-profiler'
 
@@ -11,39 +11,24 @@ export default async function OrcamentoInsumosPage({
   const { id: orcamentoId } = await params
   const supabase = await createClient()
   const sb = supabase as any
-  const [{ insumos, insumosDeComposicao }, { data: estrutura }] = await Promise.all([
-    getInsumosByOrcamentoDetalhado(supabase as any, orcamentoId),
-    sb.from('orcamento_estrutura').select('codigo').eq('orcamento_id', orcamentoId).eq('tipo', 'item'),
+
+  // Busca rápida: só avulsos (custo/fornecedor próprios, não dependem de
+  // mais nada) + composições sem custo_unitario (não usado nesta página —
+  // só a contagem e a base de cada uma importam aqui). Insumos embutidos em
+  // composições sem avulso equivalente, o filtro "usados/não utilizados" e
+  // as sugestões de preço cross-obra (busca 1 lote de até 200 códigos POR
+  // CADA 200 avulsos sem preço — chegou a 21 requisições em paralelo num
+  // orçamento real) dependem do vínculo composição→insumos ou de uma busca
+  // cross-orçamento cara e são carregados à parte, em background — ver
+  // getInsumosDetalhadoAction.
+  const [avulsos, composicoes] = await Promise.all([
+    getAvulsosBasico(sb, orcamentoId),
+    getComposicoesBasico(sb, orcamentoId),
   ])
-  // Reaproveita insumosDeComposicao/avulsos já buscados acima em vez de deixar
-  // getComposicoesByOrcamentoDetalhado refazer a MESMA paginação de
-  // vw_insumos_de_composicao + orcamento_insumos avulsos — medido em produção,
-  // dobrava as requisições nesta página em orçamentos com catálogo grande.
-  const avulsos = insumos.filter(i => i.composicao_id === null).map(i => ({ codigo: i.codigo, custo: i.custo }))
-  const { composicoes } = await getComposicoesByOrcamentoDetalhado(sb, orcamentoId, {
-    avulsos,
-    // composicao_id nunca é null aqui — vem do JOIN em vw_insumos_de_composicao — só o
-    // tipo genérico de OrcamentoInsumo não expressa essa garantia.
-    insumosDeComposicao: insumosDeComposicao as unknown as InsumoDeComposicao[],
-  })
-
-  // Sugestão de preço a partir de cotações de OUTRAS obras — só faz sentido
-  // pros avulsos que ainda não têm preço (é exatamente quem precisa de
-  // preenchimento), então o conjunto de códigos consultado já nasce restrito.
-  const codigosSemPreco = avulsos.filter(a => a.custo === 0).map(a => a.codigo)
-  const sugestoesMap = await getSugestoesCotacaoCrossOrcamento(sb, orcamentoId, codigosSemPreco)
-  const sugestoes: Record<string, SugestaoCotacao> = Object.fromEntries(sugestoesMap)
-
-  const codigosUtilizados = calcularCodigosUtilizados(
-    (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),
-    composicoes.map(c => ({ id: c.id, codigo: c.codigo })),
-    insumosDeComposicao
-  )
 
   // Bases utilizadas: conta avulsos por base + composições por base
   const basesMap = new Map<string, { insumos: number; composicoes: number }>()
-  for (const ins of insumos) {
-    if (ins.composicao_id !== null) continue  // só avulsos
+  for (const ins of avulsos) {
     const key = ins.base?.trim() || '—'
     const e = basesMap.get(key) ?? { insumos: 0, composicoes: 0 }
     e.insumos++
@@ -62,7 +47,7 @@ export default async function OrcamentoInsumosPage({
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Insumos do Orçamento</h1>
-          <p className="text-sm text-gray-500 mt-1">{insumos.filter(i => i.composicao_id === null).length} avulsos · {composicoes.length} serviço(s)</p>
+          <p className="text-sm text-gray-500 mt-1">{avulsos.length} avulsos · {composicoes.length} serviço(s)</p>
         </div>
         {bases.length > 0 && (
           <div className="flex flex-wrap gap-2 items-center">
@@ -88,7 +73,7 @@ export default async function OrcamentoInsumosPage({
       </div>
 
       <DevProfiler id="OrcamentoInsumosTable">
-        <OrcamentoInsumosTable initialInsumos={insumos} orcamentoId={orcamentoId} codigosUtilizados={[...codigosUtilizados]} sugestoes={sugestoes} />
+        <OrcamentoInsumosTable initialInsumos={avulsos} orcamentoId={orcamentoId} />
       </DevProfiler>
     </div>
   )

@@ -18,6 +18,7 @@ import { formatCurrency } from '@/lib/costs'
 import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 import { ComposicoesModal, type ComposicoesModalState } from './composicoes-modal'
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
+import { getInsumosDetalhadoAction } from './actions'
 
 const PAGE_SIZE = 100
 
@@ -79,29 +80,58 @@ function SortIcon({ field, sortField, sortDir }: { field: 'fornecedor' | 'data_c
 export function OrcamentoInsumosTable({
   initialInsumos,
   orcamentoId,
-  codigosUtilizados,
-  sugestoes,
 }: {
+  /** Só avulsos — insumos embutidos em composições sem avulso equivalente chegam depois, em background. */
   initialInsumos: OrcamentoInsumo[]
   orcamentoId: string
-  codigosUtilizados: string[]
-  /** Sugestão de preço por código, a partir de cotações de OUTRAS obras — ver getSugestoesCotacaoCrossOrcamento. */
-  sugestoes: Record<string, SugestaoCotacao>
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [insumos, setInsumos] = useState(initialInsumos)
-  const [sugestoesState, setSugestoesState] = useState(sugestoes)
+  /** Sugestão de preço por código (cotações de OUTRAS obras) — carregada em background, ver useEffect abaixo. */
+  const [sugestoesState, setSugestoesState] = useState<Record<string, SugestaoCotacao>>({})
   const [query, setQuery] = useState('')
   const [filtroUso, setFiltroUso] = useState<'todos' | 'usados' | 'nao_usados'>('todos')
   const [filtroOrigem, setFiltroOrigem] = useState<'todos' | 'proprios' | 'importados'>('todos')
   const [somenteSugestao, setSomenteSugestao] = useState(false)
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [aplicandoSugestoes, setAplicandoSugestoes] = useState(false)
+  const [codigosUtilizados, setCodigosUtilizados] = useState<string[]>([])
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
 
-  useEffect(() => { setSugestoesState(sugestoes) }, [sugestoes])
+  // Insumos embutidos em composições sem avulso equivalente e o vínculo
+  // usado pelo filtro "usados/não utilizados" dependem do grafo completo
+  // (caro em orçamentos grandes) — buscados em background, sem bloquear a
+  // primeira renderização (ver getInsumosDetalhadoAction). Refaz sempre que
+  // `initialInsumos` muda de referência (nova visita/`router.refresh()`),
+  // não só na montagem — senão um refresh após limpar/remover base reverte
+  // pra "avulsos só" sem nunca re-buscar o resto.
+  const [usoStatus, setUsoStatus] = useState<'carregando' | 'pronto' | 'erro'>('carregando')
+
+  useEffect(() => {
+    setInsumos(initialInsumos)
+    setUsoStatus('carregando')
+    let cancelado = false
+    getInsumosDetalhadoAction(orcamentoId)
+      .then(({ insumosCompletos, codigosUtilizados, sugestoes }) => {
+        if (cancelado) return
+        setInsumos(prev => {
+          const ids = new Set(prev.map(i => i.id))
+          const extras = insumosCompletos.filter(i => !ids.has(i.id))
+          return extras.length > 0 ? [...prev, ...extras] : prev
+        })
+        setCodigosUtilizados(codigosUtilizados)
+        setSugestoesState(sugestoes)
+        setUsoStatus('pronto')
+      })
+      .catch(err => {
+        if (cancelado) return
+        console.error('[OrcamentoInsumosTable] erro ao carregar dados completos', err)
+        setUsoStatus('erro')
+      })
+    return () => { cancelado = true }
+  }, [orcamentoId, initialInsumos])
 
   function temSugestao(insumo: OrcamentoInsumo): boolean {
     return insumo.composicao_id === null && insumo.custo === 0 && !!sugestoesState[insumo.codigo]
@@ -117,7 +147,6 @@ export function OrcamentoInsumosTable({
     return [...contagem.entries()].sort((a, b) => b[1] - a[1])
   }, [insumos])
 
-  useEffect(() => { setInsumos(initialInsumos) }, [initialInsumos])
   const [currentPage, setCurrentPage] = useState(1)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -331,12 +360,13 @@ export function OrcamentoInsumosTable({
 
   async function handleDelete(id: string, codigo: string) {
     if (!confirm(`Excluir o insumo "${codigo}"?`)) return
+    const anterior = insumos
     setDeletingId(id)
     setInsumos(prev => prev.filter(i => i.id !== id))
     const sb = createClient() as any
     const { error } = await sb.from('orcamento_insumos').delete().eq('id', id)
     if (error) {
-      setInsumos(initialInsumos)
+      setInsumos(anterior)
       alert(`Erro ao excluir: ${error.message}`)
     }
     setDeletingId(null)
@@ -603,19 +633,24 @@ export function OrcamentoInsumosTable({
             { v: 'todos', label: 'Todos' },
             { v: 'usados', label: 'Utilizados no projeto' },
             { v: 'nao_usados', label: 'Não utilizados' },
-          ] as const).map(({ v, label }) => (
-            <button
-              key={v}
-              onClick={() => setFiltroUso(v)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-                filtroUso === v
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+          ] as const).map(({ v, label }) => {
+            const disabled = v !== 'todos' && usoStatus !== 'pronto'
+            return (
+              <button
+                key={v}
+                onClick={() => setFiltroUso(v)}
+                disabled={disabled}
+                title={disabled ? 'Carregando dados de uso…' : undefined}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  filtroUso === v
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
         <div className="flex gap-1">
           {([
@@ -710,6 +745,12 @@ export function OrcamentoInsumosTable({
           Limpar avulsos
         </button>
       </div>
+
+      {usoStatus === 'erro' && (
+        <p className="text-xs text-amber-600">
+          Não foi possível carregar os insumos embutidos em composições e o uso das linhas. Recarregue a página para tentar de novo.
+        </p>
+      )}
 
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] rounded-lg border border-gray-200">
         <table className="w-full text-sm">

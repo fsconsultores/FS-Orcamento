@@ -18,6 +18,30 @@ export interface InsumosByOrcamentoDetalhado {
 }
 
 /**
+ * Só os avulsos (composicao_id IS NULL) — têm custo/fornecedor/etc próprios
+ * na própria linha, sem depender de nenhum outro dado (ao contrário do
+ * custo_unitario de uma composição, o custo de um insumo nunca está "em
+ * cadeia"). É a fatia rápida e imediatamente completa da tela de Insumos —
+ * ver `getInsumosDetalhadoAction` para a fatia lenta (insumos embutidos em
+ * composições sem avulso equivalente + "usados/não usados").
+ */
+export async function getAvulsosBasico(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<OrcamentoInsumo[]> {
+  return fetchAllPaginatedParallel<OrcamentoInsumo>(
+    (from, to) =>
+      supabase
+        .from(TABLE)
+        .select('*', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .is('composicao_id', null)
+        .order('codigo')
+        .range(from, to) as any
+  )
+}
+
+/**
  * Versão que expõe também `insumosDeComposicao` (dado já buscado
  * internamente) — evita que cada chamador que precisa dessa relação
  * (Insumos do orçamento, Caderno/Relatórios) rode sua própria varredura
@@ -67,27 +91,11 @@ export async function getInsumosByOrcamentoDetalhado(
     }
   }
 
-  // 3. Avulsos deste orçamento (composicao_id IS NULL) — têm custo explícito
-  //    e prioridade na deduplicação abaixo. Filtra direto no banco: a versão
-  //    antiga buscava TODOS os insumos do orçamento (inclusive os vinculados
-  //    a composições, potencialmente milhares de linhas) só para em seguida
-  //    descartar tudo que não fosse avulso — em orçamentos grandes isso
-  //    sozinho gerava dezenas de páginas sequenciais de 1000 linhas (o maior
-  //    gargalo medido em produção: 27 queries / ~9s numa única visita à aba
-  //    Insumos). Em orçamentos com um catálogo de avulsos muito grande
-  //    (alguns passam de 9 mil linhas — provavelmente uma base de preços
-  //    inteira importada como avulsos) mesmo só os avulsos ainda paginam
-  //    bastante, daí buscar as páginas em paralelo em vez de sequencial.
-  const avulsos = await fetchAllPaginatedParallel<OrcamentoInsumo>(
-    (from, to) =>
-      supabase
-        .from(TABLE)
-        .select('*', { count: 'exact' })
-        .eq('orcamento_id', orcamentoId)
-        .is('composicao_id', null)
-        .order('codigo')
-        .range(from, to) as any
-  )
+  // 3. Avulsos deste orçamento — têm custo explícito e prioridade na
+  //    deduplicação abaixo. Ver getAvulsosBasico (comentário original sobre
+  //    o motivo do filtro direto no banco + paginação em paralelo continua
+  //    lá).
+  const avulsos = await getAvulsosBasico(supabase, orcamentoId)
 
   // Insumos de composições (custo=0) só aparecem se não houver avulso com o mesmo código.
   const avulsosCodigos = new Set(avulsos.map(ins => ins.codigo ?? ''))
