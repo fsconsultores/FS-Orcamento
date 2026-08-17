@@ -101,34 +101,77 @@ function drawDocumentHeader(
 
 // ─── Helpers de layout ────────────────────────────────────────────────────────
 
-function addCoverPage(doc: jsPDF, data: CadernoData, pageW: number, pageH: number) {
-  doc.setFillColor(PDF_COLORS.bannerBg)
+// Identidade FS Consultores (design system 2026 — mesmos hex de tailwind.config.ts:
+// primary.700 e secondary.500) usada na capa, para bater com o logo e o resto do app.
+const BRAND_PRIMARY = '#52276E'
+const BRAND_SECONDARY = '#344DA1'
+
+// Barras verticais nos cantos, ecoando o ícone do logo — só decoração de marca,
+// sem informação nenhuma (por isso não depende de nenhum dado do orçamento).
+function drawBrandCornerBars(doc: jsPDF, pageW: number, pageH: number, color: string) {
+  const alturas = [7, 10, 13, 16, 19]
+  const barW = 3.2
+  const gap = 1.6
+  doc.setFillColor(color)
+
+  let x = pageW - (alturas.length * barW + (alturas.length - 1) * gap)
+  for (const h of alturas) {
+    doc.rect(x, 0, barW, h, 'F')
+    x += barW + gap
+  }
+
+  x = 0
+  for (const h of [...alturas].reverse()) {
+    doc.rect(x, pageH - h, barW, h, 'F')
+    x += barW + gap
+  }
+}
+
+async function addCoverPage(doc: jsPDF, data: CadernoData, pageW: number, pageH: number) {
+  doc.setFillColor('#ffffff')
   doc.rect(0, 0, pageW, pageH, 'F')
 
-  doc.setFillColor(PDF_COLORS.totalBg)
-  doc.rect(0, pageH / 2, pageW, 1.2, 'F')
+  drawBrandCornerBars(doc, pageW, pageH, BRAND_SECONDARY)
 
-  doc.setTextColor('#ffffff')
+  // Logo real da FS Consultores (public/logofs.png, o mesmo arquivo já usado na
+  // exportação em Excel — ver use-planilha-export.ts). Se o fetch falhar, a capa
+  // segue sem logo em vez de travar a exportação do Caderno inteiro.
+  try {
+    const resp = await fetch('/logofs.png')
+    if (resp.ok) {
+      const buf = await resp.arrayBuffer()
+      const logoW = 90
+      const logoH = logoW * (617 / 2156) // proporção real do arquivo (2156×617px)
+      doc.addImage(new Uint8Array(buf), 'PNG', (pageW - logoW) / 2, 28, logoW, logoH)
+    }
+  } catch { /* logo opcional — nunca bloqueia a exportação */ }
+
+  const { nome_obra, codigo, cliente } = data.orcamento
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(30)
-  doc.text('CADERNO DE ORÇAMENTO', pageW / 2, pageH / 2 - 22, { align: 'center' })
+  doc.setFontSize(26)
+  doc.setTextColor(BRAND_PRIMARY)
+  doc.text(nome_obra || '—', pageW / 2, pageH / 2 - 4, { align: 'center' })
+
+  doc.setFontSize(14)
+  doc.setTextColor(BRAND_SECONDARY)
+  doc.text('CADERNO DE ORÇAMENTO', pageW / 2, pageH / 2 + 7, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(16)
-  const { nome_obra, codigo, cliente } = data.orcamento
-  doc.text(nome_obra || '—', pageW / 2, pageH / 2 - 6, { align: 'center' })
-
-  doc.setFontSize(11)
-  doc.setTextColor(PDF_COLORS.totalSubFg)
+  doc.setFontSize(10)
+  doc.setTextColor('#6b7280')
   const linha2 = [codigo ? `Cód. ${codigo}` : null, cliente].filter(Boolean).join('   •   ')
-  if (linha2) doc.text(linha2, pageW / 2, pageH / 2 + 4, { align: 'center' })
+  if (linha2) doc.text(linha2, pageW / 2, pageH / 2 + 15, { align: 'center' })
 
   doc.setFontSize(9)
   doc.text(`Gerado em ${formatDate(new Date())}`, pageW / 2, pageH - 14, { align: 'center' })
 }
 
 function addDivider(doc: jsPDF, pageW: number, pageH: number, numero: string, titulo: string, subtitle?: string) {
-  doc.addPage()
+  // Divisória de seção sempre em retrato (A4), mesmo padrão da capa — ver
+  // exportCadernoPdf: só capa/divisórias ficam em retrato, o conteúdo
+  // (tabelas largas) volta pra paisagem logo em seguida.
+  doc.addPage('a4', 'portrait')
   doc.setFillColor(PDF_COLORS.bannerBg)
   doc.rect(0, 0, pageW, pageH, 'F')
   doc.setFillColor(PDF_COLORS.totalBg)
@@ -171,7 +214,7 @@ async function drawResumoGeralSection(
 ) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, 'RESUMO GERAL DO ORÇAMENTO', subtitle)
 
   const top = margin + 16 + 8
@@ -327,7 +370,7 @@ async function drawResumoGeralSection(
 async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, 'CUSTO / M²', subtitle)
 
   const { nome_obra, cliente, local, area_total, area_coberta, area_equivalente } = data.orcamento
@@ -429,7 +472,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   const HEADER_H = 24
   const tableTop = margin + HEADER_H + 4
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
 
   const flat = flattenArvore(data.arvore)
   const body: RowInput[] = flat.map(({ node, depth }) => {
@@ -501,7 +544,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
 async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, title: string, margin: number, contentW: number, subtitle: string) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, title, subtitle)
 
   const cardY = margin + 16 + 4
@@ -547,7 +590,7 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
 async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string, destacarEstimados: boolean) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS', subtitle)
 
   const rows = data.planilhaAnalitica
@@ -628,7 +671,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
 async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number, subtitle: string, numero: string) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage()
+  doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, 'LISTA DE INSUMOS', subtitle)
 
   let y = margin + 16 + 6
@@ -698,11 +741,20 @@ export interface ExportCadernoOptions {
 export async function exportCadernoPdf(data: CadernoData, options: ExportCadernoOptions = {}) {
   const { jsPDF } = await import('jspdf')
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  // Capa e divisórias de seção ficam em retrato (A4) — pedido explícito pra
+  // parecerem "folhas de rosto", não planilha. O conteúdo de cada seção
+  // (tabelas largas, KPI cards + gráfico lado a lado) continua em paisagem,
+  // que é o espaço que esse conteúdo sempre precisou. doc.addPage(formato,
+  // orientação) troca a orientação por página; sem argumentos ela herda a
+  // última usada — por isso todo addPage() dentro das seções abaixo é
+  // explícito ('a4','landscape'), nunca "pelado".
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
   const margin = 10
-  const contentW = pageW - margin * 2
+  const landscapeW = pageH
+  const landscapeH = pageW
+  const contentW = landscapeW - margin * 2
 
   const subtitle = [
     [data.orcamento.codigo, data.orcamento.nome_obra].filter(Boolean).join(' - '),
@@ -718,7 +770,7 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   }
 
   // Capa
-  addCoverPage(doc, data, pageW, pageH)
+  await addCoverPage(doc, data, pageW, pageH)
 
   // 1.0 Carta de Apresentação (placeholder)
   divider('1.0', 'CARTA DE APRESENTAÇÃO', SEM_DADOS)
@@ -758,7 +810,7 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
 
   // 9.0 Lista de Insumos
   divider('9.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')
-  await drawListaInsumosSection(doc, data, margin, contentW, pageH, subtitle, '9.0')
+  await drawListaInsumosSection(doc, data, margin, contentW, landscapeH, subtitle, '9.0')
 
   // 10.0 Anexos (placeholder)
   divider('10.0', 'ANEXOS', SEM_DADOS)
@@ -767,13 +819,18 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   divider('11.0', 'COTAÇÕES', SEM_DADOS)
 
   // ── Rodapé com numeração de página (a partir da capa) ───────────────────────
+  // Página mistura retrato (capa/divisórias) e paisagem (conteúdo), então o
+  // tamanho tem que ser lido por página (setPage + pageSize), nunca um
+  // pageW/pageH fixo do topo da função.
   const pageCount = doc.getNumberOfPages()
   for (let p = 2; p <= pageCount; p++) {
     doc.setPage(p)
+    const pw = doc.internal.pageSize.getWidth()
+    const ph = doc.internal.pageSize.getHeight()
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(dividerPages.has(p) ? PDF_COLORS.totalSubFg : PDF_COLORS.textGray)
-    doc.text(`Página ${p - 1} de ${pageCount - 1}`, pageW - margin, pageH - 4, { align: 'right' })
+    doc.text(`Página ${p - 1} de ${pageCount - 1}`, pw - margin, ph - 4, { align: 'right' })
   }
 
   doc.save(`${slugFilename(data.orcamento.nome_obra, 'caderno_orcamento')}_caderno_${new Date().toISOString().split('T')[0]}.pdf`)

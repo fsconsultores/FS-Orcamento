@@ -167,7 +167,7 @@ export function drawAbcKpiCards(doc: jsPDF, items: AbcItem[], x: number, y: numb
 
   const cards = [
     { label: 'TOTAL GERAL', value: fmt(total), sub: `${items.length} itens`, bg: PDF_COLORS.totalBg, fg: PDF_COLORS.totalFg, subFg: PDF_COLORS.totalSubFg },
-    { label: 'CLASSE A (≤ 80%)', value: fmt(sumClass('A')), sub: `${byClass('A').length} itens · ${pctClass('A').toFixed(1)}%`, bg: PDF_COLORS.a.bg, fg: PDF_COLORS.a.fg, subFg: PDF_COLORS.a.sub },
+    { label: 'CLASSE A (até 80%)', value: fmt(sumClass('A')), sub: `${byClass('A').length} itens · ${pctClass('A').toFixed(1)}%`, bg: PDF_COLORS.a.bg, fg: PDF_COLORS.a.fg, subFg: PDF_COLORS.a.sub },
     { label: 'CLASSE B (80–95%)', value: fmt(sumClass('B')), sub: `${byClass('B').length} itens · ${pctClass('B').toFixed(1)}%`, bg: PDF_COLORS.b.bg, fg: PDF_COLORS.b.fg, subFg: PDF_COLORS.b.sub },
     { label: 'CLASSE C (> 95%)', value: fmt(sumClass('C')), sub: `${byClass('C').length} itens · ${pctClass('C').toFixed(1)}%`, bg: PDF_COLORS.c.bg, fg: PDF_COLORS.c.fg, subFg: PDF_COLORS.c.sub },
   ]
