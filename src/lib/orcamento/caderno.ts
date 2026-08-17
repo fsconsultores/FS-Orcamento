@@ -51,6 +51,8 @@ export interface CadernoNode {
   /** Decisão persistida do orçamentista (aba Estimados) — ver getCadernoData(). */
   estimado: boolean
   estimado_motivo: string | null
+  /** Override manual do valor em Serviços Estimados (B) — NULL usa `total` calculado. */
+  valor_estimado: number | null
   filhos: CadernoNode[]
 }
 
@@ -205,6 +207,12 @@ interface EstruturaFullItem {
    */
   estimado: boolean
   estimado_motivo: string | null
+  /**
+   * Override manual do valor deste item/grupo no total de Serviços Estimados
+   * (B) — ver aba Estimados. NULL usa o valor calculado da planilha
+   * (sumLeaves), igual ao comportamento antes deste campo existir.
+   */
+  valor_estimado: number | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -247,7 +255,7 @@ export async function getCadernoData(
   const sb = supabase as any
 
   let estruturaQuery = sb.from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo, valor_estimado')
     .eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) estruturaQuery = estruturaQuery.in('planilha_id', planilhaIds)
   estruturaQuery = estruturaQuery
@@ -525,8 +533,8 @@ export async function getCadernoData(
    * ExportCadernoOptions em export-caderno-pdf.ts). Nada aqui depende de
    * configuração salva no orçamento.
    */
-  function registrarServicoComInsumo(raw: RawNode, nomeServico: string, info: InfoInsumoEstimado, caminho: string[]) {
-    const valor = sumLeaves(raw)
+  function registrarServicoComInsumo(raw: RawNode, nomeServico: string, info: InfoInsumoEstimado, caminho: string[], valorOverride?: number | null) {
+    const valor = valorOverride ?? sumLeaves(raw)
     servicosComInsumoEstimado.push({
       id: raw.id,
       numero: raw.numero,
@@ -550,9 +558,9 @@ export async function getCadernoData(
       if (node.estimado) {
         marcarSubarvore(node)
         const info = infoInsumoEstimado(node)
-        if (info) registrarServicoComInsumo(node, node.descricao, info, caminho)
+        if (info) registrarServicoComInsumo(node, node.descricao, info, caminho, node.valor_estimado)
         else autoServicosEstimados.push({
-          id: node.id, descricao: node.descricao, valor: sumLeaves(node),
+          id: node.id, descricao: node.descricao, valor: node.valor_estimado ?? sumLeaves(node),
           itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
         })
         continue
@@ -628,6 +636,7 @@ export async function getCadernoData(
         planilhaId: raw.planilha_id,
         estimado: raw.estimado,
         estimado_motivo: raw.estimado_motivo,
+        valor_estimado: raw.valor_estimado,
         filhos: [],
       }
     }
@@ -651,6 +660,7 @@ export async function getCadernoData(
       planilhaId: raw.planilha_id,
       estimado: raw.estimado,
       estimado_motivo: raw.estimado_motivo,
+      valor_estimado: raw.valor_estimado,
       filhos,
     }
   }

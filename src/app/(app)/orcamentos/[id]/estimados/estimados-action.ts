@@ -8,6 +8,8 @@ export interface AlteracaoEstimado {
   id: string
   estimado: boolean
   motivo: string | null
+  /** Override manual do valor em Serviços Estimados (B) — null usa o total calculado da planilha. */
+  valorEstimado: number | null
 }
 
 /**
@@ -29,7 +31,11 @@ export async function atualizarItensEstimadosAction(
     const lote = alteracoes.slice(i, i + 200)
     const resultados = await Promise.all(
       lote.map(a => sb.from('orcamento_estrutura')
-        .update({ estimado: a.estimado, estimado_motivo: a.estimado ? (a.motivo?.trim() || null) : null })
+        .update({
+          estimado: a.estimado,
+          estimado_motivo: a.estimado ? (a.motivo?.trim() || null) : null,
+          valor_estimado: a.estimado ? a.valorEstimado : null,
+        })
         .eq('id', a.id)
         .eq('orcamento_id', orcamentoId)
       )
