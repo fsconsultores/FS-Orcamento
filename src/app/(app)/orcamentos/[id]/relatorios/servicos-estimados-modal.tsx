@@ -78,7 +78,7 @@ export function ServicosEstimadosModal({ open, onClose, servicos, ocultosIds, on
             value={busca}
             onChange={e => setBusca(e.target.value)}
             placeholder="Buscar por descrição..."
-            className="flex-1 min-w-[160px] rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+            className="flex-1 min-w-[200px] max-w-xs rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
           />
           {planilhasOpcoes.length > 1 && (
             <select

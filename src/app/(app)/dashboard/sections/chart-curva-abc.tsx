@@ -85,8 +85,8 @@ export function ChartCurvaAbc({ resumo }: { resumo: ResumoClasseAbc[] }) {
           <li key={r.classe} className="flex items-center gap-2.5 text-sm">
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: COR_CLASSE[r.classe] }} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-gray-700">{LABEL_CLASSE[r.classe]}</span>
-              <span className="block truncate text-xs text-gray-400">{DESCRICAO_CLASSE[r.classe]} · {r.quantidade.toLocaleString('pt-BR')} itens</span>
+              <span className="block truncate font-medium text-gray-700" title={LABEL_CLASSE[r.classe]}>{LABEL_CLASSE[r.classe]}</span>
+              <span className="block truncate text-xs text-gray-400" title={`${DESCRICAO_CLASSE[r.classe]} · ${r.quantidade.toLocaleString('pt-BR')} itens`}>{DESCRICAO_CLASSE[r.classe]} · {r.quantidade.toLocaleString('pt-BR')} itens</span>
             </span>
             <span className="w-14 shrink-0 text-right font-medium tabular-nums text-gray-800">{fmtPct(r.percentualFinanceiro)}</span>
           </li>

@@ -27,7 +27,11 @@ export function AlertCard({ variant, title, description, href }: {
       </span>
       <div className="min-w-0">
         <p className="text-sm font-medium text-gray-800">{title}</p>
-        {description && <p className="truncate text-xs text-gray-400">{description}</p>}
+        {description && (
+          <p className="truncate text-xs text-gray-400" title={typeof description === 'string' ? description : undefined}>
+            {description}
+          </p>
+        )}
       </div>
     </Link>
   )

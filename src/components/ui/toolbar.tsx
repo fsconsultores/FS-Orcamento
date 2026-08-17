@@ -24,8 +24,8 @@ export function Toolbar({ search, filters, className = '' }: {
 }) {
   if (!search && !filters) return null
   return (
-    <div className={`flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between ${className}`}>
-      {search && <div className="sm:max-w-xs sm:flex-1">{search}</div>}
+    <div className={`flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between ${className}`}>
+      {search && <div className="min-w-[280px] sm:max-w-xs sm:flex-1">{search}</div>}
       {filters && <div className="flex flex-wrap items-center gap-1.5">{filters}</div>}
     </div>
   )

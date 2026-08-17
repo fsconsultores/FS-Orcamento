@@ -244,7 +244,7 @@ export function LevantamentosManager({
       </div>
 
       {/* Lista */}
-      <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
         {levantamentos.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-gray-400">Nenhum levantamento cadastrado ainda.</p>
         ) : (

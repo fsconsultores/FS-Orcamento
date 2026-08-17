@@ -200,7 +200,7 @@ export function ComposicoesTable({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[220px]">
+        <div className="relative flex-1 min-w-[280px] max-w-xs">
           <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
             fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

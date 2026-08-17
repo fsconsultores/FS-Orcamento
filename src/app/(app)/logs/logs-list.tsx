@@ -151,7 +151,7 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
           placeholder="Buscar por mensagem, ação ou usuário..."
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          className="flex-1 min-w-[220px] rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+          className="flex-1 min-w-[300px] max-w-xs rounded-md border border-gray-300 px-3 py-1.5 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
         />
         <span className="text-xs text-gray-400">{logs.length} registro{logs.length !== 1 ? 's' : ''}</span>
         <Button variant="outline" size="sm" onClick={atualizar} loading={isPending} icon={<RefreshCw size={13} />}>

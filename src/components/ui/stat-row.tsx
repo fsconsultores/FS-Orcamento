@@ -2,7 +2,10 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 
 export function StatRow({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
+  // xl (1280px), não sm (640px): entre esses dois pontos o conteúdo
+  // disponível (descontada a sidebar) ainda é estreito demais pra 4 cards
+  // lado a lado sem espremer o texto — 2 colunas dá respiro real ao label.
+  return <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{children}</div>
 }
 
 /** Card de KPI — `size="sm"` (default) é o usado em telas de listagem (ex: Bases de
@@ -39,9 +42,9 @@ export function StatCard({ label, value, icon, hint, href, size = 'sm' }: {
         </span>
       )}
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-gray-500">{label}</p>
-        <p className="truncate text-lg font-semibold text-gray-900 tabular-nums">{value}</p>
-        {hint && <p className="truncate text-xs text-gray-400">{hint}</p>}
+        <p className="truncate text-xs font-medium text-gray-500" title={label}>{label}</p>
+        <p className="truncate text-lg font-semibold text-gray-900 tabular-nums" title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}>{value}</p>
+        {hint && <p className="truncate text-xs text-gray-400" title={typeof hint === 'string' ? hint : undefined}>{hint}</p>}
       </div>
     </div>
   )

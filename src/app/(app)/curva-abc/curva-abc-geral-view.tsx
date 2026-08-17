@@ -112,7 +112,7 @@ export function CurvaAbcGeralView({ items }: { items: AbcItemGeral[] }) {
               <Td className="text-right font-mono text-xs tabular-nums text-gray-400">
                 {(page - 1) * PAGE_SIZE + idx + 1}
               </Td>
-              <Td className="max-w-[160px] truncate">
+              <Td className="max-w-[160px] truncate" title={item.orcamento_nome}>
                 <Link href={`/orcamentos/${item.orcamento_id}` as any} className="text-primary-700 hover:underline">
                   {item.orcamento_nome}
                 </Link>
