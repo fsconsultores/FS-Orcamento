@@ -154,8 +154,17 @@ export function drawAbcChart(doc: jsPDF, items: AbcItem[], x: number, y: number,
 
 // ─── KPI cards (Total Geral + Classe A/B/C) ──────────────────────────────────
 
-/** Desenha as 4 KPI cards e retorna a altura ocupada (mm). */
-export function drawAbcKpiCards(doc: jsPDF, items: AbcItem[], x: number, y: number, w: number): number {
+/**
+ * Desenha as 4 KPI cards e retorna a altura ocupada (mm). O card "TOTAL
+ * GERAL" usa PDF_COLORS.totalBg/totalFg/totalSubFg (neutro) por padrão;
+ * `totalStyle` permite sobrescrever só esse card — usado pelo Caderno, que
+ * troca pela identidade visual da FS sem afetar a Curva ABC avulsa
+ * (curva-abc/export-pdf.ts), que continua com o padrão neutro.
+ */
+export function drawAbcKpiCards(
+  doc: jsPDF, items: AbcItem[], x: number, y: number, w: number,
+  totalStyle: { bg: string; fg: string; subFg: string } = { bg: PDF_COLORS.totalBg, fg: PDF_COLORS.totalFg, subFg: PDF_COLORS.totalSubFg },
+): number {
   const total = items.reduce((s, i) => s + i.valor_total, 0)
   const byClass = (c: 'A' | 'B' | 'C') => items.filter(i => i.classe === c)
   const sumClass = (c: 'A' | 'B' | 'C') => byClass(c).reduce((s, i) => s + i.valor_total, 0)
@@ -166,7 +175,7 @@ export function drawAbcKpiCards(doc: jsPDF, items: AbcItem[], x: number, y: numb
   const cardW = (w - gap * 3) / 4
 
   const cards = [
-    { label: 'TOTAL GERAL', value: fmt(total), sub: `${items.length} itens`, bg: PDF_COLORS.totalBg, fg: PDF_COLORS.totalFg, subFg: PDF_COLORS.totalSubFg },
+    { label: 'TOTAL GERAL', value: fmt(total), sub: `${items.length} itens`, bg: totalStyle.bg, fg: totalStyle.fg, subFg: totalStyle.subFg },
     { label: 'CLASSE A (até 80%)', value: fmt(sumClass('A')), sub: `${byClass('A').length} itens · ${pctClass('A').toFixed(1)}%`, bg: PDF_COLORS.a.bg, fg: PDF_COLORS.a.fg, subFg: PDF_COLORS.a.sub },
     { label: 'CLASSE B (80–95%)', value: fmt(sumClass('B')), sub: `${byClass('B').length} itens · ${pctClass('B').toFixed(1)}%`, bg: PDF_COLORS.b.bg, fg: PDF_COLORS.b.fg, subFg: PDF_COLORS.b.sub },
     { label: 'CLASSE C (> 95%)', value: fmt(sumClass('C')), sub: `${byClass('C').length} itens · ${pctClass('C').toFixed(1)}%`, bg: PDF_COLORS.c.bg, fg: PDF_COLORS.c.fg, subFg: PDF_COLORS.c.sub },

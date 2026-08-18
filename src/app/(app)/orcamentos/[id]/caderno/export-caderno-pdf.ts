@@ -17,7 +17,6 @@ import {
 } from '@/lib/pdf/abc-section'
 import {
   KPI_STYLE_NEUTRAL,
-  KPI_STYLE_PRIMARY,
   drawDonutChart,
   drawDonutLegend,
   drawKpiCard,
@@ -55,7 +54,7 @@ function drawDocumentHeader(
   const dateStr = formatDate(new Date())
 
   // Fundo único
-  doc.setFillColor(PDF_COLORS.bannerBg)
+  doc.setFillColor(BRAND_PRIMARY)
   doc.rect(lx, ty, contentW, HEADER_H, 'F')
 
   // Divisórias internas (linha fina branca)
@@ -102,9 +101,15 @@ function drawDocumentHeader(
 // ─── Helpers de layout ────────────────────────────────────────────────────────
 
 // Identidade FS Consultores (design system 2026 — mesmos hex de tailwind.config.ts:
-// primary.700 e secondary.500) usada na capa, para bater com o logo e o resto do app.
+// primary.700 e secondary.500) usada na capa E em todo o resto do Caderno (títulos de
+// seção, cabeçalhos de tabela, KPIs) — pedido explícito pra bater com a capa. Isso é
+// uma exceção só do Caderno: os outros exports em PDF (Planilha Sintética/Analítica,
+// Curva ABC avulsa) continuam usando PDF_COLORS.bannerBg/totalBg (neutro — ver
+// comentário em lib/pdf/abc-section.ts), então aqui a gente usa constantes locais em
+// vez de mudar PDF_COLORS, que é compartilhado com aqueles outros exports.
 const BRAND_PRIMARY = '#52276E'
 const BRAND_SECONDARY = '#344DA1'
+const CADERNO_KPI_PRIMARY = { bg: BRAND_SECONDARY, fg: '#ffffff', subFg: '#c7d2f0' }
 
 // Barras verticais nos cantos, ecoando o ícone do logo — só decoração de marca,
 // sem informação nenhuma (por isso não depende de nenhum dado do orçamento).
@@ -172,30 +177,32 @@ function addDivider(doc: jsPDF, pageW: number, pageH: number, numero: string, ti
   // exportCadernoPdf: só capa/divisórias ficam em retrato, o conteúdo
   // (tabelas largas) volta pra paisagem logo em seguida.
   doc.addPage('a4', 'portrait')
-  doc.setFillColor(PDF_COLORS.bannerBg)
+  // Mesmo tratamento da capa — fundo branco, texto colorido (nunca o
+  // inverso: fundo cheio de cor com texto branco) — pra ser realmente
+  // "parecido com a capa", não só usar os mesmos hex em outro arranjo.
+  doc.setFillColor('#ffffff')
   doc.rect(0, 0, pageW, pageH, 'F')
-  doc.setFillColor(PDF_COLORS.totalBg)
-  doc.rect(0, pageH / 2, pageW, 1, 'F')
+  drawBrandCornerBars(doc, pageW, pageH, BRAND_SECONDARY)
 
-  doc.setTextColor(PDF_COLORS.totalSubFg)
+  doc.setTextColor(BRAND_SECONDARY)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.text(numero, pageW / 2, pageH / 2 - 14, { align: 'center' })
 
-  doc.setTextColor('#ffffff')
+  doc.setTextColor(BRAND_PRIMARY)
   doc.setFontSize(22)
   doc.text(titulo, pageW / 2, pageH / 2 - 2, { align: 'center' })
 
   if (subtitle) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(11)
-    doc.setTextColor(PDF_COLORS.totalSubFg)
+    doc.setTextColor('#6b7280')
     doc.text(subtitle, pageW / 2, pageH / 2 + 10, { align: 'center' })
   }
 }
 
 function addSectionBanner(doc: jsPDF, margin: number, contentW: number, numero: string, title: string, subtitle: string) {
-  doc.setFillColor(PDF_COLORS.bannerBg)
+  doc.setFillColor(BRAND_PRIMARY)
   doc.rect(margin, margin, contentW, 16, 'F')
   doc.setTextColor(PDF_COLORS.bannerFg)
   doc.setFont('helvetica', 'bold')
@@ -230,7 +237,7 @@ async function drawResumoGeralSection(
 
   // ── Coluna esquerda: (A) Total Orçado ─────────────────────────────────────
   let yLeft = top
-  doc.setFillColor(PDF_COLORS.totalBg)
+  doc.setFillColor(BRAND_SECONDARY)
   doc.rect(margin, yLeft, leftW, 8, 'F')
   doc.setTextColor('#ffffff')
   doc.setFont('helvetica', 'bold')
@@ -247,7 +254,7 @@ async function drawResumoGeralSection(
     foot: [['TOTAL GERAL', fmt(A), '100,00%']],
     showFoot: 'lastPage',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
     columnStyles: {
       0: { cellWidth: leftW - 50 },
@@ -260,7 +267,7 @@ async function drawResumoGeralSection(
   yLeft = doc.lastAutoTable.finalY + 6
 
   // ── Coluna esquerda: (B) Serviços Estimados ───────────────────────────────
-  doc.setFillColor(PDF_COLORS.totalBg)
+  doc.setFillColor(BRAND_SECONDARY)
   doc.rect(margin, yLeft, leftW, 8, 'F')
   doc.setTextColor('#ffffff')
   doc.setFont('helvetica', 'bold')
@@ -298,7 +305,7 @@ async function drawResumoGeralSection(
       foot: [['TOTAL', fmt(B), '100,00%']],
       showFoot: 'lastPage',
       styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
       footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
       columnStyles: {
         0: { cellWidth: leftW - 50 },
@@ -323,9 +330,9 @@ async function drawResumoGeralSection(
   const cardW = (rightW - cardGap * 2) / 3
   const cardH = 18
 
-  drawKpiCard(doc, rightX, top, cardW, cardH, 'TOTAL GERAL (C) = (A+B)', fmt(C), undefined, KPI_STYLE_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap), top, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, KPI_STYLE_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, top, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, KPI_STYLE_PRIMARY)
+  drawKpiCard(doc, rightX, top, cardW, cardH, 'TOTAL GERAL (C) = (A+B)', fmt(C), undefined, CADERNO_KPI_PRIMARY)
+  drawKpiCard(doc, rightX + (cardW + cardGap), top, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, CADERNO_KPI_PRIMARY)
+  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, top, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, CADERNO_KPI_PRIMARY)
 
   const row2Y = top + cardH + cardGap
   drawKpiCard(doc, rightX, row2Y, cardW, cardH, 'CUSTO/M² (ÁREA TOTAL)',
@@ -423,11 +430,11 @@ async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number,
     foot: temPavimentos ? [[{ content: 'ÁREA TOTAL:', colSpan: 2 }, ...linhaTotal.slice(2)]] as RowInput[] : undefined,
     showFoot: temPavimentos ? 'lastPage' : undefined,
     styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', halign: 'right', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
     bodyStyles: temPavimentos
       ? { fillColor: '#ffffff', textColor: '#1f2937', fontStyle: 'normal' }
-      : { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
-    footStyles: { fillColor: GROUP_FILL, textColor: PDF_COLORS.bannerBg, fontStyle: 'bold' },
+      : { fillColor: GROUP_FILL, textColor: BRAND_PRIMARY, fontStyle: 'bold' },
+    footStyles: { fillColor: GROUP_FILL, textColor: BRAND_PRIMARY, fontStyle: 'bold' },
     columnStyles: {
       0: { halign: 'left' },
       1: { halign: 'center' },
@@ -450,10 +457,10 @@ async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number,
     y += rowH + 2
   }
 
-  row('CUSTO TOTAL DO ORÇAMENTO', fmt(C), PDF_COLORS.bannerBg)
-  row('CUSTO / M² (ÁREA TOTAL)', area_total ? fmt(C / area_total) : '—', PDF_COLORS.totalBg)
-  row('CUSTO / M² (ÁREA EQUIVALENTE)', area_equivalente ? fmt(C / area_equivalente) : '—', PDF_COLORS.totalBg)
-  row('CUSTO / M² (ÁREAS COBERTAS)', area_coberta ? fmt(C / area_coberta) : '—', PDF_COLORS.totalBg)
+  row('CUSTO TOTAL DO ORÇAMENTO', fmt(C), BRAND_PRIMARY)
+  row('CUSTO / M² (ÁREA TOTAL)', area_total ? fmt(C / area_total) : '—', BRAND_SECONDARY)
+  row('CUSTO / M² (ÁREA EQUIVALENTE)', area_equivalente ? fmt(C / area_equivalente) : '—', BRAND_SECONDARY)
+  row('CUSTO / M² (ÁREAS COBERTAS)', area_coberta ? fmt(C / area_coberta) : '—', BRAND_SECONDARY)
 }
 
 // ─── Seção: Planilha de Preços Unitários ─────────────────────────────────────
@@ -506,7 +513,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
@@ -548,7 +555,7 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
   addSectionBanner(doc, margin, contentW, numero, title, subtitle)
 
   const cardY = margin + 16 + 4
-  const cardH = drawAbcKpiCards(doc, items, margin, cardY, contentW)
+  const cardH = drawAbcKpiCards(doc, items, margin, cardY, contentW, CADERNO_KPI_PRIMARY)
 
   const chartTitleY = cardY + cardH + 6
   doc.setFont('helvetica', 'bold')
@@ -569,7 +576,7 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
     foot: abcTableFoot(items),
     showFoot: 'lastPage',
     styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
     columnStyles: abcTableColumnStyles,
     didParseCell: (cellData) => {
@@ -608,7 +615,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
       return [{
         content: `${row.numero}   ${row.descricao}`,
         colSpan: 8,
-        styles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'left' },
+        styles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'left' },
       }]
     }
     if (row.tipo === 'item') {
@@ -633,7 +640,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     body,
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
     columnStyles: {
       0: { cellWidth: 14, halign: 'center' },
       1: { cellWidth: 20 },
@@ -683,7 +690,7 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
       y = margin
     }
 
-    doc.setFillColor(PDF_COLORS.totalBg)
+    doc.setFillColor(BRAND_SECONDARY)
     doc.rect(margin, y, contentW, headerH, 'F')
     doc.setTextColor('#ffffff')
     doc.setFont('helvetica', 'bold')
@@ -702,7 +709,7 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
       foot: [['', '', '', '', '', 'TOTAL DO GRUPO', fmt(totalGrupo)]],
       showFoot: 'lastPage',
       styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: PDF_COLORS.bannerBg, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
+      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', halign: 'right', lineWidth: 0.1 },
       columnStyles: {
         0: { cellWidth: 28 },
@@ -763,10 +770,8 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
 
   const SEM_DADOS = 'Seção sem dados disponíveis no software'
 
-  const dividerPages = new Set<number>()
   function divider(numero: string, titulo: string, sub?: string) {
     addDivider(doc, pageW, pageH, numero, titulo, sub)
-    dividerPages.add(doc.getNumberOfPages())
   }
 
   // Capa
@@ -829,7 +834,7 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
     const ph = doc.internal.pageSize.getHeight()
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
-    doc.setTextColor(dividerPages.has(p) ? PDF_COLORS.totalSubFg : PDF_COLORS.textGray)
+    doc.setTextColor(PDF_COLORS.textGray)
     doc.text(`Página ${p - 1} de ${pageCount - 1}`, pw - margin, ph - 4, { align: 'right' })
   }
 
