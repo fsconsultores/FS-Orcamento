@@ -18,7 +18,6 @@ export async function salvarInfoCadernoAction(orcamentoId: string, input: DadosC
   await salvarDadosCadastrais(supabase, orcamentoId, input)
 
   revalidatePath(`/orcamentos/${orcamentoId}/relatorios`)
-  revalidatePath(`/orcamentos/${orcamentoId}/relatorios/gerar`)
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
   revalidatePath(`/orcamentos/${orcamentoId}/editar`)

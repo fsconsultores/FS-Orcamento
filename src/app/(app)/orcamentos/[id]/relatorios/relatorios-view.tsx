@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, AlertTriangle } from 'lucide-react'
+import { History, AlertTriangle } from 'lucide-react'
 import type { CadernoData } from '@/lib/orcamento/caderno'
 import { REPORT_CATALOG, findReport } from './report-catalog'
 import { ReportList } from './report-list'
@@ -38,8 +38,8 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
   const [isPending, startTransition] = useTransition()
 
   // ?report= vem do link "Gerar novamente" na tela de histórico
-  // (/orcamentos/[id]/relatorios) — pré-seleciona em vez de sempre abrir a
-  // Planilha Sintética.
+  // (/orcamentos/[id]/relatorios/historico) — pré-seleciona em vez de sempre
+  // abrir a Planilha Sintética.
   const reportParam = searchParams.get('report')
   const [selectedId, setSelectedId] = useState(
     reportParam && findReport(reportParam) ? reportParam : DEFAULT_REPORT_ID
@@ -82,8 +82,8 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
 
   return (
     <div className="space-y-5">
-      <Link href={`/orcamentos/${orcamentoId}/relatorios`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ArrowLeft size={14} /> Voltar para últimos relatórios
+      <Link href={`/orcamentos/${orcamentoId}/relatorios/historico`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+        <History size={14} /> Ver histórico de relatórios
       </Link>
       <PageHeader
         title="Gerar relatório"
