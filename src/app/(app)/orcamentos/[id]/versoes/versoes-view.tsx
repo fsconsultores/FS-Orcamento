@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, Eye, RotateCcw, History, GitCommit, GitBranchPlus } from 'lucide-react'
 import type { OrcamentoVersaoResumo, VersaoSnapshotV1 } from '@/lib/orcamento/versoes'
 import { criarVersao, restaurarVersao, buscarSnapshotVersao, criarOrcamentoDeVersao } from './versoes-action'
+import { formatCurrency } from '@/lib/costs'
 import { PageHeader } from '@/components/ui/toolbar'
 import { Timeline, TimelineItem } from '@/components/ui/timeline'
 import { Badge } from '@/components/ui/badge'
@@ -78,7 +79,11 @@ export function VersoesView({
   const router = useRouter()
   const [, startTransition] = useTransition()
   const toast = useToast()
-  const [filtroOrigem, setFiltroOrigem] = useState<FiltroOrigem>('todas')
+  // Abre em "Manuais" — backup automático (origem='pre_restore', criado sem
+  // pedir nada a ninguém antes de cada Restaurar) não deve aparecer misturado
+  // com as revisões reais por padrão; continua a 1 clique pra quem precisar
+  // recuperar algo por ele.
+  const [filtroOrigem, setFiltroOrigem] = useState<FiltroOrigem>('manual')
   const [somenteMinhas, setSomenteMinhas] = useState(false)
 
   const versoes = useMemo(() => {
@@ -89,6 +94,21 @@ export function VersoesView({
       return true
     })
   }, [versoesIniciais, filtroOrigem, somenteMinhas, usuarioAtualEmail])
+
+  // Número de revisão = posição cronológica entre as versões manuais (mais
+  // antiga = Revisão 1), nunca persistido — computado aqui porque nenhuma
+  // versão é apagada (ver comentário na migração), então a ordem é estável
+  // pra sempre. Backup automático (pre_restore) não entra nessa numeração:
+  // não é uma revisão de verdade, é uma rede de segurança interna.
+  const revisaoPorId = useMemo(() => {
+    const manuais = versoesIniciais
+      .filter(v => v.origem === 'manual')
+      .slice()
+      .sort((a, b) => new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime())
+    const map = new Map<string, number>()
+    manuais.forEach((v, i) => map.set(v.id, i + 1))
+    return map
+  }, [versoesIniciais])
 
   const [showCriar, setShowCriar] = useState(false)
   const [mensagem, setMensagem] = useState('')
@@ -283,6 +303,9 @@ export function VersoesView({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900">
+                      {v.origem === 'manual' && (
+                        <span className="text-primary-700">Revisão {revisaoPorId.get(v.id)} — </span>
+                      )}
                       {v.mensagem}
                       {v.origem === 'pre_restore' && (
                         <Badge variant="warning" className="ml-2">backup automático</Badge>
@@ -298,7 +321,7 @@ export function VersoesView({
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Button variant="outline" size="sm" icon={<Eye size={13} />} onClick={() => handleVisualizar(v)}>
-                      Visualizar
+                      Ver resumo
                     </Button>
                     <Button variant="outline" size="sm" icon={<RotateCcw size={13} />} onClick={() => setRestaurando(v)}>
                       Restaurar
@@ -340,17 +363,21 @@ export function VersoesView({
             value={mensagem}
             onChange={e => setMensagem(e.target.value)}
             rows={3}
-            placeholder="Ex.: Fechamento da revisão 1 para aprovação do cliente"
+            placeholder="Ex.: Fechamento para aprovação do cliente"
             error={erro ?? undefined}
           />
         </div>
       </Modal>
 
-      {/* Modal: Visualizar */}
+      {/* Modal: Resumo da revisão */}
       <Modal
         open={!!visualizando}
         onClose={() => setVisualizando(null)}
-        title={visualizando?.mensagem ?? ''}
+        title={
+          visualizando
+            ? (visualizando.origem === 'manual' ? `Revisão ${revisaoPorId.get(visualizando.id)} — ${visualizando.mensagem}` : visualizando.mensagem)
+            : ''
+        }
         size="lg"
         footer={<Button variant="outline" size="sm" onClick={() => setVisualizando(null)}>Fechar</Button>}
       >
@@ -363,6 +390,15 @@ export function VersoesView({
               <p className="text-sm text-gray-400">Carregando…</p>
             ) : (
               <>
+                {/* Fora do StatRow (grade de 4 colunas, pensada pra números curtos) —
+                    um valor em R$ não cabe legível dividindo espaço com "Planilhas: 2",
+                    então ganha destaque próprio, largura cheia. */}
+                <div className="rounded-xl border border-primary-100 bg-primary-50 px-4 py-3">
+                  <p className="text-xs font-medium text-primary-700">Total geral</p>
+                  <p className="text-2xl font-bold tabular-nums text-primary-900">
+                    {formatCurrency(snapshotVisualizado.planilhas.reduce((s, p) => s + (p.total_com_bdi ?? 0), 0))}
+                  </p>
+                </div>
                 <StatRow>
                   <StatCard label="Planilhas" value={snapshotVisualizado.planilhas.length} />
                   <StatCard label="Itens (EAP)" value={snapshotVisualizado.estrutura.length} />
