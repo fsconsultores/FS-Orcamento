@@ -168,7 +168,7 @@ CRUD completo de orçamentos, com suporte a **múltiplas planilhas** por orçame
 | `/insumos` | Tabela de preços do orçamento. Edição de custo com navegação estilo Excel (Enter avança linha). Filtro Todos/Utilizados/Não utilizados. |
 | `/composicoes` | Composições analíticas vinculadas ao orçamento — adicionar/remover insumos, editar índice e preço unitário (propaga para todo o projeto). Exportação/importação de modelo XLSX. |
 | `/curva-abc` | Análise ABC por **Serviços** e por **Insumos**, em abas por categoria (Geral/Materiais/Mão de Obra/Equipamentos/Serviços). |
-| `/relatorios` | Exportação de relatórios: **Caderno de Orçamento** (PDF completo, 11 seções — ver abaixo), Planilha de Orçamento, Planilha Analítica, Planilha Analítica Decomposta, Curva ABC (Serviços/Insumos) — todos em XLSX ou PDF. |
+| `/relatorios` | Exportação de relatórios: **Caderno de Orçamento** (PDF completo, 11 seções — ver abaixo), Planilha de Orçamento, Planilha Analítica, Planilha Analítica Decomposta, Curva ABC (Serviços/Insumos) — todos em XLSX ou PDF. Abre direto na tela de geração; o histórico dos relatórios já gerados fica em `/relatorios/historico`. |
 | `/versoes` | Versionamento (commits): snapshot imutável do estado completo do orçamento, com restauração. Nunca expira/apaga automaticamente. |
 | `/importar` | Importação de insumos e composições a partir de arquivos XLSX/CSV (SINAPI, SUDECAP, DNIT/SICRO, formato simples). |
 | `/configuracoes` | BDI, numeração hierárquica da planilha, áreas (para custo/m²), categorias do gráfico de distribuição de custos. |
@@ -179,6 +179,8 @@ CRUD completo de orçamentos, com suporte a **múltiplas planilhas** por orçame
 ### Caderno de Orçamento (PDF)
 
 Relatório único gerado em `src/app/(app)/orcamentos/[id]/caderno/export-caderno-pdf.ts` (jsPDF + jspdf-autotable), com capa, divisórias numeradas e 11 seções: Carta de Apresentação, Lista de Projetos, Resumo Geral do Orçamento (KPIs + gráfico de distribuição de custos), Custo/m², Planilha de Preços Unitários (com classificação **ABC** por item, mesmo critério da planilha interativa), Curva ABC Insumos, Curva ABC de Serviços, Planilha Analítica de Preços Unitários (com ABC), Lista de Insumos, Anexos e Cotações (placeholders). Dados agregados em `src/lib/orcamento/caderno.ts` (`getCadernoData`).
+
+O documento mistura orientação de página por seção: capa e divisórias em A4 **retrato** (título/subtítulo, logo real da FS Consultores em `public/logofs.png` e barras decorativas nos cantos ecoando o ícone da marca); as seções de conteúdo (tabelas largas, KPI cards + gráfico) continuam em A4 **paisagem**, onde sempre couberam. Toda a identidade visual — capa, divisórias, banners de seção, cabeçalhos de tabela e KPIs de destaque — usa as cores da marca FS (`#52276E` roxo / `#344DA1` azul, mesmos tons de `tailwind.config.ts`), definidas localmente em `export-caderno-pdf.ts` para não afetar os demais exports em PDF (Planilha Sintética/Analítica avulsas, Curva ABC avulsa em `src/lib/pdf/abc-section.ts`), que permanecem com a paleta neutra padrão (`PDF_COLORS`).
 
 ### Insumos (`/insumos`)
 Biblioteca global de insumos. Importação via SINAPI, SUDECAP ou planilha própria.
