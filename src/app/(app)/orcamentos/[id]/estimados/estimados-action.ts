@@ -56,6 +56,7 @@ export async function atualizarItensEstimadosAction(
   revalidatePath(`/orcamentos/${orcamentoId}/relatorios`)
   revalidatePath(`/orcamentos/${orcamentoId}/configuracoes`)
   revalidatePath(`/orcamentos/${orcamentoId}/curva-abc`)
+  revalidatePath(`/orcamentos/${orcamentoId}/caderno`)
 
   return { ok: true }
 }

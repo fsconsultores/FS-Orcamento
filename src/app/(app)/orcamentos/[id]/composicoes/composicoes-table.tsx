@@ -319,7 +319,7 @@ export function ComposicoesTable({
                 <tr key={c.id}
                   className={`group cursor-pointer hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all ${deletingId === c.id ? 'opacity-40' : ''}`}
                 >
-                  <td className="p-0 font-mono text-xs">
+                  <td className="p-0 font-mono text-xs text-gray-600">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
                       {c.codigo}
                       {c.codigo_original && c.codigo_original !== c.codigo && (

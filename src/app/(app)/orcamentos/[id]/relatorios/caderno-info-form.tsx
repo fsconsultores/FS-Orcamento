@@ -2,10 +2,9 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Plus } from 'lucide-react'
 import { salvarInfoCadernoAction } from './salvar-info-caderno-action'
 import { Input } from '@/components/ui/input'
-import { Button, IconButton } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 
 interface ServicoForm {
   id?: string
@@ -41,7 +40,12 @@ export function CadernoInfoForm({
     area_coberta: areaCoberta != null ? String(areaCoberta) : '',
     area_equivalente: areaEquivalente != null ? String(areaEquivalente) : '',
   })
-  const [servicos, setServicos] = useState<ServicoForm[]>(
+  // Sem UI de edição aqui (removida — a aba Estimados é o lugar certo pra
+  // marcar serviços estimados). Mantido só pra reenviar os registros
+  // existentes sem alteração no "Salvar dados do Caderno" — salvarDadosCadastrais
+  // faz delete+insert de orcamento_servicos_estimados a cada chamada, então
+  // omitir esse campo apagaria entradas manuais legadas de quem já tinha.
+  const [servicos] = useState<ServicoForm[]>(
     servicosEstimados.map(s => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
   )
   const [loading, setLoading] = useState(false)
@@ -50,21 +54,6 @@ export function CadernoInfoForm({
 
   function update(field: keyof typeof form, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
-    setSaved(false)
-  }
-
-  function updateServico(index: number, field: 'descricao' | 'valor', value: string) {
-    setServicos(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s))
-    setSaved(false)
-  }
-
-  function addServico() {
-    setServicos(prev => [...prev, { descricao: '', valor: '' }])
-    setSaved(false)
-  }
-
-  function removeServico(index: number) {
-    setServicos(prev => prev.filter((_, i) => i !== index))
     setSaved(false)
   }
 
@@ -121,25 +110,6 @@ export function CadernoInfoForm({
         <Input type="number" min="0" step="0.01" label="Área total (m²)" value={form.area_total} onChange={e => update('area_total', e.target.value)} />
         <Input type="number" min="0" step="0.01" label="Área coberta (m²)" value={form.area_coberta} onChange={e => update('area_coberta', e.target.value)} />
         <Input type="number" min="0" step="0.01" label="Área equiv. (m²)" value={form.area_equivalente} onChange={e => update('area_equivalente', e.target.value)} />
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-gray-600">Serviços estimados (B)</label>
-          <button type="button" onClick={addServico} className="flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline">
-            <Plus size={12} /> Adicionar
-          </button>
-        </div>
-        {servicos.length === 0 && <p className="text-xs text-gray-400">Nenhum serviço estimado cadastrado.</p>}
-        {servicos.map((s, i) => (
-          <div key={s.id ?? `new-${i}`} className="flex gap-1.5">
-            <Input value={s.descricao} onChange={e => updateServico(i, 'descricao', e.target.value)}
-              placeholder="Descrição" className="flex-1" />
-            <Input type="number" min="0" step="0.01" value={s.valor} onChange={e => updateServico(i, 'valor', e.target.value)}
-              placeholder="Valor (R$)" className="w-28" />
-            <IconButton label="Remover serviço" icon={<X size={14} />} variant="outline" onClick={() => removeServico(i)} />
-          </div>
-        ))}
       </div>
 
       {error && <p className="text-xs text-red-600">{error}</p>}
