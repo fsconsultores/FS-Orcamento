@@ -8,8 +8,10 @@ export function fmtQtd(n: number) {
   return n.toLocaleString('pt-BR', { maximumFractionDigits: 4 })
 }
 
+// pt-BR (vírgula decimal) — antes usava toFixed (ponto), inconsistente com fmt()/
+// fmtQtd() (ambos já pt-BR) e com o padrão brasileiro esperado em qualquer % do app.
 export function fmtPct(n: number) {
-  return n.toFixed(2) + '%'
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
 }
 
 export interface AbcItem {

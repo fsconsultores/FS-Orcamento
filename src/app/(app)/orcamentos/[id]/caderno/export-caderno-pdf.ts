@@ -482,10 +482,23 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   doc.addPage('a4', 'landscape')
 
   const flat = flattenArvore(data.arvore)
+  // Preço de Custo (sem BDI) x BDI (%) x Preço de Venda (com BDI) lado a lado —
+  // formato pedido explicitamente pra bater com o modelo de planilha de preços
+  // unitários que o cliente já usa fora do sistema. Grupo não tem "um" BDI (os
+  // filhos podem ter taxas diferentes), então mostra o markup efetivo agregado
+  // (node.bdiPercentual — ver comentário em caderno.ts) em vez de deixar em branco.
   const body: RowInput[] = flat.map(({ node, depth }) => {
     const indent = '   '.repeat(depth)
     if (node.tipo === 'grupo') {
-      return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', '', fmt(node.totalComBdi), fmtPct(node.percentualComBdi), '']
+      return [
+        node.numero, node.codigo ?? '', indent + node.descricao, '', '',
+        '', '', '',
+        '', fmt(node.total),
+        fmtPct(node.bdiPercentual),
+        '', fmt(node.totalComBdi),
+        fmtPct(node.percentualComBdi),
+        '',
+      ]
     }
     return [
       node.numero,
@@ -493,9 +506,12 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       indent + node.descricao,
       node.unidade ?? '',
       fmtQtd(node.quantidade ?? 0),
-      fmt(node.custoMatComBdi),
-      fmt(node.custoMoComBdi),
-      fmt(node.custoTerceirosComBdi),
+      fmt(node.custoMat),
+      fmt(node.custoMo),
+      fmt(node.custoTerceiros),
+      fmt(node.custoUnitario),
+      fmt(node.total),
+      fmtPct(node.bdiPercentual),
       fmt(node.custoUnitarioComBdi),
       fmt(node.totalComBdi),
       fmtPct(node.percentualComBdi),
@@ -503,31 +519,59 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     ]
   })
 
+  const bdiEfetivoGeral = data.totalGeral > 0 ? (data.totalGeralComBdi / data.totalGeral - 1) * 100 : 0
+
   autoTable(doc, {
     startY: tableTop,
     willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
     margin: { left: margin, right: margin, bottom: margin, top: tableTop },
-    head: [['Item', 'Cód.', 'Descrição', 'Und', 'Qtd', 'Mat/Equip (R$)', 'M.O. (R$)', 'Terceiros (R$)', 'Preço Unit. c/ BDI (R$)', 'Total c/ BDI (R$)', '%', 'ABC']],
+    head: [
+      [
+        { content: 'Item', rowSpan: 2 },
+        { content: 'Cód.', rowSpan: 2 },
+        { content: 'Descrição', rowSpan: 2 },
+        { content: 'Und', rowSpan: 2 },
+        { content: 'Qtd', rowSpan: 2 },
+        { content: 'Detalhamento do Custo Unitário', colSpan: 3 },
+        { content: 'Preço de Custo', colSpan: 2 },
+        { content: 'BDI (%)', rowSpan: 2 },
+        { content: 'Preço de Venda', colSpan: 2 },
+        { content: '%', rowSpan: 2 },
+        { content: 'ABC', rowSpan: 2 },
+      ],
+      ['Mat/Equip', 'M.O.', 'Terceiros', 'Unitário', 'Total', 'Unitário', 'Total'],
+    ],
     body,
-    foot: [['', '', 'TOTAL GERAL', '', '', '', '', '', '', fmt(data.totalGeralComBdi), '100,00%', '']],
+    foot: [[
+      '', '', 'TOTAL GERAL', '', '',
+      '', '', '',
+      '', fmt(data.totalGeral),
+      fmtPct(bdiEfetivoGeral),
+      '', fmt(data.totalGeralComBdi),
+      fmtPct(100),
+      '',
+    ]],
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 6.5 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
     columnStyles: {
-      0: { cellWidth: 14, halign: 'center' },
-      1: { cellWidth: 18 },
-      2: { cellWidth: 69 },
-      3: { cellWidth: 12, halign: 'center' },
-      4: { cellWidth: 16, halign: 'right' },
-      5: { cellWidth: 24, halign: 'right' },
-      6: { cellWidth: 22, halign: 'right' },
-      7: { cellWidth: 24, halign: 'right' },
-      8: { cellWidth: 24, halign: 'right' },
-      9: { cellWidth: 26, halign: 'right' },
-      10: { cellWidth: 12, halign: 'right' },
-      11: { cellWidth: 10, halign: 'center' },
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 16 },
+      2: { cellWidth: 62 },
+      3: { cellWidth: 10, halign: 'center' },
+      4: { cellWidth: 14, halign: 'right' },
+      5: { cellWidth: 18, halign: 'right' },
+      6: { cellWidth: 16, halign: 'right' },
+      7: { cellWidth: 18, halign: 'right' },
+      8: { cellWidth: 19, halign: 'right' },
+      9: { cellWidth: 20, halign: 'right' },
+      10: { cellWidth: 13, halign: 'right' },
+      11: { cellWidth: 19, halign: 'right' },
+      12: { cellWidth: 20, halign: 'right' },
+      13: { cellWidth: 11, halign: 'right' },
+      14: { cellWidth: 9, halign: 'center' },
     },
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
@@ -537,7 +581,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
         cellData.cell.styles.fontStyle = 'bold'
         return
       }
-      if (cellData.column.index === 11 && node.classeAbc) {
+      if (cellData.column.index === 14 && node.classeAbc) {
         cellData.cell.styles.fillColor = ABC_BG[node.classeAbc]
         cellData.cell.styles.textColor = ABC_FG[node.classeAbc]
         cellData.cell.styles.fontStyle = 'bold'

@@ -43,6 +43,15 @@ export interface CadernoNode {
   custoUnitarioComBdi: number
   totalComBdi: number
   percentualComBdi: number
+  /**
+   * BDI efetivo (%) — item-folha: bdi_especifico > bdi_global da planilha >
+   * bdi_global do orçamento (mesma cadeia de fallbackDoItem/buildNode). Grupo:
+   * média ponderada pelos totais dos filhos (totalComBdi/total - 1) × 100 —
+   * não é "o" BDI do grupo (filhos podem ter taxas diferentes), é o markup
+   * efetivo agregado. Usado na Planilha de Preços Unitários (ver
+   * export-caderno-pdf.ts) pra separar Preço de Custo de Preço de Venda.
+   */
+  bdiPercentual: number
   // classificação Curva ABC (apenas itens-folha; null para grupos)
   classeAbc: AbcClasse | null
   // Planilha à qual o item pertence — presente em grupos também por
@@ -632,6 +641,7 @@ export async function getCadernoData(
         custoUnitarioComBdi: custoUnitario * fatorBdi,
         totalComBdi: total * fatorBdi,
         percentualComBdi: 0,
+        bdiPercentual: bdiPct,
         classeAbc: null,
         planilhaId: raw.planilha_id,
         estimado: raw.estimado,
@@ -656,6 +666,9 @@ export async function getCadernoData(
       custoMatComBdi: 0, custoMoComBdi: 0, custoTerceirosComBdi: 0, custoUnitarioComBdi: 0,
       totalComBdi,
       percentualComBdi: 0,
+      // Grupo não tem "um" BDI (filhos podem ter taxas diferentes) — markup
+      // efetivo agregado, calculado dos totais já somados acima.
+      bdiPercentual: total > 0 ? (totalComBdi / total - 1) * 100 : 0,
       classeAbc: null,
       planilhaId: raw.planilha_id,
       estimado: raw.estimado,
