@@ -22,8 +22,13 @@ export function BasesDados({ bases }: { bases: BaseResumo[] }) {
     <div className="flex flex-col gap-3">
       <ul className="divide-y divide-gray-100">
         {ordenadas.map((b) => (
-          <li key={b.base_id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-            <span className="font-medium text-gray-700">
+          // Empilha em telas estreitas — nome + 3 estatísticas (insumos,
+          // composições, data) lado a lado não cabem numa tela de celular
+          // sem estourar a largura (bloco de estatísticas é shrink-0 de
+          // propósito, pra não espremer os números; então quem cede espaço
+          // é o layout, não o conteúdo).
+          <li key={b.base_id} className="flex flex-col gap-1 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <span className="min-w-0 truncate font-medium text-gray-700">
               {b.tipo_base === 'propria' ? 'Base Própria' : baseLabelFromOrgao(b.orgao)}
             </span>
             <span className="flex shrink-0 items-center gap-3 text-xs tabular-nums text-gray-500">

@@ -18,7 +18,16 @@ export function SidebarShell({
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored !== null) setOpen(stored === 'true')
+    if (stored !== null) {
+      setOpen(stored === 'true')
+    } else if (window.innerWidth < 1024) {
+      // Sem preferência salva ainda (primeira visita) — começa recolhida (64px,
+      // só ícones) em telas estreitas. Aberta (288px fixos, ver Nav) sobra menos
+      // de 90px de conteúdo num celular, o que estoura qualquer widget da tela.
+      // Não grava no localStorage: é só o ponto de partida, a pessoa ainda pode
+      // abrir manualmente quando quiser — essa escolha explícita é que persiste.
+      setOpen(false)
+    }
   }, [])
 
   function toggle() {
