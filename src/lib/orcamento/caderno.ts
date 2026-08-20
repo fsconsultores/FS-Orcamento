@@ -175,6 +175,11 @@ export interface CadernoData {
     area_equivalente: number | null
   }
   arvore: CadernoNode[]
+  /** Igual a `arvore`, mas sem remover os itens marcados como estimados — usada
+   * só pela Planilha de Preços Unitários do Caderno, que agora lista os estimados
+   * junto (destacados), sem afetar o Total Orçado (A), Curva ABC ou Planilha
+   * Analítica, que continuam calculados só sobre itens confirmados. */
+  arvoreCompleta: CadernoNode[]
   totalGeral: number
   /** Total Orçado (A) com BDI aplicado — o que o cliente vê como preço final. */
   totalGeralComBdi: number
@@ -476,6 +481,27 @@ export async function getCadernoData(
     return raw.filhos.reduce((s, f) => s + sumLeaves(f), 0)
   }
 
+  function custoSemBdi(raw: RawNode): number {
+    if (raw.filhos.length === 0) return custoUnitarioEfetivo(raw) * (raw.quantidade ?? 0)
+    return raw.filhos.reduce((s, f) => s + custoSemBdi(f), 0)
+  }
+
+  /**
+   * `valor_estimado` (override manual da aba Estimados) é digitado sem BDI —
+   * o campo mostra como placeholder node.total, que é sem BDI (ver comentário
+   * em estimados-manager.tsx). Pra "(B) Serviços Estimados" ficar na mesma
+   * base "com BDI" que "(A) Total Orçado" (e o resto do Caderno), aplica aqui
+   * a mesma taxa de BDI que se aplicaria ao total calculado dessa subárvore —
+   * sem isso, um item com override aparecia sem BDI no meio de uma lista onde
+   * todo o resto tem.
+   */
+  function valorEstimadoComBdi(raw: RawNode): number | null {
+    if (raw.valor_estimado == null) return null
+    const semBdi = custoSemBdi(raw)
+    if (semBdi <= 0) return raw.valor_estimado
+    return raw.valor_estimado * (sumLeaves(raw) / semBdi)
+  }
+
   // Descoberta automática de serviços com preço estimado: um item entra em
   // Serviços Estimados (B) tanto pelo nome terminar em "- Estimado" quanto
   // por usar (via sua composição, ou como insumo avulso direto) algum
@@ -567,9 +593,9 @@ export async function getCadernoData(
       if (node.estimado) {
         marcarSubarvore(node)
         const info = infoInsumoEstimado(node)
-        if (info) registrarServicoComInsumo(node, node.descricao, info, caminho, node.valor_estimado)
+        if (info) registrarServicoComInsumo(node, node.descricao, info, caminho, valorEstimadoComBdi(node))
         else autoServicosEstimados.push({
-          id: node.id, descricao: node.descricao, valor: node.valor_estimado ?? sumLeaves(node),
+          id: node.id, descricao: node.descricao, valor: valorEstimadoComBdi(node) ?? sumLeaves(node),
           itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
         })
         continue
@@ -681,6 +707,7 @@ export async function getCadernoData(
   const arvore = arvoreRoots.map(buildNode)
   const totalGeral = arvore.reduce((s, n) => s + n.total, 0)
   const totalGeralComBdi = arvore.reduce((s, n) => s + n.totalComBdi, 0)
+  const arvoreCompleta = roots.map(buildNode)
 
   function aplicarPercentual(nodes: CadernoNode[]) {
     for (const n of nodes) {
@@ -715,6 +742,7 @@ export async function getCadernoData(
       }
     }
     aplicarClasse(arvore)
+    aplicarClasse(arvoreCompleta)
   }
 
   // ── Distribuição dos Custos (A) — agrupamento em categorias fixas ───────────
@@ -997,6 +1025,7 @@ export async function getCadernoData(
       area_equivalente: orc?.area_equivalente ?? null,
     },
     arvore,
+    arvoreCompleta,
     totalGeral,
     totalGeralComBdi,
     servicosEstimados,

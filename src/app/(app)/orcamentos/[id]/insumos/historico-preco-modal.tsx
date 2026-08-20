@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { OrcamentoInsumo, OrcamentoInsumoCotacao } from '@/lib/orcamento'
 import { EstimadoBadge } from '@/components/estimado-badge'
@@ -118,9 +118,17 @@ export function HistoricoPrecoModal({
     return [min - pad, max + pad]
   }, [chartData])
 
+  // Fecha só quando o mousedown E o click começaram no próprio backdrop —
+  // evita fechar ao selecionar texto dentro do modal e soltar o botão fora.
+  const mouseDownOnBackdrop = useRef(false)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={onClose}>
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget }}
+      onClick={e => {
+        if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose()
+        mouseDownOnBackdrop.current = false
+      }}>
       <div className="mx-4 w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-4">
           <div>

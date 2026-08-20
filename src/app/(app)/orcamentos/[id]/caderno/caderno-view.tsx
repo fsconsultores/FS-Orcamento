@@ -15,7 +15,7 @@ function countItens(nodes: CadernoNode[]): number {
 
 export function CadernoView({ data }: { data: CadernoData }) {
   const [exportando, setExportando] = useState(false)
-  const itens = countItens(data.arvore)
+  const itens = countItens(data.arvoreCompleta)
   const totalInsumos = data.listaInsumos.reduce((s, g) => s + g.items.length, 0)
 
   async function handleExport() {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { MOTIVOS_ESTIMADO_PRESET, OUTRO_ESTIMADO_SENTINEL } from '@/lib/orcamento/estimado-motivos'
 
 export interface CotacaoModalAlvo {
@@ -93,9 +93,17 @@ export function CotacaoInsumoModal({
     }
   }
 
+  // Fecha só quando o mousedown E o click começaram no próprio backdrop —
+  // evita fechar ao selecionar texto dentro do modal e soltar o botão fora.
+  const mouseDownOnBackdrop = useRef(false)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={() => !salvando && onClose()}>
+      onMouseDown={e => { mouseDownOnBackdrop.current = e.target === e.currentTarget }}
+      onClick={e => {
+        if (mouseDownOnBackdrop.current && e.target === e.currentTarget && !salvando) onClose()
+        mouseDownOnBackdrop.current = false
+      }}>
       <div className="mx-4 w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-4">
           <div>

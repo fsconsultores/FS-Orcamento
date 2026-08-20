@@ -465,12 +465,38 @@ async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number,
 
 // ─── Seção: Planilha de Preços Unitários ─────────────────────────────────────
 
-function flattenArvore(nodes: CadernoNode[], depth = 0, out: { node: CadernoNode; depth: number }[] = []) {
+function flattenArvore(
+  nodes: CadernoNode[],
+  depth = 0,
+  ancestorEstimado = false,
+  out: { node: CadernoNode; depth: number; estimado: boolean }[] = [],
+) {
   for (const n of nodes) {
-    out.push({ node: n, depth })
-    flattenArvore(n.filhos, depth + 1, out)
+    // Um grupo marcado como estimado não marca cada filho individualmente no
+    // banco (só o próprio grupo) — herda pra baixo aqui pra destacar a
+    // subárvore inteira, não só a linha-pai.
+    const estimado = ancestorEstimado || n.estimado
+    out.push({ node: n, depth, estimado })
+    flattenArvore(n.filhos, depth + 1, estimado, out)
   }
   return out
+}
+
+// Soma "com BDI" de um nó, substituindo pelo valor_estimado (override manual
+// da aba Estimados) quando o próprio nó tem um — do contrário usa o total
+// calculado (ou a soma dos filhos, já refletindo overrides deles). valor_
+// estimado é digitado SEM BDI (mesma convenção de caderno.ts/
+// valorEstimadoComBdi — o placeholder do campo na aba Estimados mostra
+// node.total, que é sem BDI), então aplica aqui a mesma taxa de BDI que já
+// se aplicaria ao total calculado do nó — sem isso, o override apareceria
+// sem BDI no meio de uma planilha onde todo o resto tem, e divergiria do
+// valor mostrado em "(B) Serviços Estimados" (que já faz esse ajuste).
+function totalComBdiEfetivo(node: CadernoNode): number {
+  if (node.estimado && node.valor_estimado != null) {
+    return node.total > 0 ? node.valor_estimado * (node.totalComBdi / node.total) : node.valor_estimado
+  }
+  if (node.filhos.length === 0) return node.totalComBdi
+  return node.filhos.reduce((s, f) => s + totalComBdiEfetivo(f), 0)
 }
 
 async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
@@ -481,22 +507,65 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
 
   doc.addPage('a4', 'landscape')
 
-  const flat = flattenArvore(data.arvore)
-  // Preço de Custo (sem BDI) x BDI (%) x Preço de Venda (com BDI) lado a lado —
-  // formato pedido explicitamente pra bater com o modelo de planilha de preços
-  // unitários que o cliente já usa fora do sistema. Grupo não tem "um" BDI (os
-  // filhos podem ter taxas diferentes), então mostra o markup efetivo agregado
-  // (node.bdiPercentual — ver comentário em caderno.ts) em vez de deixar em branco.
+  // arvoreCompleta (não arvore): itens estimados ficam visíveis aqui, só
+  // destacados em amarelo — não somem da planilha por estarem sem preço
+  // fechado. O Total Orçado (A) e a Curva ABC continuam calculados só sobre
+  // itens confirmados (data.arvore), essa seção é só de exibição.
+  const flat = flattenArvore(data.arvoreCompleta)
+  // "Preço de Custo" (sem BDI) não tem override — valor_estimado é sempre um
+  // valor final (ver sumLeaves em caderno.ts), então só a coluna com BDI é
+  // ajustada por item; o detalhamento de custo de um item com override
+  // continua mostrando o calculado (melhor estimativa disponível).
+  const totalGeralCompleto = data.arvoreCompleta.reduce((s, n) => s + n.total, 0)
+  const totalGeralComBdiCompleto = data.arvoreCompleta.reduce((s, n) => s + totalComBdiEfetivo(n), 0)
+
+  // BDI efetivo do orçamento inteiro é zero quando o total com BDI bate com o
+  // total sem BDI — cobre tanto bdi_global=0 quanto o caso (mais raro) de todo
+  // bdi_especifico individual também ser 0. Sem BDI em lugar nenhum, "Preço de
+  // Custo" x "Preço de Venda" são sempre o mesmo número — pedido explícito pra
+  // não rotular como "custo" um preço que já é o preço final, nem mostrar uma
+  // coluna de BDI (%) que só mostraria 0,00% em toda linha.
+  const temBdi = Math.abs(totalGeralComBdiCompleto - totalGeralCompleto) >= 0.01
+  const totalParaPct = temBdi ? totalGeralComBdiCompleto : totalGeralCompleto
+  const pct = (v: number) => fmtPct(totalParaPct > 0 ? (v / totalParaPct) * 100 : 0)
+
   const body: RowInput[] = flat.map(({ node, depth }) => {
     const indent = '   '.repeat(depth)
+    if (!temBdi) {
+      const totalEfetivo = totalComBdiEfetivo(node)
+      if (node.tipo === 'grupo') {
+        return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', fmt(totalEfetivo), pct(totalEfetivo), '']
+      }
+      return [
+        node.numero,
+        node.codigo ?? '',
+        indent + node.descricao,
+        node.unidade ?? '',
+        fmtQtd(node.quantidade ?? 0),
+        fmt(node.custoMat),
+        fmt(node.custoMo),
+        fmt(node.custoTerceiros),
+        fmt(node.custoUnitario),
+        fmt(totalEfetivo),
+        pct(totalEfetivo),
+        node.classeAbc ?? '',
+      ]
+    }
+    // Preço de Custo (sem BDI) x BDI (%) x Preço de Venda (com BDI) lado a lado
+    // — formato pedido explicitamente pra bater com o modelo de planilha de
+    // preços unitários que o cliente já usa fora do sistema. Grupo não tem "um"
+    // BDI (os filhos podem ter taxas diferentes), então mostra o markup efetivo
+    // agregado (node.bdiPercentual — ver comentário em caderno.ts) em vez de
+    // deixar em branco.
+    const totalComBdiRow = totalComBdiEfetivo(node)
     if (node.tipo === 'grupo') {
       return [
         node.numero, node.codigo ?? '', indent + node.descricao, '', '',
         '', '', '',
         '', fmt(node.total),
         fmtPct(node.bdiPercentual),
-        '', fmt(node.totalComBdi),
-        fmtPct(node.percentualComBdi),
+        '', fmt(totalComBdiRow),
+        pct(totalComBdiRow),
         '',
       ]
     }
@@ -513,75 +582,120 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       fmt(node.total),
       fmtPct(node.bdiPercentual),
       fmt(node.custoUnitarioComBdi),
-      fmt(node.totalComBdi),
-      fmtPct(node.percentualComBdi),
+      fmt(totalComBdiRow),
+      pct(totalComBdiRow),
       node.classeAbc ?? '',
     ]
   })
 
-  const bdiEfetivoGeral = data.totalGeral > 0 ? (data.totalGeralComBdi / data.totalGeral - 1) * 100 : 0
+  const head: RowInput[] = temBdi
+    ? [
+        [
+          { content: 'Item', rowSpan: 2 },
+          { content: 'Cód.', rowSpan: 2 },
+          { content: 'Descrição', rowSpan: 2 },
+          { content: 'Und', rowSpan: 2 },
+          { content: 'Qtd', rowSpan: 2 },
+          { content: 'Detalhamento do Custo Unitário', colSpan: 3 },
+          { content: 'Preço de Custo', colSpan: 2 },
+          { content: 'BDI (%)', rowSpan: 2 },
+          { content: 'Preço de Venda', colSpan: 2 },
+          { content: '%', rowSpan: 2 },
+          { content: 'ABC', rowSpan: 2 },
+        ],
+        ['Mat/Equip', 'M.O.', 'Terceiros', 'Unitário', 'Total', 'Unitário', 'Total'],
+      ]
+    : [
+        [
+          { content: 'Item', rowSpan: 2 },
+          { content: 'Cód.', rowSpan: 2 },
+          { content: 'Descrição', rowSpan: 2 },
+          { content: 'Und', rowSpan: 2 },
+          { content: 'Qtd', rowSpan: 2 },
+          { content: 'Detalhamento do Custo Unitário', colSpan: 3 },
+          { content: 'Preço', colSpan: 2 },
+          { content: '%', rowSpan: 2 },
+          { content: 'ABC', rowSpan: 2 },
+        ],
+        ['Mat/Equip', 'M.O.', 'Terceiros', 'Unitário', 'Total'],
+      ]
+
+  const foot: RowInput[] = temBdi
+    ? [[
+        '', '', 'TOTAL GERAL', '', '',
+        '', '', '',
+        '', fmt(totalGeralCompleto),
+        fmtPct(totalGeralCompleto > 0 ? (totalGeralComBdiCompleto / totalGeralCompleto - 1) * 100 : 0),
+        '', fmt(totalGeralComBdiCompleto),
+        fmtPct(100),
+        '',
+      ]]
+    : [['', '', 'TOTAL GERAL', '', '', '', '', '', fmt(totalGeralCompleto), fmtPct(100), '']]
+
+  const columnStylesComBdi = {
+    0: { cellWidth: 12, halign: 'center' as const },
+    1: { cellWidth: 16 },
+    2: { cellWidth: 62 },
+    3: { cellWidth: 10, halign: 'center' as const },
+    4: { cellWidth: 14, halign: 'right' as const },
+    5: { cellWidth: 18, halign: 'right' as const },
+    6: { cellWidth: 16, halign: 'right' as const },
+    7: { cellWidth: 18, halign: 'right' as const },
+    8: { cellWidth: 19, halign: 'right' as const },
+    9: { cellWidth: 20, halign: 'right' as const },
+    10: { cellWidth: 13, halign: 'right' as const },
+    11: { cellWidth: 19, halign: 'right' as const },
+    12: { cellWidth: 20, halign: 'right' as const },
+    13: { cellWidth: 11, halign: 'right' as const },
+    14: { cellWidth: 9, halign: 'center' as const },
+  }
+  const columnStylesSemBdi = {
+    0: { cellWidth: 13, halign: 'center' as const },
+    1: { cellWidth: 18 },
+    2: { cellWidth: 82 },
+    3: { cellWidth: 11, halign: 'center' as const },
+    4: { cellWidth: 16, halign: 'right' as const },
+    5: { cellWidth: 21, halign: 'right' as const },
+    6: { cellWidth: 19, halign: 'right' as const },
+    7: { cellWidth: 21, halign: 'right' as const },
+    8: { cellWidth: 24, halign: 'right' as const },
+    9: { cellWidth: 26, halign: 'right' as const },
+    10: { cellWidth: 13, halign: 'right' as const },
+    11: { cellWidth: 10, halign: 'center' as const },
+  }
+  const abcColIndex = temBdi ? 14 : 11
 
   autoTable(doc, {
     startY: tableTop,
     willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
     margin: { left: margin, right: margin, bottom: margin, top: tableTop },
-    head: [
-      [
-        { content: 'Item', rowSpan: 2 },
-        { content: 'Cód.', rowSpan: 2 },
-        { content: 'Descrição', rowSpan: 2 },
-        { content: 'Und', rowSpan: 2 },
-        { content: 'Qtd', rowSpan: 2 },
-        { content: 'Detalhamento do Custo Unitário', colSpan: 3 },
-        { content: 'Preço de Custo', colSpan: 2 },
-        { content: 'BDI (%)', rowSpan: 2 },
-        { content: 'Preço de Venda', colSpan: 2 },
-        { content: '%', rowSpan: 2 },
-        { content: 'ABC', rowSpan: 2 },
-      ],
-      ['Mat/Equip', 'M.O.', 'Terceiros', 'Unitário', 'Total', 'Unitário', 'Total'],
-    ],
+    head,
     body,
-    foot: [[
-      '', '', 'TOTAL GERAL', '', '',
-      '', '', '',
-      '', fmt(data.totalGeral),
-      fmtPct(bdiEfetivoGeral),
-      '', fmt(data.totalGeralComBdi),
-      fmtPct(100),
-      '',
-    ]],
+    foot,
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
     headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 6.5 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
-    columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 16 },
-      2: { cellWidth: 62 },
-      3: { cellWidth: 10, halign: 'center' },
-      4: { cellWidth: 14, halign: 'right' },
-      5: { cellWidth: 18, halign: 'right' },
-      6: { cellWidth: 16, halign: 'right' },
-      7: { cellWidth: 18, halign: 'right' },
-      8: { cellWidth: 19, halign: 'right' },
-      9: { cellWidth: 20, halign: 'right' },
-      10: { cellWidth: 13, halign: 'right' },
-      11: { cellWidth: 19, halign: 'right' },
-      12: { cellWidth: 20, halign: 'right' },
-      13: { cellWidth: 11, halign: 'right' },
-      14: { cellWidth: 9, halign: 'center' },
-    },
+    columnStyles: temBdi ? columnStylesComBdi : columnStylesSemBdi,
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
-      const { node } = flat[cellData.row.index]
+      const { node, estimado } = flat[cellData.row.index]
+      // Mesmo destaque em âmbar usado na Planilha Analítica pra insumo
+      // estimado — aqui sinaliza que o item (ou o grupo inteiro) ainda não
+      // tem preço fechado, mesmo aparecendo somado na planilha.
+      if (estimado) {
+        cellData.cell.styles.fillColor = '#fef3c7'
+        cellData.cell.styles.textColor = '#92400e'
+        if (node.tipo === 'grupo') cellData.cell.styles.fontStyle = 'bold'
+        return
+      }
       if (node.tipo === 'grupo') {
         cellData.cell.styles.fillColor = GROUP_FILL
         cellData.cell.styles.fontStyle = 'bold'
         return
       }
-      if (cellData.column.index === 14 && node.classeAbc) {
+      if (cellData.column.index === abcColIndex && node.classeAbc) {
         cellData.cell.styles.fillColor = ABC_BG[node.classeAbc]
         cellData.cell.styles.textColor = ABC_FG[node.classeAbc]
         cellData.cell.styles.fontStyle = 'bold'

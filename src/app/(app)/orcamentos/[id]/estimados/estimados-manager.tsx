@@ -83,11 +83,14 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     return false
   }, [estado, linhas])
 
-  // sumLeaves já vem embutido no `total` de cada nó (soma dos filhos) — pra
-  // não contar duas vezes quando um grupo E um filho dele estão marcados,
-  // soma só os nós marcados que não têm ancestral também marcado. Usa o
-  // valor editado (override) quando presente, senão o total calculado —
-  // mesma regra de getCadernoData().
+  // sumLeaves já vem embutido no `total`/`totalComBdi` de cada nó (soma dos
+  // filhos) — pra não contar duas vezes quando um grupo E um filho dele estão
+  // marcados, soma só os nós marcados que não têm ancestral também marcado.
+  // Usa o valor editado (override) quando presente, senão o total calculado
+  // com BDI — mesma regra de getCadernoData(). O override é digitado sem BDI
+  // (é isso que o placeholder do campo mostra, node.total), então precisa da
+  // mesma conversão pra "com BDI" antes de somar, senão esse preview não bate
+  // com o que a "(B) Serviços Estimados" do Caderno realmente mostra.
   const totalEstimado = useMemo(() => {
     const marcados = new Set([...estado.entries()].filter(([, v]) => v.estimado).map(([id]) => id))
     let soma = 0
@@ -96,7 +99,9 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
         const marcadoAqui = marcados.has(n.id)
         if (marcadoAqui && !ancestralMarcado) {
           const override = parseValor(estado.get(n.id)?.valor ?? '')
-          soma += override ?? n.total
+          soma += override != null
+            ? (n.total > 0 ? override * (n.totalComBdi / n.total) : override)
+            : n.totalComBdi
         }
         percorrer(n.filhos, ancestralMarcado || marcadoAqui)
       }
