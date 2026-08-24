@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { HighlightMatch } from '@/components/ui/highlight-match';
 
 export type InsumoRow = {
   id: string;
@@ -179,9 +180,9 @@ export function InsumoAutocomplete({ value, onChange, disabled, placeholder }: P
                       : 'text-gray-900 hover:bg-gray-50'
                   }`}
                 >
-                  <span className="font-medium">{ins.codigo}</span>
+                  <span className="font-medium"><HighlightMatch text={ins.codigo} query={query} /></span>
                   {' — '}
-                  {ins.descricao}
+                  <HighlightMatch text={ins.descricao} query={query} />
                   <span className="ml-1 text-gray-400">({ins.unidade})</span>
                 </li>
               ))}

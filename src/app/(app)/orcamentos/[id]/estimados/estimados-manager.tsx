@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import type { CadernoNode } from '@/lib/orcamento/caderno'
 import { atualizarItensEstimadosAction, type AlteracaoEstimado } from './estimados-action'
 import { formatCurrency } from '@/lib/costs'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 // Mesma ideia do antigo sufixo "- Estimado" no nome, só que agora é só uma
 // SUGESTÃO de partida (pré-marcada), nunca a decisão em si — quem decide de
@@ -226,9 +227,9 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
                       className="h-4 w-4 accent-amber-500 cursor-pointer"
                     />
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">{node.numero}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap"><HighlightMatch text={node.numero} query={query} /></td>
                   <td className="px-3 py-2 text-gray-800">
-                    <span style={{ paddingLeft: depth * 16 }}>{node.descricao}</span>
+                    <span style={{ paddingLeft: depth * 16 }}><HighlightMatch text={node.descricao} query={query} /></span>
                     {ehSugestao && (
                       <span className="ml-2 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">sugestão</span>
                     )}

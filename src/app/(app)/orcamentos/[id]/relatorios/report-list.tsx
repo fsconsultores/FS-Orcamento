@@ -2,6 +2,7 @@
 
 import { Search } from 'lucide-react'
 import { REPORT_CATALOG } from './report-catalog'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 interface Props {
   selectedId: string
@@ -69,7 +70,7 @@ export function ReportList({ selectedId, onSelect, search, onSearchChange }: Pro
                           }`}
                         >
                           <span className={selectedId === r.id ? 'text-primary-700' : 'text-gray-400'}>{r.icon}</span>
-                          <span className="truncate">{r.title}</span>
+                          <span className="truncate"><HighlightMatch text={r.title} query={search} /></span>
                         </button>
                       </li>
                     ))}

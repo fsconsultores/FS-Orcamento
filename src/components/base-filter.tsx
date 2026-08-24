@@ -1,7 +1,7 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useTransition } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useReliableReplace } from '@/lib/use-reliable-replace';
 
 export const BASES_ORIGEM = ['SINAPI', 'DNIT', 'SUDECAP', 'DER', 'PROPRIA'] as const;
 export type BaseOrigem = typeof BASES_ORIGEM[number];
@@ -10,23 +10,37 @@ export type BaseOrigem = typeof BASES_ORIGEM[number];
 
 export type BaseOption = { orgao: string; label: string };
 
-export function BaseFilter({ bases }: { bases: BaseOption[] }) {
-  const router = useRouter();
+interface BaseFilterProps {
+  bases: BaseOption[];
+  /** Modo controlado: informe `value`+`onChange` para o componente não
+   * tocar na URL/router e só notificar o valor escolhido (usado quando o
+   * pai já gerencia os dados via Server Action, ex: /insumos e
+   * /composicoes — ver InsumosExplorer). Sem esses props, cai no modo
+   * padrão (URL via router.replace). */
+  value?: string;
+  onChange?: (orgao: string) => void;
+}
+
+export function BaseFilter({ bases, value, onChange }: BaseFilterProps) {
+  const controlled = onChange !== undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
-  const current = searchParams.get('orgao') ?? '';
+  const [reliableReplace] = useReliableReplace();
+  const current = controlled ? (value ?? '') : (searchParams.get('orgao') ?? '');
 
   function select(orgao: string) {
+    if (controlled) {
+      onChange!(orgao);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     if (orgao) {
       params.set('orgao', orgao);
     } else {
       params.delete('orgao');
     }
-    startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}` as any);
-    });
+    params.delete('page');
+    reliableReplace(pathname, params);
   }
 
   if (bases.length === 0) return null;

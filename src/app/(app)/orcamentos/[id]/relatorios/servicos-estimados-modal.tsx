@@ -7,6 +7,7 @@ import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table'
 import { EmptyState } from '@/components/ui/empty-state'
 import type { ServicoComInsumoEstimado } from '@/lib/orcamento/caderno'
 import { fmt } from '@/lib/curva-abc'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 const SEM_PLANILHA = '__sem_planilha__'
 
@@ -130,7 +131,7 @@ export function ServicosEstimadosModal({ open, onClose, servicos, ocultosIds, on
                     <Td className="text-gray-600">{s.planilhaNome}</Td>
                     <Td className="text-gray-900">
                       {s.itemPaiDescricao && <span className="text-gray-400">{s.itemPaiDescricao} &gt; </span>}
-                      {s.descricao}
+                      <HighlightMatch text={s.descricao} query={busca} />
                     </Td>
                     <Td className="text-right tabular-nums font-medium text-gray-900">{fmt(s.valor)}</Td>
                     <Td className="text-center tabular-nums text-gray-700">{s.qtdInsumosEstimados}</Td>

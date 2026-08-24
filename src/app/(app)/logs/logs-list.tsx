@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useToast } from '@/components/ui/toast'
 import { Timeline, TimelineItem, type TimelineTone } from '@/components/ui/timeline'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 export type LogRow = {
   id: string
@@ -186,11 +187,11 @@ export function LogsList({ initialLogs, fetchError }: { initialLogs: LogRow[]; f
                 <TimelineItem key={log.id} icon={<Icon size={14} />} tone={cfg.tone} isLast={i === logs.length - 1}>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span suppressHydrationWarning className="text-xs text-gray-400 font-mono">[{data}]</span>
-                    <span className="text-xs text-gray-400">({log.usuario_email ?? 'sistema'})</span>
+                    <span className="text-xs text-gray-400">(<HighlightMatch text={log.usuario_email ?? 'sistema'} query={busca} />)</span>
                     <Badge variant={cfg.variant}>{cfg.label}</Badge>
-                    <span className="text-xs text-gray-400 font-mono">{log.acao}</span>
+                    <span className="text-xs text-gray-400 font-mono"><HighlightMatch text={log.acao} query={busca} /></span>
                   </div>
-                  <p className="mt-0.5 text-sm text-gray-900">{log.mensagem}</p>
+                  <p className="mt-0.5 text-sm text-gray-900"><HighlightMatch text={log.mensagem} query={busca} /></p>
 
                   {itensApagados.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">

@@ -5,16 +5,30 @@ import { AlertTriangle } from 'lucide-react'
  * alerta da dashboard (ex.: "insumos sem preço") — deixa claro o que está
  * sendo mostrado e dá um jeito fácil de voltar à lista completa. Mesmo
  * padrão visual de SelectionBar (toolbar.tsx), em tom de aviso (âmbar). */
-export function FilterBanner({ label, clearHref }: { label: string; clearHref: string }) {
+interface FilterBannerProps {
+  label: string
+  /** Modo padrão: navega por URL. */
+  clearHref?: string
+  /** Modo controlado: notifica em vez de navegar (ver /insumos e /composicoes). */
+  onClear?: () => void
+}
+
+export function FilterBanner({ label, clearHref, onClear }: FilterBannerProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
       <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
         <AlertTriangle size={15} />
         {label}
       </p>
-      <Link href={clearHref as any} className="text-sm font-medium text-amber-700 hover:underline">
-        Limpar filtro
-      </Link>
+      {onClear ? (
+        <button onClick={onClear} className="text-sm font-medium text-amber-700 hover:underline">
+          Limpar filtro
+        </button>
+      ) : (
+        <Link href={(clearHref ?? '') as any} className="text-sm font-medium text-amber-700 hover:underline">
+          Limpar filtro
+        </Link>
+      )}
     </div>
   )
 }

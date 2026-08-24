@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { History, AlertTriangle } from 'lucide-react'
 import type { CadernoData } from '@/lib/orcamento/caderno'
 import { REPORT_CATALOG, findReport } from './report-catalog'
@@ -12,6 +12,7 @@ import type { EscopoPlanilha, PlanilhaResumo } from './filters/planilha-selector
 import { PageHeader } from '@/components/ui/toolbar'
 import { StatRow, StatCard } from '@/components/ui/stat-row'
 import { formatCurrency } from '@/lib/costs'
+import { searchRelatorioDataAction } from './search-action'
 
 interface ServicoEstimadoManual {
   id?: string
@@ -31,11 +32,15 @@ interface Props {
 
 const DEFAULT_REPORT_ID = 'planilha-sintetica'
 
-export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, escopo, planilhaIds, servicosEstimadosManuais }: Props) {
-  const router = useRouter()
+export function RelatoriosView({ orcamentoId, data: initialData, planilhas, planilhaAtualId, escopo: initialEscopo, planilhaIds: initialPlanilhaIds, servicosEstimadosManuais }: Props) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [isPending, startTransition] = useTransition()
+
+  const [data, setData] = useState(initialData)
+  const [escopo, setEscopo] = useState(initialEscopo)
+  const [planilhaIds, setPlanilhaIds] = useState(initialPlanilhaIds)
+  const [isPending, setIsPending] = useState(false)
+  const genRef = useRef(0)
 
   // ?report= vem do link "Gerar novamente" na tela de histórico
   // (/orcamentos/[id]/relatorios/historico) — pré-seleciona em vez de sempre
@@ -49,6 +54,12 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
   const report = findReport(selectedId) ?? REPORT_CATALOG[0].reports[0]
 
   function handleEscopoChange(nextEscopo: EscopoPlanilha, selecionadas: string[]) {
+    const nextPlanilhaIds = nextEscopo === 'selecionar' ? selecionadas : nextEscopo === 'atual' ? (planilhaAtualId ? [planilhaAtualId] : []) : []
+    setEscopo(nextEscopo)
+    setPlanilhaIds(nextPlanilhaIds)
+
+    // Cosmético — só pra a URL continuar compartilhável/atualizável (F5);
+    // os dados vêm da Server Action abaixo, não dessa navegação.
     const params = new URLSearchParams(searchParams.toString())
     if (nextEscopo === 'todas') {
       params.delete('escopo')
@@ -61,9 +72,20 @@ export function RelatoriosView({ orcamentoId, data, planilhas, planilhaAtualId, 
       if (selecionadas.length > 0) params.set('planilhas', selecionadas.join(','))
       else params.delete('planilhas')
     }
-    startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}` as any)
-    })
+    const qs = params.toString()
+    window.history.replaceState(window.history.state, '', `${pathname}${qs ? `?${qs}` : ''}`)
+
+    const myGen = ++genRef.current
+    setIsPending(true)
+    searchRelatorioDataAction(orcamentoId, nextEscopo, planilhaAtualId, selecionadas)
+      .then((result) => {
+        if (genRef.current !== myGen) return
+        setData(result)
+      })
+      .finally(() => {
+        if (genRef.current !== myGen) return
+        setIsPending(false)
+      })
   }
 
   const fmt = formatCurrency

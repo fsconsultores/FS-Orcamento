@@ -23,6 +23,7 @@ function NavItem({ item, collapsed }: { item: NavItemDef; collapsed: boolean }) 
   const link = (
     <Link
       href={item.href as any}
+      prefetch={item.active ? false : undefined}
       className={`flex items-center rounded-md text-sm font-medium transition-colors ${
         collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-3 py-2'
       } ${item.active ? 'bg-primary-700 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
@@ -38,6 +39,7 @@ function SubNavLink({ href, active, children }: { href: string; active: boolean;
   return (
     <Link
       href={href as any}
+      prefetch={active ? false : undefined}
       className={`block rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
         active ? 'font-semibold text-white' : 'text-slate-400 hover:text-slate-200'
       }`}

@@ -20,6 +20,7 @@ import { ComposicoesModal, type ComposicoesModalState } from './composicoes-moda
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
 import { getInsumosDetalhadoAction } from './actions'
 import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-button'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 
@@ -825,14 +826,14 @@ export function OrcamentoInsumosTable({
                 return (
                   <tr key={insumo.id} className={`group hover:bg-gray-50 ${isDeleting ? 'opacity-40' : ''}`}>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {insumo.codigo}
+                      <HighlightMatch text={insumo.codigo} query={query} />
                       {insumo.codigo_original && insumo.codigo_original !== insumo.codigo && (
                         <span className="block text-[10px] text-gray-400" title="Código original, antes do prefixo do projeto">
                           orig. {insumo.codigo_original}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">{insumo.descricao}</td>
+                    <td className="px-4 py-3"><HighlightMatch text={insumo.descricao} query={query} /></td>
                     <td className="px-4 py-3 text-gray-500">{insumo.unidade}</td>
 
                     {/* Custo — clique abre o modal de cotação (preço + fornecedor + data + observações) */}

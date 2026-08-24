@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { baseLabelFromOrgao } from '@/components/base-labels';
 import { registrarHistorico } from '@/lib/log';
 import { formatCurrency } from '@/lib/costs';
+import { HighlightMatch } from '@/components/ui/highlight-match';
 
 type Composicao = {
   id: string;
@@ -18,19 +19,6 @@ type Composicao = {
   tipo: 'shared' | 'proprio'; // 'shared' = biblioteca, 'proprio' = orcamento_composicoes
   is_favorito?: boolean;
 };
-
-function highlight(text: string, query: string) {
-  if (!query.trim()) return <>{text}</>;
-  const idx = text.toLowerCase().indexOf(query.toLowerCase().trim());
-  if (idx === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-yellow-100 text-gray-900 rounded-[2px]">{text.slice(idx, idx + query.trim().length)}</mark>
-      {text.slice(idx + query.trim().length)}
-    </>
-  );
-}
 
 export function AdicionarItemForm({
   orcamentoId,
@@ -318,10 +306,10 @@ export function AdicionarItemForm({
                   >
                     <span className="flex items-baseline gap-2 min-w-0">
                       <span className="font-mono text-xs text-blue-600 shrink-0">
-                        {highlight(c.codigo, rawQuery)}
+                        <HighlightMatch text={c.codigo} query={rawQuery} />
                       </span>
                       <span className="truncate text-gray-800">
-                        {highlight(c.descricao, rawQuery)}
+                        <HighlightMatch text={c.descricao} query={rawQuery} />
                       </span>
                     </span>
                     <span className="flex items-center gap-1.5 shrink-0 pt-0.5">

@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { SelectionBar } from '@/components/ui/toolbar';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
 import { FavoriteButton } from '@/components/ui/favorite-button';
+import { HighlightMatch } from '@/components/ui/highlight-match';
 
 type ComposicaoRow = {
   id: string;
@@ -30,9 +31,11 @@ type ComposicaoRow = {
 export function ComposicoesTable({
   initialComposicoes,
   favoritosAtivo = false,
+  query = '',
 }: {
   initialComposicoes: ComposicaoRow[];
   favoritosAtivo?: boolean;
+  query?: string;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -110,16 +113,16 @@ export function ComposicoesTable({
                 <FavoriteButton entityType="composicao" entityId={c.id} initialFavorito={!!c.is_favorito} />
               </Td>
               <Td className="!p-0 font-mono text-xs text-gray-500">
-                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.codigo}</Link>
+                <Link href={`/composicoes/${c.id}`} prefetch={false} className="block px-4 py-2"><HighlightMatch text={c.codigo} query={query} /></Link>
               </Td>
               <Td className="!p-0 text-gray-900">
-                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.descricao}</Link>
+                <Link href={`/composicoes/${c.id}`} prefetch={false} className="block px-4 py-2"><HighlightMatch text={c.descricao} query={query} /></Link>
               </Td>
               <Td className="!p-0 text-gray-600">
-                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{c.unidade}</Link>
+                <Link href={`/composicoes/${c.id}`} prefetch={false} className="block px-4 py-2">{c.unidade}</Link>
               </Td>
               <Td className="!p-0">
-                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">
+                <Link href={`/composicoes/${c.id}`} prefetch={false} className="block px-4 py-2">
                   {c.base_origem && c.tipo_base === 'propria' ? (
                     <Badge variant="brand">{c.base_origem}</Badge>
                   ) : c.orgao ? (
@@ -132,7 +135,7 @@ export function ComposicoesTable({
                 </Link>
               </Td>
               <Td className="!p-0 text-right font-medium text-gray-900">
-                <Link href={`/composicoes/${c.id}`} className="block px-4 py-2">{formatCurrency(c.custo_unitario)}</Link>
+                <Link href={`/composicoes/${c.id}`} prefetch={false} className="block px-4 py-2">{formatCurrency(c.custo_unitario)}</Link>
               </Td>
             </Tr>
           ))}

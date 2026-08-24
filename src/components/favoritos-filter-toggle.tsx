@@ -1,17 +1,29 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useTransition } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Star } from 'lucide-react';
+import { useReliableReplace } from '@/lib/use-reliable-replace';
 
-export function FavoritosFilterToggle() {
-  const router = useRouter();
+interface Props {
+  /** Modo controlado: informe `active`+`onChange` para o componente não
+   * tocar na URL/router (ver /insumos e /composicoes). Sem esses props,
+   * cai no modo padrão (URL via router.replace). */
+  active?: boolean;
+  onChange?: (active: boolean) => void;
+}
+
+export function FavoritosFilterToggle({ active: activeProp, onChange }: Props = {}) {
+  const controlled = onChange !== undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
-  const active = searchParams.get('favoritos') === '1';
+  const [reliableReplace] = useReliableReplace();
+  const active = controlled ? !!activeProp : searchParams.get('favoritos') === '1';
 
   function toggle() {
+    if (controlled) {
+      onChange!(!active);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     if (active) {
       params.delete('favoritos');
@@ -19,9 +31,7 @@ export function FavoritosFilterToggle() {
       params.set('favoritos', '1');
     }
     params.delete('page');
-    startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}` as any);
-    });
+    reliableReplace(pathname, params);
   }
 
   return (

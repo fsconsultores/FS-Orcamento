@@ -11,6 +11,7 @@ import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insu
 import { formatCurrency } from '@/lib/costs'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 type InsumoRow = {
   id: string
@@ -138,8 +139,8 @@ function Autocomplete({
               <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${s.tipo === 'insumo' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                 {s.tipo === 'insumo' ? 'INS' : 'COM'}
               </span>
-              <span className="font-mono text-xs text-gray-600 shrink-0">{s.codigo}</span>
-              <span className="text-gray-700 truncate flex-1">{s.descricao}</span>
+              <span className="font-mono text-xs text-gray-600 shrink-0"><HighlightMatch text={s.codigo} query={value} /></span>
+              <span className="text-gray-700 truncate flex-1"><HighlightMatch text={s.descricao} query={value} /></span>
               <span className="shrink-0 text-gray-400 text-xs">{s.unidade}</span>
             </li>
           ))}

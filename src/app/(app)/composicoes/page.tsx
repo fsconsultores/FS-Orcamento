@@ -1,37 +1,6 @@
-import Link from 'next/link';
-import { Suspense } from 'react';
-import { Plus, Layers3, Database, Coins, HelpCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
-import { SearchInput } from '@/components/search-input';
-import { BaseFilter } from '@/components/base-filter';
-import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
-import { FilterBanner } from '@/components/ui/filter-banner';
-import { baseLabelFromOrgao } from '@/components/base-labels';
-import { getFavoritoIds } from '@/lib/favoritos';
-import { ComposicoesTable } from './composicoes-table';
-import { ExportComposicoesButton } from '@/components/export-composicoes-button';
-import type { ComposicaoParaExport } from '@/components/export-composicoes-button';
-import { Pagination } from '@/components/pagination';
-import { PageHeader, Toolbar } from '@/components/ui/toolbar';
-import { StatRow, StatCard } from '@/components/ui/stat-row';
-import { Button } from '@/components/ui/button';
-import { formatCurrency } from '@/lib/costs';
-
-type ComposicaoView = {
-  id: string;
-  codigo: string;
-  descricao: string;
-  unidade: string;
-  base_id: string | null;
-  orgao: string | null;
-  tipo_base: string | null;
-  custo_unitario: number;
-  base_origem: string | null;
-  is_favorito?: boolean;
-  incompleta?: boolean;
-};
-
-const PAGE_SIZE = 100;
+import { ComposicoesExplorer } from './composicoes-explorer';
+import { fetchComposicoesPage } from './fetch-composicoes';
+import type { ComposicoesFilters } from './types';
 
 export default async function ComposicoesPage({
   searchParams,
@@ -40,164 +9,16 @@ export default async function ComposicoesPage({
 }) {
   const { q, orgao, origem, page: pageParam, favoritos, incompletas } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
-  const from = (page - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
-  const favoritosAtivo = favoritos === '1';
-  const incompletasAtivo = incompletas === '1';
 
-  const qs = new URLSearchParams()
-  if (q) qs.set('q', q)
-  if (orgao) qs.set('orgao', orgao)
-  if (origem) qs.set('origem', origem)
-  if (favoritosAtivo) qs.set('favoritos', '1')
-  if (incompletasAtivo) qs.set('incompletas', '1')
-  const baseHref = `/composicoes${qs.toString() ? '?' + qs.toString() : ''}`
+  const filters: ComposicoesFilters = {
+    q: q ?? '',
+    orgao: orgao ?? '',
+    origem: origem ?? '',
+    favoritos: favoritos === '1',
+    incompletas: incompletas === '1',
+  };
 
-  const supabase = await createClient();
-  const sb = supabase as any;
+  const data = await fetchComposicoesPage(filters, page);
 
-  const { data: basesRaw } = await sb
-    .from('tabela_bases')
-    .select('id, nome, orgao, tipo_base')
-    .order('tipo_base')
-    .order('orgao');
-  const bases = (basesRaw ?? []) as { id: string; nome: string; orgao: string; tipo_base: string }[];
-
-  let baseIdFiltro: string | null = null;
-  if (orgao && orgao !== 'SEM_BASE') {
-    const match = bases.find((b) => b.orgao === orgao);
-    if (match) baseIdFiltro = match.id;
-  }
-
-  const favoritoIds = favoritosAtivo ? await getFavoritoIds('composicao') : null
-  const semFavoritos = favoritosAtivo && (favoritoIds?.length ?? 0) === 0
-
-  function addFilters(query: any) {
-    if (q) query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`)
-    if (orgao === 'SEM_BASE') query = query.is('base_id', null)
-    else if (baseIdFiltro) query = query.eq('base_id', baseIdFiltro)
-    if (origem) query = query.eq('base_origem', origem)
-    if (favoritoIds) query = query.in('id', favoritoIds)
-    if (incompletasAtivo) query = query.eq('incompleta', true)
-    return query
-  }
-
-  // count total + count sem base + data da página, em paralelo
-  const [countResult, semBaseResult, { data: composicoes, error }] = semFavoritos
-    ? [{ count: 0 }, { count: 0 }, { data: [], error: null }]
-    : await Promise.all([
-        addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).range(0, 0)),
-        addFilters(sb.from('vw_custo_composicao').select('id', { count: 'exact' }).is('base_id', null).range(0, 0)),
-        addFilters(
-          sb.from('vw_custo_composicao')
-            .select('id, codigo, descricao, unidade, base_id, orgao, tipo_base, custo_unitario, base_origem, is_favorito, incompleta')
-            .order('is_favorito', { ascending: false })
-            .order('codigo')
-            .range(from, to)
-        ),
-      ])
-  if (error) throw error;
-  const total: number = countResult.count ?? 0
-  const semBase: number = semBaseResult.count ?? 0
-
-  // Busca insumos para as composições da página atual (servidor)
-  const compIds = (composicoes ?? []).map((c: any) => c.id as string)
-  let insumosPorComp: Record<string, ComposicaoParaExport['insumos']> = {}
-  if (compIds.length > 0) {
-    const { data: itens } = await sb
-      .from('tabela_itens_composicao')
-      .select('composicao_id, indice, tabela_insumos(codigo, descricao, unidade, preco_base, grupo)')
-      .in('composicao_id', compIds)
-    for (const it of itens ?? []) {
-      const ins = it.tabela_insumos
-      if (!ins) continue
-      if (!insumosPorComp[it.composicao_id]) insumosPorComp[it.composicao_id] = []
-      insumosPorComp[it.composicao_id]!.push({
-        codigo: ins.codigo ?? '',
-        descricao: ins.descricao ?? '',
-        unidade: ins.unidade ?? '',
-        custo: ins.preco_base ?? 0,
-        indice: it.indice ?? 0,
-        grupo: ins.grupo ?? null,
-      })
-    }
-  }
-
-  const composicoesParaExport: ComposicaoParaExport[] = (composicoes ?? []).map((c: any) => ({
-    id: c.id,
-    codigo: c.codigo,
-    descricao: c.descricao,
-    unidade: c.unidade,
-    custo_unitario: c.custo_unitario ?? 0,
-    insumos: insumosPorComp[c.id] ?? [],
-  }))
-
-  const baseOptions = bases.map((b) => ({
-    orgao: b.orgao,
-    label: b.tipo_base === 'propria' ? 'Minha Base' : baseLabelFromOrgao(b.orgao),
-  }));
-
-  const basesPropias = bases.filter((b) => b.tipo_base === 'propria').length;
-  const custoMedioPagina = composicoesParaExport.length > 0
-    ? composicoesParaExport.reduce((acc, c) => acc + (c.custo_unitario ?? 0), 0) / composicoesParaExport.length
-    : 0;
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Composições"
-        description="Biblioteca de serviços (mão de obra + insumos decompostos)."
-        actions={
-          <>
-            <ExportComposicoesButton composicoes={composicoesParaExport} />
-            <Link href="/composicoes/nova">
-              <Button icon={<Plus size={15} />}>Nova composição</Button>
-            </Link>
-          </>
-        }
-      />
-
-      {incompletasAtivo && (
-        <FilterBanner
-          label={`Mostrando ${total.toLocaleString('pt-BR')} ${total === 1 ? 'composição incompleta' : 'composições incompletas'} (sem nenhum insumo vinculado)`}
-          clearHref={(() => { const p = new URLSearchParams(qs); p.delete('incompletas'); return `/composicoes${p.toString() ? '?' + p.toString() : ''}` })()}
-        />
-      )}
-
-      <Toolbar
-        search={
-          <Suspense>
-            <SearchInput placeholder="Buscar por código ou descrição..." />
-          </Suspense>
-        }
-        filters={
-          <>
-            {baseOptions.length > 0 && (
-              <Suspense>
-                <BaseFilter bases={baseOptions} />
-              </Suspense>
-            )}
-            <Suspense>
-              <FavoritosFilterToggle />
-            </Suspense>
-          </>
-        }
-      />
-
-      <StatRow>
-        <StatCard label="Itens encontrados" value={total.toLocaleString('pt-BR')} icon={<Layers3 size={16} />} />
-        <StatCard label="Bases carregadas" value={bases.length} icon={<Database size={16} />} hint={basesPropias > 0 ? `${basesPropias} própria(s)` : undefined} />
-        <StatCard label="Custo médio" value={formatCurrency(custoMedioPagina)} icon={<Coins size={16} />} hint="nesta página" />
-        <StatCard label="Sem base vinculada" value={semBase.toLocaleString('pt-BR')} icon={<HelpCircle size={16} />} />
-      </StatRow>
-
-      <ComposicoesTable
-        key={`${page}-${q}-${orgao}-${origem}-${favoritos}-${incompletas}`}
-        initialComposicoes={(composicoes ?? []) as ComposicaoView[]}
-        favoritosAtivo={favoritosAtivo}
-      />
-
-      <Pagination total={total} page={page} pageSize={PAGE_SIZE} baseHref={baseHref} />
-    </div>
-  );
+  return <ComposicoesExplorer initialFilters={filters} initialPage={page} initialData={data} />;
 }

@@ -18,13 +18,16 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { ExportXlsxButton } from '@/components/export-xlsx-button';
 import { FavoriteButton } from '@/components/ui/favorite-button';
+import { HighlightMatch } from '@/components/ui/highlight-match';
 
 export function InsumosTable({
   initialInsumos,
   favoritosAtivo = false,
+  query = '',
 }: {
   initialInsumos: InsumoComBase[];
   favoritosAtivo?: boolean;
+  query?: string;
 }) {
   const [insumos, setInsumos] = useState(initialInsumos);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -164,16 +167,16 @@ export function InsumosTable({
                 <FavoriteButton entityType="insumo" entityId={ins.id} initialFavorito={!!ins.is_favorito} />
               </Td>
               <Td className="!p-0 font-mono text-xs text-gray-500">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.codigo}</Link>
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2"><HighlightMatch text={ins.codigo} query={query} /></Link>
               </Td>
               <Td className="!p-0 text-gray-900">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.descricao}</Link>
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2"><HighlightMatch text={ins.descricao} query={query} /></Link>
               </Td>
               <Td className="!p-0 text-gray-600">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.grupo ?? '—'}</Link>
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2">{ins.grupo ?? '—'}</Link>
               </Td>
               <Td className="!p-0 text-gray-600">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">{ins.unidade}</Link>
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2">{ins.unidade}</Link>
               </Td>
               <Td className="!py-1.5 text-right">
                 {editingId === ins.id ? (
@@ -206,7 +209,7 @@ export function InsumosTable({
                 )}
               </Td>
               <Td className="!p-0">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2">
                   {ins.base_origem && ins.tabela_bases?.tipo_base === 'propria' ? (
                     <Badge variant="brand">{ins.base_origem}</Badge>
                   ) : ins.tabela_bases ? (
@@ -219,7 +222,7 @@ export function InsumosTable({
                 </Link>
               </Td>
               <Td className="!p-0 text-gray-500">
-                <Link href={`/insumos/${ins.id}/editar`} className="block px-4 py-2">
+                <Link href={`/insumos/${ins.id}/editar`} prefetch={false} className="block px-4 py-2">
                   {formatDateOnly(ins.data_referencia)}
                 </Link>
               </Td>

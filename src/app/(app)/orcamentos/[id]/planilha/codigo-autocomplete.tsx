@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { buscarSugestoesCodigo, type SugestaoCodigo } from './planilha-crud-action'
 import { formatCurrency } from '@/lib/costs'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 export function CodigoAutocomplete({
   value, orcamentoId, className, onSelect, onChange,
@@ -110,8 +111,8 @@ export function CodigoAutocomplete({
               onMouseDown={() => select(s)}
               className={`px-3 py-2 cursor-pointer flex gap-2 items-center ${i === cursor ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
             >
-              <span className="font-mono font-semibold text-gray-800 whitespace-nowrap shrink-0">{s.codigo}</span>
-              <span className="text-gray-500 truncate flex-1">{s.descricao}</span>
+              <span className="font-mono font-semibold text-gray-800 whitespace-nowrap shrink-0"><HighlightMatch text={s.codigo} query={value} /></span>
+              <span className="text-gray-500 truncate flex-1"><HighlightMatch text={s.descricao} query={value} /></span>
               {s.custo_unitario != null && (
                 <span className="shrink-0 tabular-nums text-gray-600">
                   {formatCurrency(s.custo_unitario)}

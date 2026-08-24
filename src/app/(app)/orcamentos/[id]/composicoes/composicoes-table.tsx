@@ -11,6 +11,7 @@ import { ExportComposicoesButton } from '@/components/export-composicoes-button'
 import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 const PAGE_SIZE = 100
 
@@ -321,7 +322,7 @@ export function ComposicoesTable({
                 >
                   <td className="p-0 font-mono text-xs text-gray-600">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">
-                      {c.codigo}
+                      <HighlightMatch text={c.codigo} query={query} />
                       {c.codigo_original && c.codigo_original !== c.codigo && (
                         <span className="block text-[10px] text-gray-400" title="Código original, antes do prefixo do projeto">
                           orig. {c.codigo_original}
@@ -330,7 +331,7 @@ export function ComposicoesTable({
                     </Link>
                   </td>
                   <td className="p-0">
-                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.descricao}</Link>
+                    <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3"><HighlightMatch text={c.descricao} query={query} /></Link>
                   </td>
                   <td className="p-0 text-gray-500">
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.unidade}</Link>

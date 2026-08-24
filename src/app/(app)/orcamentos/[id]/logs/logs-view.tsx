@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui/toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Timeline, TimelineItem, type TimelineTone } from '@/components/ui/timeline'
 import { ScrollText, CheckCircle2, XCircle, Activity } from 'lucide-react'
+import { HighlightMatch } from '@/components/ui/highlight-match'
 
 function tonForAcao(acao: string): { tone: TimelineTone; icon: typeof Activity } {
   if (/erro|excluir/.test(acao)) return { tone: 'error', icon: XCircle }
@@ -122,7 +123,7 @@ export function LogsView({ orcamentoId, logs, filtroAcao, filtroQ }: Props) {
                     <span className="text-xs text-gray-400">{log.usuario_email ?? '—'}</span>
                     <span className="text-xs text-gray-400">· {log.orcamento_planilhas?.nome ?? (log.planilha_id ? '—' : 'Projeto')}</span>
                   </div>
-                  <p className="mt-0.5 text-sm text-gray-800">{log.mensagem}</p>
+                  <p className="mt-0.5 text-sm text-gray-800"><HighlightMatch text={log.mensagem} query={filtroQ} /></p>
                   {log.valor_anterior && log.valor_novo && (
                     <p className="mt-0.5 text-xs text-gray-500">
                       de <span className="font-medium text-gray-700">{fmtValor(log.valor_anterior)}</span>

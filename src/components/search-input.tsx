@@ -1,31 +1,42 @@
 'use client';
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useTransition, useRef } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useRef } from 'react';
+import { useReliableReplace } from '@/lib/use-reliable-replace';
 
 interface Props {
   placeholder?: string;
   param?: string;
   debounce?: number;
+  /** Modo controlado: informe `initialValue`+`onChange` para o componente
+   * não tocar na URL/router e só notificar (com debounce) o texto digitado
+   * — usado quando o pai já gerencia os dados via Server Action (ver
+   * /insumos e /composicoes). Sem esses props, cai no modo padrão (URL via
+   * router.replace). */
+  initialValue?: string;
+  onChange?: (value: string) => void;
 }
 
-export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce = 300 }: Props) {
-  const router = useRouter();
+export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce = 300, initialValue, onChange }: Props) {
+  const controlled = onChange !== undefined;
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const [reliableReplace] = useReliableReplace();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function navigate(value: string) {
+    if (controlled) {
+      onChange!(value);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(param, value);
     } else {
       params.delete(param);
     }
-    startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}` as any);
-    });
+    params.delete('page');
+    reliableReplace(pathname, params);
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -50,7 +61,7 @@ export function SearchInput({ placeholder = 'Buscar...', param = 'q', debounce =
       </svg>
       <input
         type="search"
-        defaultValue={searchParams.get(param) ?? ''}
+        defaultValue={controlled ? (initialValue ?? '') : (searchParams.get(param) ?? '')}
         onChange={handleChange}
         placeholder={placeholder}
         className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"

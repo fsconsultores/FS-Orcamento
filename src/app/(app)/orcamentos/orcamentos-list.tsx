@@ -14,6 +14,7 @@ import { Table, Thead, Th, Tbody, Tr, Td } from '@/components/ui/table';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
 import { FavoriteButton } from '@/components/ui/favorite-button';
+import { HighlightMatch } from '@/components/ui/highlight-match';
 
 type OrcRow = {
   id: string;
@@ -39,6 +40,7 @@ interface Props {
    * "Duplicar" (não o dono do original) — usado só pra popular a linha
    * otimista antes do servidor confirmar. */
   currentUserId: string | null;
+  query?: string;
   children?: React.ReactNode;
 }
 
@@ -87,7 +89,7 @@ function resultToRow(r: DuplicateResult, itemCount: number, ownerId: string): Or
   };
 }
 
-export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, modelosAtivo = false, currentUserId, children }: Props) {
+export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, modelosAtivo = false, currentUserId, query = '', children }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -439,9 +441,9 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
                   <Td onClick={(e) => e.stopPropagation()}>
                     {!isPending && <FavoriteButton entityType="orcamento" entityId={orc.id} initialFavorito={!!orc.is_favorito} />}
                   </Td>
-                  <Td className="font-mono text-xs text-gray-500">{orc.codigo}</Td>
-                  <Td className="font-medium text-gray-900">{orc.nome_obra}</Td>
-                  <Td className="text-gray-600">{orc.cliente ?? '—'}</Td>
+                  <Td className="font-mono text-xs text-gray-500"><HighlightMatch text={orc.codigo} query={query} /></Td>
+                  <Td className="font-medium text-gray-900"><HighlightMatch text={orc.nome_obra} query={query} /></Td>
+                  <Td className="text-gray-600">{orc.cliente ? <HighlightMatch text={orc.cliente} query={query} /> : '—'}</Td>
                   <Td className="text-gray-500">{formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}</Td>
                   <Td>
                     {isPending ? (
