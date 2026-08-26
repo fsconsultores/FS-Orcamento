@@ -246,6 +246,127 @@ function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erro
   return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
 }
 
+// ─── Parser SICOR (DER) — "Relatório de Composição dos Serviços" ──────────────
+// Formato usado por DERs estaduais — distinto do SICRO/DNIT acima, embora
+// conceitualmente parecido. Cada composição é um bloco "Serviço: <código> -
+// <descrição>" seguido de até 4 seções (Equipamento, Mão-de-Obra, Materiais,
+// Serviços), cada uma com layout de coluna próprio (posições fixas, achadas
+// inspecionando o arquivo real, não por cabeçalho detectável genericamente — a
+// planilha tem dezenas de colunas em branco entre os valores). O prefixo do código
+// da composição indica a categoria (ED=Edificações, RO=Rodovias, CO=Consultoria) e
+// também aparece nos itens de cada seção (MOCO-/MORO-/MOED- mão de obra,
+// MATCO-/MATRO-/MATED- material, EQCO-/EQRO-/EQED- equipamento). A seção
+// "Serviços" referencia OUTRA composição inteira como item — mesmo padrão de
+// "atividade auxiliar" do SICRO (custo unitário já resolvido na própria linha) — e
+// tem o mesmo risco de colisão de preço global do Equipamento: o custo horário já
+// vem com a utilização produtiva/improdutiva DESTA composição embutida, então um
+// equipamento genérico reaparecendo em outra composição teria outro valor.
+// Prefixo "IT-" (poucas centenas de linhas, transporte com tabela de distância
+// embutida em texto) não tem custo confiável de se extrair desta planilha — é
+// ignorado, mesmo tratamento dado à seção F do SICRO.
+
+function isSICORData(data: unknown[][]): boolean {
+  for (let i = 0; i < Math.min(data.length, 150); i++) {
+    for (const cell of data[i] as unknown[]) {
+      const s = String(cell ?? '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      if (s.includes('metodologia sicor') || s.includes('relatorio de composicao dos servicos')) return true
+    }
+  }
+  return false
+}
+
+const SICOR_PREFIXOS_MO = new Set(['MOCO', 'MORO', 'MOED'])
+const SICOR_PREFIXOS_MAT = new Set(['MATCO', 'MATRO', 'MATED'])
+const SICOR_PREFIXOS_EQ = new Set(['EQCO', 'EQRO', 'EQED'])
+const SICOR_PREFIXOS_COMPOSICAO = new Set(['CO', 'RO', 'ED'])
+
+function parseSICORSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
+  const rows: ImportComposicaoRow[] = []
+  let current: ImportComposicaoRow | null = null
+  let secao: 'Equipamento' | 'Mão-de-Obra' | 'Materiais' | 'Serviços' | null = null
+  let producao = 1
+  let blocoComProducaoEmFormula = false
+
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i] as unknown[]
+    const first = String(row[0] ?? '').trim()
+    if (!first && row.every(c => !String(c ?? '').trim())) continue
+
+    const compM = first.match(/^Serviço:\s*([A-Z]+-\d+)\s*-\s*(.*)/)
+    if (compM) {
+      const unidadeCell = row.find(c => String(c ?? '').trim().startsWith('Unidade:'))
+      const unidade = unidadeCell ? String(unidadeCell).replace(/^Unidade:\s*/, '').trim() : ''
+      current = { codigo: compM[1], descricao: compM[2].trim(), unidade, base: null, insumos: [] }
+      rows.push(current)
+      secao = null
+      // "Produção da Equipe" só aparece DEPOIS dos itens de Equipamento/Mão-de-Obra
+      // que dependem dela (a divisão índice = consumo/produção usa esse valor) —
+      // sem essa pré-varredura, todo item processado antes dela usaria o padrão
+      // (1) em vez do valor real do bloco.
+      producao = 1
+      blocoComProducaoEmFormula = false
+      for (let scan = i + 1; scan < Math.min(data.length, i + 60); scan++) {
+        const scanRow = data[scan] as unknown[]
+        const scanFirst = String(scanRow[0] ?? '').trim()
+        if (scanFirst.startsWith('Serviço:')) break
+        if (scanFirst === 'Produção da Equipe') {
+          const raw = scanRow[5]
+          // Um punhado de composições de transporte (unidade "M3xKM"/"TxKM") tem
+          // produção/custo expressos como fórmula em função da distância (ex.:
+          // "380,80 / 2X + 0,00") em vez de um número — não dá pra representar um
+          // custo unitário paramétrico no schema atual (1 preço fixo por
+          // composição), então o bloco inteiro é descartado (fica sem insumos e é
+          // filtrado no final) em vez de importar um valor estático errado.
+          if (typeof raw === 'number') producao = raw || 1
+          else blocoComProducaoEmFormula = true
+          break
+        }
+      }
+      continue
+    }
+
+    if (first === 'Produção da Equipe') continue
+    if (first === 'Equipamento' || first === 'Mão-de-Obra' || first === 'Materiais' || first === 'Serviços') {
+      secao = first
+      continue
+    }
+
+    if (!current || !secao || blocoComProducaoEmFormula) continue
+    const itemM = first.match(/^([A-Z]+)-(\d+)\s+(.*)/)
+    if (!itemM) continue
+    const prefixo = itemM[1]
+    const codigo = `${prefixo}-${itemM[2]}`
+    const descricao = itemM[3].trim()
+
+    let qty = 0, unidadeItem = '', custo = 0, isLabor = false
+    let grupo: string | null = null
+    let precisaEscopo = false
+
+    if (secao === 'Mão-de-Obra' && SICOR_PREFIXOS_MO.has(prefixo)) {
+      qty = parseNumber(row[30]); custo = parseNumber(row[19]); isLabor = true; grupo = 'Mao de Obra'
+    } else if (secao === 'Equipamento' && SICOR_PREFIXOS_EQ.has(prefixo)) {
+      qty = 1; custo = parseNumber(row[37]); isLabor = true; grupo = 'Equipamento'; precisaEscopo = true
+    } else if (secao === 'Materiais' && SICOR_PREFIXOS_MAT.has(prefixo)) {
+      qty = parseNumber(row[13]); unidadeItem = String(row[24] ?? '').trim(); custo = parseNumber(row[29]); grupo = 'Material'
+    } else if (secao === 'Serviços' && SICOR_PREFIXOS_COMPOSICAO.has(prefixo)) {
+      qty = parseNumber(row[10]); unidadeItem = String(row[19] ?? '').trim(); custo = parseNumber(row[27]); grupo = 'Atividade Auxiliar'; precisaEscopo = true
+    } else {
+      continue
+    }
+    if (!(qty > 0) || !(custo > 0)) continue
+
+    const rawIndice = isLabor ? (producao > 0 ? qty / producao : qty) : qty
+    const indice = Math.min(Math.max(rawIndice, 0.000001), 99999999)
+    const custoFinal = Math.min(custo, 9999999999)
+    if (!isFinite(indice) || !isFinite(custoFinal)) continue
+
+    const codigoFinal = precisaEscopo ? `${codigo}~${current.codigo}~${secao}` : codigo
+    current.insumos.push({ codigo: codigoFinal, descricao, unidade: unidadeItem, custo: custoFinal, indice, grupo, base: null, data_ref: null })
+  }
+
+  return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
+}
+
 function isSudecap(header: string[]): boolean {
   const joined = header.map(normCol).join('|')
   return joined.includes('tipoitem') || joined.includes('insumocomposicao')
@@ -280,6 +401,11 @@ function inferSudecapRow(row: unknown[]): { codigo: string; descricao: string; u
       const v = cells[j]
       if (v && v.length <= 6 && !/\d{5}/.test(v)) { unidade = v; break }
     }
+  } else if (!isInsumo && rightIdx > leftIdx) {
+    // Linha de cabeçalho de composição: não tem consumo, então a própria unidade
+    // ("UN", "M2"...) é a última célula preenchida da linha, não o penúltimo valor.
+    const v = cells[rightIdx]
+    if (v && v.length <= 6 && !/\d{5}/.test(v)) unidade = v
   }
 
   // Descrição: célula mais longa que não seja código, UND ou CONSUMO
@@ -498,6 +624,7 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
 function parseComposicoes(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[]; fmt: string } {
   if (data.length < 2) return { rows: [], erros: ['Planilha vazia.'], fmt: 'vazio' }
   if (isSICROData(data)) return { ...parseSICROSheet(data), fmt: 'DNIT/SICRO' }
+  if (isSICORData(data)) return { ...parseSICORSheet(data), fmt: 'DER/SICOR' }
   const headerIdx = findHeaderRow(data)
   const header = (data[headerIdx] as unknown[]).map(String)
   if (isSudecap(header)) return { ...parseSudecap(data), fmt: 'SUDECAP/CPU' }
