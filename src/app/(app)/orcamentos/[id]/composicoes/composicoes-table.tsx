@@ -7,6 +7,7 @@ import type { OrcamentoComposicao } from '@/lib/orcamento'
 import { ClientPagination } from '@/components/client-pagination'
 import { formatCurrency } from '@/lib/costs'
 import { getComposicoesDetalhadoAction, exportComposicoesAction } from './actions'
+import { previewLimparNaoUtilizadosAction, executarLimparNaoUtilizadosAction, type PreviaLimpezaNaoUtilizados } from '../insumos/actions'
 import { ExportComposicoesButton } from '@/components/export-composicoes-button'
 import { ExportComposicaoModeloButton } from '@/components/export-composicao-modelo-button'
 import { ConfirmDialog } from '@/components/ui/modal'
@@ -38,6 +39,9 @@ export function ComposicoesTable({
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
   const [confirmarExcluir, setConfirmarExcluir] = useState<OrcamentoComposicao | null>(null)
   const [confirmarLimpar, setConfirmarLimpar] = useState(false)
+  const [confirmarExcluirNaoUtilizadas, setConfirmarExcluirNaoUtilizadas] = useState<PreviaLimpezaNaoUtilizados | null>(null)
+  const [excluindoNaoUtilizadas, setExcluindoNaoUtilizadas] = useState(false)
+  const [carregandoPreviaLimpeza, setCarregandoPreviaLimpeza] = useState(false)
   const [baseParaConfirmar, setBaseParaConfirmar] = useState<string | null>(null)
 
   // Custo unitário (cálculo em cadeia) e "usados/não usados" dependem do
@@ -142,6 +146,53 @@ export function ComposicoesTable({
       toast.show(`Erro ao limpar composições: ${err instanceof Error ? err.message : String(err)}`, 'error')
     }
     setClearing(false)
+  }
+
+  /**
+   * Limpeza combinada: remove insumos avulsos E composições não utilizadas
+   * (com os insumos embutidos nelas) — a mesma ação usada pelo botão
+   * equivalente na aba Insumos (previewLimparNaoUtilizadosAction/
+   * executarLimparNaoUtilizadosAction), pra dar o resultado idêntico não
+   * importa qual das duas abas o usuário usa pra limpar.
+   */
+  async function handleExcluirNaoUtilizadasClick() {
+    if (custosStatus !== 'pronto') {
+      toast.show('Aguarde o carregamento dos dados de uso antes de excluir as não utilizadas.', 'info')
+      return
+    }
+    setCarregandoPreviaLimpeza(true)
+    try {
+      const previa = await previewLimparNaoUtilizadosAction(orcamentoId)
+      if (previa.avulsos.length === 0 && previa.composicoes.length === 0) {
+        toast.show('Nada para limpar — todos os insumos e composições aparecem em algum item da planilha.', 'info')
+        return
+      }
+      setConfirmarExcluirNaoUtilizadas(previa)
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Erro ao verificar o que está não utilizado.', 'error')
+    } finally {
+      setCarregandoPreviaLimpeza(false)
+    }
+  }
+
+  async function handleExcluirNaoUtilizadas() {
+    if (!confirmarExcluirNaoUtilizadas) return
+    const { avulsos, composicoes: composicoesAlvo } = confirmarExcluirNaoUtilizadas
+    setConfirmarExcluirNaoUtilizadas(null)
+    setExcluindoNaoUtilizadas(true)
+    const avulsoIds = avulsos.map((a) => a.id)
+    const composicaoIds = composicoesAlvo.map((c) => c.id)
+    try {
+      const { avulsosRemovidos, composicoesRemovidas } = await executarLimparNaoUtilizadosAction(orcamentoId, avulsoIds, composicaoIds)
+      setComposicoes((prev) => prev.filter((c) => !composicaoIds.includes(c.id)))
+      const partes = []
+      if (avulsosRemovidos > 0) partes.push(`${avulsosRemovidos} insumo(s) avulso(s)`)
+      if (composicoesRemovidas > 0) partes.push(`${composicoesRemovidas} composição(ões) (com os insumos embutidos)`)
+      toast.show(`${partes.join(' e ')} não utilizado(s) removido(s) com sucesso.`)
+    } catch (err) {
+      toast.show(`Erro ao excluir os não utilizados: ${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+    setExcluindoNaoUtilizadas(false)
   }
 
   /**
@@ -285,6 +336,18 @@ export function ComposicoesTable({
           </svg>
           {clearing ? 'Limpando…' : 'Limpar composições'}
         </button>
+        <button
+          onClick={handleExcluirNaoUtilizadasClick}
+          disabled={excluindoNaoUtilizadas || carregandoPreviaLimpeza || custosStatus !== 'pronto'}
+          title="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha (composições não utilizadas saem junto com os insumos embutidos nelas) — mesma limpeza do botão equivalente na aba Insumos"
+          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          {excluindoNaoUtilizadas ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
+        </button>
       </div>
 
       {custosStatus === 'erro' && (
@@ -391,6 +454,29 @@ export function ComposicoesTable({
         title="Limpar composições"
         description={`Excluir todas as ${composicoes.length} composições deste orçamento e os insumos vinculados a elas? Esta ação não pode ser desfeita.`}
         confirmLabel="Excluir todas"
+        danger
+      />
+
+      <ConfirmDialog
+        open={!!confirmarExcluirNaoUtilizadas}
+        onClose={() => setConfirmarExcluirNaoUtilizadas(null)}
+        onConfirm={handleExcluirNaoUtilizadas}
+        title="Excluir não utilizados"
+        description={confirmarExcluirNaoUtilizadas ? (
+          <>
+            Nada disso aparece em nenhum item da planilha deste orçamento:
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+              {confirmarExcluirNaoUtilizadas.avulsos.length > 0 && (
+                <li>{confirmarExcluirNaoUtilizadas.avulsos.length} insumo(s) avulso(s)</li>
+              )}
+              {confirmarExcluirNaoUtilizadas.composicoes.length > 0 && (
+                <li>{confirmarExcluirNaoUtilizadas.composicoes.length} composição(ões) — junto com os insumos embutidos nelas</li>
+              )}
+            </ul>
+            <p className="mt-2">Os utilizados não são afetados. Esta ação não pode ser desfeita.</p>
+          </>
+        ) : null}
+        confirmLabel="Excluir"
         danger
       />
 

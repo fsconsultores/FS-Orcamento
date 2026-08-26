@@ -18,7 +18,7 @@ import { formatCurrency } from '@/lib/costs'
 import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 import { ComposicoesModal, type ComposicoesModalState } from './composicoes-modal'
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
-import { getInsumosDetalhadoAction } from './actions'
+import { getInsumosDetalhadoAction, previewLimparNaoUtilizadosAction, executarLimparNaoUtilizadosAction, type PreviaLimpezaNaoUtilizados } from './actions'
 import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-button'
 import { HighlightMatch } from '@/components/ui/highlight-match'
 import { ConfirmDialog } from '@/components/ui/modal'
@@ -108,6 +108,9 @@ export function OrcamentoInsumosTable({
   const [confirmarExcluirHistorico, setConfirmarExcluirHistorico] = useState<HistoricoPreco | null>(null)
   const [confirmarLimparAvulsos, setConfirmarLimparAvulsos] = useState<{ total: number; avulsos: OrcamentoInsumo[] } | null>(null)
   const [limpandoAvulsos, setLimpandoAvulsos] = useState(false)
+  const [confirmarExcluirNaoUtilizados, setConfirmarExcluirNaoUtilizados] = useState<PreviaLimpezaNaoUtilizados | null>(null)
+  const [excluindoNaoUtilizados, setExcluindoNaoUtilizados] = useState(false)
+  const [carregandoPreviaLimpeza, setCarregandoPreviaLimpeza] = useState(false)
   const [baseParaConfirmar, setBaseParaConfirmar] = useState<string | null>(null)
 
   // Insumos embutidos em composições sem avulso equivalente e o vínculo
@@ -575,6 +578,65 @@ export function OrcamentoInsumosTable({
   }
 
   /**
+   * Limpeza seletiva: remove os avulsos não utilizados E as composições não
+   * utilizadas (com os insumos embutidos nelas) — um insumo "não utilizado"
+   * que só existe embutido numa composição não dá pra remover sozinho sem
+   * mexer na composição, então a limpeza cobre os dois casos juntos num só
+   * botão (ver previewLimparNaoUtilizadosAction/executarLimparNaoUtilizadosAction).
+   * Diferente de "Limpar avulsos", que apaga TODOS os avulsos independente de uso.
+   */
+  async function handleExcluirNaoUtilizadosClick() {
+    if (usoStatus !== 'pronto') {
+      toast.show('Aguarde o carregamento dos dados de uso antes de excluir os não utilizados.', 'info')
+      return
+    }
+    setCarregandoPreviaLimpeza(true)
+    try {
+      const previa = await previewLimparNaoUtilizadosAction(orcamentoId)
+      if (previa.avulsos.length === 0 && previa.composicoes.length === 0) {
+        toast.show('Nada para limpar — todos os insumos e composições aparecem em algum item da planilha.', 'info')
+        return
+      }
+      setConfirmarExcluirNaoUtilizados(previa)
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Erro ao verificar o que está não utilizado.', 'error')
+    } finally {
+      setCarregandoPreviaLimpeza(false)
+    }
+  }
+
+  async function handleExcluirNaoUtilizados() {
+    if (!confirmarExcluirNaoUtilizados) return
+    const { avulsos, composicoes } = confirmarExcluirNaoUtilizados
+    setConfirmarExcluirNaoUtilizados(null)
+    setExcluindoNaoUtilizados(true)
+    const avulsoIds = avulsos.map(a => a.id)
+    const composicaoIds = composicoes.map(c => c.id)
+    try {
+      const { avulsosRemovidos, composicoesRemovidas } = await executarLimparNaoUtilizadosAction(orcamentoId, avulsoIds, composicaoIds)
+      setInsumos(prev => prev.filter(i => !avulsoIds.includes(i.id) && !(i.composicao_id && composicaoIds.includes(i.composicao_id))))
+      const sb = createClient() as any
+      registrarHistorico(sb, {
+        orcamentoId,
+        entidade: 'insumo',
+        tipo: 'info',
+        acao: 'excluir_insumos_nao_utilizados',
+        mensagem: `${avulsosRemovidos} insumo(s) avulso(s) e ${composicoesRemovidas} composição(ões) não utilizados removidos do orçamento`,
+        detalhes: { insumos_apagados: avulsos, composicoes_apagadas: composicoes },
+      }).catch(console.error)
+      const partes = []
+      if (avulsosRemovidos > 0) partes.push(`${avulsosRemovidos} insumo(s) avulso(s)`)
+      if (composicoesRemovidas > 0) partes.push(`${composicoesRemovidas} composição(ões) (com os insumos embutidos)`)
+      toast.show(`${partes.join(' e ')} não utilizado(s) removido(s) com sucesso.`)
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : 'Erro ao excluir os não utilizados.', 'error')
+    } finally {
+      setExcluindoNaoUtilizados(false)
+      startTransition(() => router.refresh())
+    }
+  }
+
+  /**
    * Desfaz uma importação específica: remove só os insumos avulsos que
    * vieram daquela base, sem mexer nos avulsos de outras bases nem nos
    * insumos embutidos em composições (esses são desfeitos junto com a
@@ -771,6 +833,17 @@ export function OrcamentoInsumosTable({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
           {limpandoAvulsos ? 'Limpando…' : 'Limpar avulsos'}
+        </button>
+        <button
+          onClick={handleExcluirNaoUtilizadosClick}
+          disabled={excluindoNaoUtilizados || carregandoPreviaLimpeza || usoStatus !== 'pronto'}
+          title="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha (composições não utilizadas saem junto com os insumos embutidos nelas) — os utilizados ficam intactos"
+          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          {excluindoNaoUtilizados ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
         </button>
       </div>
 
@@ -1026,6 +1099,29 @@ export function OrcamentoInsumosTable({
       title="Limpar insumos avulsos"
       description={confirmarLimparAvulsos ? `Excluir todos os ${confirmarLimparAvulsos.total} insumos avulsos deste orçamento? Esta ação não pode ser desfeita.` : null}
       confirmLabel="Excluir todos"
+      danger
+    />
+
+    <ConfirmDialog
+      open={!!confirmarExcluirNaoUtilizados}
+      onClose={() => setConfirmarExcluirNaoUtilizados(null)}
+      onConfirm={handleExcluirNaoUtilizados}
+      title="Excluir não utilizados"
+      description={confirmarExcluirNaoUtilizados ? (
+        <>
+          Nada disso aparece em nenhum item da planilha deste orçamento:
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+            {confirmarExcluirNaoUtilizados.avulsos.length > 0 && (
+              <li>{confirmarExcluirNaoUtilizados.avulsos.length} insumo(s) avulso(s)</li>
+            )}
+            {confirmarExcluirNaoUtilizados.composicoes.length > 0 && (
+              <li>{confirmarExcluirNaoUtilizados.composicoes.length} composição(ões) — junto com os insumos embutidos nelas</li>
+            )}
+          </ul>
+          <p className="mt-2">Os utilizados não são afetados. Esta ação não pode ser desfeita.</p>
+        </>
+      ) : null}
+      confirmLabel="Excluir"
       danger
     />
 
