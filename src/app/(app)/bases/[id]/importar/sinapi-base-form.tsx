@@ -97,10 +97,28 @@ function isSICROData(data: unknown[][]): boolean {
   return false
 }
 
+// Layout de cada seção (linhas de item), em índice de coluna 0-based:
+//   A - Equipamentos: código | descrição | Quantidade | Utilização Operativa | Utilização
+//       Improdutiva | Custo Horário Produtivo | Custo Horário Improdutivo | (branco) | Custo
+//       Horário Total. O total (idx 8) já vem com o blend Operativa/Improdutiva e a
+//       quantidade aplicados pelo próprio DNIT — reconstruir a partir de
+//       Quantidade×CustoProdutivo (como as demais seções) ignora esse blend e erra o
+//       custo em qualquer linha com Improdutiva > 0.
+//   B/C/D - Mão de obra/Material/Atividades Auxiliares: código | descrição | Quantidade |
+//       Unidade | (branco) | Custo Unitário | (branco) | (branco) | Custo Total.
+//   E - Tempo Fixo: código | descrição | Código do veículo | Quantidade | Unidade |
+//       (branco) | Custo Unitário | (branco) | Custo Total — tem uma coluna a mais
+//       (código do veículo) que desloca Quantidade/Unidade/Custo em 1 posição a mais que
+//       B/C/D; ler pelas posições fixas de B/C/D aqui faz o scanner genérico pegar o
+//       código do veículo (~5-8 dígitos) como se fosse a quantidade.
+//   F - Momento de Transporte: só traz códigos de referência de uma tabela de DMT (LN/RP/P),
+//       não custo algum nesta planilha — não há como reconstruir o custo desta seção a
+//       partir do que está aqui, então ela é ignorada (o "Custo unitário total de
+//       transporte" do próprio relatório também vem em branco nesses casos).
 function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: string[] } {
   const rows: ImportComposicaoRow[] = []
   let current: ImportComposicaoRow | null = null
-  let secao: 'A'|'B'|'C'|'D'|'E'|null = null
+  let secao: 'A'|'B'|'C'|'D'|'E'|'F'|null = null
   let producao = 1
   let compUnit = ''
 
@@ -113,10 +131,13 @@ function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erro
       if (!ns.includes('producao da equipe') && !ns.includes('producao equipe')) continue
       for (let l = k; l < Math.min(row.length, k + 4); l++) {
         const s = String(row[l] ?? '').trim()
-        const m = s.match(/([\d]+[.,][\d]+)/)
+        // Decimal opcional: um valor de produção inteiro ("1500") não tem separador.
+        const m = s.match(/([\d]+(?:[.,]\d+)?)/)
         if (!m) continue
         const val = parseNumber(m[1])
-        if (val <= 0 || val > 100000) continue
+        // Unidades compostas (m³km, tkm) legitimamente passam de 100.000 — só descarta
+        // valores absurdos (ex.: um código de outra coisa capturado por engano).
+        if (val <= 0 || val > 100000000) continue
         let unit = s.slice(s.indexOf(m[0]) + m[0].length).trim()
         if (!unit) {
           const nxt = String(row[l + 1] ?? '').trim()
@@ -136,13 +157,18 @@ function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erro
     const first = cells.find(c => c) ?? ''
     const firstN = normS(first)
 
-    const secM = firstN.match(/^([a-e])\s*[-–]\s*(equipament|mao de obra|material|atividad|tempo)/)
+    const secM = firstN.match(/^([a-f])\s*[-–]\s*(equipament|mao de obra|material|atividad|tempo|momento)/)
     if (secM) {
-      secao = secM[1].toUpperCase() as 'A'|'B'|'C'|'D'|'E'
+      secao = secM[1].toUpperCase() as 'A'|'B'|'C'|'D'|'E'|'F'
       continue
     }
 
-    const compM = first.match(/^(\d{7,})\s*(.*)/)
+    // Cabeçalho de composição: código de 7+ dígitos, mas só quando a coluna de
+    // Quantidade (idx 2) está vazia — o mesmo formato de código aparece dentro de
+    // "D - Atividades Auxiliares" quando uma composição é usada como item de outra
+    // (ex.: "Concreto" dentro de "Lançamento de concreto"), e nesse caso a linha já
+    // vem com Quantidade/Custo preenchidos, não é um cabeçalho novo.
+    const compM = !cells[2] ? first.match(/^(\d{7,})\s*(.*)/) : null
     if (compM) {
       const cod = compM[1]
       let desc = compM[2].trim()
@@ -163,30 +189,58 @@ function parseSICROSheet(data: unknown[][]): { rows: ImportComposicaoRow[]; erro
     }
 
     if (!current || !secao) continue
-    if (!/^[A-Z]\d{4}/.test(first)) continue
+    // Item normal (letra+dígitos, ex. M0798) OU referência a outra composição usada
+    // como item (7+ dígitos) — essa segunda forma aparece tanto em D quanto, com menos
+    // frequência, em E (ex.: "Concreto" cobrado pelo transporte do caminhão-betoneira).
+    const isRefComposicao = /^\d{7,}$/.test(first)
+    if (!/^[A-Z]\d{4}/.test(first) && !isRefComposicao) continue
     if (/custo|total|subtotal|producao/.test(firstN)) continue
 
-    const desc2 = cells[1] ?? ''
-    const nums: number[] = []
-    let unit2 = ''
-    for (let j = 2; j < cells.length; j++) {
-      const v = parseNumber(cells[j])
-      if (v > 0) nums.push(v)
-      else if (!unit2 && cells[j] && cells[j].length <= 8 && !/^\d/.test(cells[j])) unit2 = cells[j]
-    }
-    if (!nums.length) continue
+    // F não tem custo computável nesta planilha (só códigos de referência de DMT).
+    if (secao === 'F') continue
 
-    const qty = nums[0]
-    const unitCost = nums.length >= 2 ? nums[nums.length - 2] : nums[0]
+    let qty: number, unit2: string, unitCost: number
+    if (secao === 'E') {
+      qty = parseNumber(cells[3])
+      unit2 = cells[4] ?? ''
+      unitCost = parseNumber(cells[6])
+    } else if (secao === 'A') {
+      qty = 1 // quantidade já está multiplicada no total (idx 8), ver comentário acima
+      unit2 = ''
+      unitCost = parseNumber(cells[8])
+    } else {
+      qty = parseNumber(cells[2])
+      unit2 = cells[3] ?? ''
+      unitCost = parseNumber(cells[5])
+    }
+    if (!(qty > 0) || !(unitCost > 0)) continue
+
+    const desc2 = cells[1] ?? ''
     const isLabor = secao === 'B' || secao === 'A'
     const rawIndice = isLabor ? (producao > 0 ? qty / producao : qty) : qty
     const indice = Math.min(Math.max(rawIndice, 0.000001), 99999999)
     const custo = Math.min(unitCost, 9999999999)
     if (!isFinite(indice) || !isFinite(custo)) continue
     const grupo = secao === 'A' ? 'Equipamento' : secao === 'B' ? 'Mao de Obra'
-               : secao === 'C' ? 'Material' : secao === 'D' ? 'Atividade Auxiliar' : null
+               : secao === 'C' ? 'Material' : secao === 'D' ? 'Atividade Auxiliar'
+               : secao === 'E' ? 'Transporte' : null
 
-    current.insumos.push({ codigo: first, descricao: desc2, unidade: unit2, custo, indice, grupo, base: null, data_ref: null })
+    // O código de A (custo já vem com quantidade e blend Operativa/Improdutiva DESTA
+    // composição embutidos no idx 8 — não é uma taxa fixa do equipamento), de E
+    // (transporte) e de referência a outra composição carregam um custo que só vale
+    // NESTE contexto (ex.: M2277 custa R$1,46 milhão como material em C, mas R$28,74/t só
+    // pelo frete em E; um gerador em A tem custo total diferente em cada composição que o
+    // usa; "1110000" varia de composição pra composição). Como tabela_insumos tem 1 preço
+    // por código pra base inteira, gravar com o código original faria a importação de UMA
+    // composição sobrescrever o preço lido por TODAS as outras que usam o mesmo código —
+    // por isso aqui o código é escopado à composição atual. A seção também entra no
+    // escopo: o mesmo código de referência pode aparecer em D (custo de confecção) E em E
+    // (custo do transporte fixo) da MESMA composição — sem a seção, as duas linhas colidem
+    // entre si e o índice de uma soma em cima do preço da outra.
+    const precisaEscopoPorComposicao = secao === 'A' || secao === 'E' || isRefComposicao
+    const codigoFinal = precisaEscopoPorComposicao ? `${first}~${current.codigo}~${secao}` : first
+
+    current.insumos.push({ codigo: codigoFinal, descricao: desc2, unidade: unit2, custo, indice, grupo, base: null, data_ref: null })
   }
 
   return { rows: rows.filter(r => r.insumos.length > 0), erros: [] }
