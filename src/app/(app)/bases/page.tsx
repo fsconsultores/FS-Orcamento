@@ -23,16 +23,30 @@ export default async function BasesPage() {
     id: string; nome: string; orgao: string; tipo_base: string; created_at: string; is_favorito?: boolean
   }[]
 
+  // Uma query de count que falha (rede/timeout sob a rajada de N bases × 2 queries em
+  // paralelo) e é tratada como "0 resultados" fica indistinguível de uma base
+  // genuinamente vazia — e esse zero errado entra no cache de 5 min abaixo. Um retry
+  // rápido evita que uma falha passageira vire uma contagem errada e "grudada".
+  async function contarComRetry(
+    query: () => PromiseLike<{ count: number | null; error: { message: string } | null }>
+  ): Promise<number> {
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      const { count, error } = await query()
+      if (!error) return count ?? 0
+    }
+    return 0
+  }
+
   // Contagens em paralelo — cache de 5 min para reduzir round-trips repetidos
   const getContagens = unstable_cache(
     async (ids: string[]) => {
       const resultados = await Promise.all(
         ids.map(async (id) => {
-          const [{ count: ni }, { count: nc }] = await Promise.all([
-            sb.from('tabela_insumos').select('*', { count: 'exact', head: true }).eq('base_id', id),
-            sb.from('tabela_composicoes').select('*', { count: 'exact', head: true }).eq('base_id', id),
+          const [ni, nc] = await Promise.all([
+            contarComRetry(() => sb.from('tabela_insumos').select('*', { count: 'exact', head: true }).eq('base_id', id)),
+            contarComRetry(() => sb.from('tabela_composicoes').select('*', { count: 'exact', head: true }).eq('base_id', id)),
           ])
-          return { id, total_insumos: ni ?? 0, total_composicoes: nc ?? 0 }
+          return { id, total_insumos: ni, total_composicoes: nc }
         })
       )
       return Object.fromEntries(resultados.map(r => [r.id, r]))
