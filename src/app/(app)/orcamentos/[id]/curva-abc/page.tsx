@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { computeAbcCurvaUnica, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
+import { computeAbcCurvaUnica, computeIdsEstimados, type EstruturaItemBasico, type InsumoComposicaoBasico, type InsumoAvulsoBasico } from '@/lib/curva-abc'
 import { CurvaAbcView } from './curva-abc-view'
 import { PageHeader } from '@/components/ui/toolbar'
 import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
@@ -30,16 +30,32 @@ export default async function CurvaAbcPage({
       .eq('id', orcamentoId)
       .single(),
     sb.from('orcamento_estrutura')
-      .select('codigo, descricao, unidade, quantidade, custo_unitario')
+      .select('id, parent_id, tipo, codigo, descricao, unidade, quantidade, custo_unitario, estimado')
       .eq('orcamento_id', orcamentoId)
-      .eq('planilha_id', activePlanilha.id)
-      .eq('tipo', 'item'),
+      .eq('planilha_id', activePlanilha.id),
     sb.from('orcamento_composicoes')
       .select('id, codigo, descricao')
       .eq('orcamento_id', orcamentoId),
   ])
 
-  const estItems: EstruturaItemBasico[] = estrutura ?? []
+  // Itens marcados como "Estimado" (aba Estimados) — ou descendentes de um
+  // grupo marcado — não são custo real do orçamento e não podem entrar no
+  // ranking/percentuais da Curva ABC (mesmo critério de getCadernoData, ver
+  // computeIdsEstimados). Sem isso, esta página e a Curva ABC dentro do
+  // Caderno mostrariam classificações A/B/C diferentes pro mesmo orçamento.
+  const estruturaFull = estrutura ?? []
+  const idsEstimados = computeIdsEstimados(
+    estruturaFull.map((e: any) => ({ id: e.id, parent_id: e.parent_id, estimado: e.estimado ?? false }))
+  )
+  const estItems: EstruturaItemBasico[] = estruturaFull
+    .filter((e: any) => e.tipo === 'item' && !idsEstimados.has(e.id))
+    .map((e: any) => ({
+      codigo: e.codigo,
+      descricao: e.descricao,
+      unidade: e.unidade,
+      quantidade: e.quantidade,
+      custo_unitario: e.custo_unitario,
+    }))
 
   // 2. Insumos dentro de composições (paginado) — necessário antes do split
   const allInsumos: InsumoComposicaoBasico[] = []

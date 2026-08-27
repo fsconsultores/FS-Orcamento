@@ -12,6 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "check:bundle:update": "node scripts/check-bundle-size.mjs --update",
     "benchmark": "playwright test tests/e2e/benchmark.spec.ts --project=chromium"
@@ -46,6 +48,7 @@
     "eslint-config-next": "^15.3.1",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

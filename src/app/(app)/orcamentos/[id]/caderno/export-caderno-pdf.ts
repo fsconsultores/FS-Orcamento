@@ -294,12 +294,13 @@ async function drawResumoGeralSection(
       startY: yLeft,
       margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
       head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-      // Item pai (2ª linha, itálico) — o mesmo nome de item pode aparecer em
-      // mais de um lugar da árvore (ex.: "Armação Aço - Estimado" dentro de
-      // Fundação E de Estrutura); sem o pai não dá pra saber qual ocorrência
-      // é essa.
+      // Só a descrição exata do item, igual está na planilha — nada de
+      // numeração nem do item pai (esse continua existindo em
+      // ServicoEstimado.itemPaiDescricao só pra desambiguar internamente
+      // quando o mesmo nome se repete em mais de um lugar da árvore, ver
+      // servicos-estimados-modal.tsx; não aparece mais no Caderno).
       body: servicosVisiveis.map(s => [
-        s.itemPaiDescricao ? `${s.descricao}\nEm: ${s.itemPaiDescricao}` : s.descricao,
+        s.descricao,
         fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0),
       ]),
       foot: [['TOTAL', fmt(B), '100,00%']],

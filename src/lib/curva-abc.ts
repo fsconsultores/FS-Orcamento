@@ -14,6 +14,43 @@ export function fmtPct(n: number) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'
 }
 
+export interface EstruturaNodeParaEstimados {
+  id: string
+  parent_id: string | null
+  estimado: boolean
+}
+
+/**
+ * Ids de itens/grupos que devem ser excluídos de qualquer cálculo "real" do
+ * orçamento (Curva ABC, Total Orçado) porque eles OU um grupo ancestral estão
+ * marcados como "Estimado" (aba Estimados). A marcação persiste só no nó
+ * marcado, não em cada descendente — aqui a propagação pra subárvore inteira
+ * é feita em memória a partir de uma lista plana de orcamento_estrutura.
+ * Mesma regra usada por getCadernoData() (marcarSubarvore/removerEstimados em
+ * caderno.ts) — extraída aqui pra reaproveitar em qualquer outro lugar que
+ * também precise excluir estimados (ex.: a página standalone /curva-abc).
+ */
+export function computeIdsEstimados(items: EstruturaNodeParaEstimados[]): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const item of items) {
+    if (!item.parent_id) continue
+    const list = childrenByParent.get(item.parent_id) ?? []
+    list.push(item.id)
+    childrenByParent.set(item.parent_id, list)
+  }
+
+  const ids = new Set<string>()
+  function marcar(id: string) {
+    if (ids.has(id)) return
+    ids.add(id)
+    for (const filhoId of childrenByParent.get(id) ?? []) marcar(filhoId)
+  }
+  for (const item of items) {
+    if (item.estimado) marcar(item.id)
+  }
+  return ids
+}
+
 export interface AbcItem {
   codigo: string | null
   descricao: string
