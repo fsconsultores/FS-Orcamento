@@ -19,7 +19,7 @@ export function SortableRow({ id, children, className, onContextMenu }: {
     >
       {/* Inject handle cell as first child */}
       <td
-        className="px-1 py-0.5 w-6 border border-gray-200 cursor-grab active:cursor-grabbing select-none"
+        className="px-1 py-1 w-6 border border-gray-200 cursor-grab active:cursor-grabbing select-none"
         suppressHydrationWarning
         {...attributes}
         {...listeners}

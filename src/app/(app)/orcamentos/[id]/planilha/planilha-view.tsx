@@ -41,10 +41,19 @@ const LABEL_MODELO_ACRESCIMO: Record<ModeloAcrescimo, string> = {
   bdi: '',
 }
 
-function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
+// Só o primeiro nível (depth 0) ganha destaque — seções da EAP, não qualquer
+// pai. Um grupo intermediário (ex.: "2.1 Superestrutura", pai de "Armação")
+// continua com fonte normal: negrito indica "seção principal", não "tem
+// filhos". Totais gerais (rodapé da tabela) ficam em negrito à parte, fora
+// desta função.
+// text-sm aqui (em vez de no <table>, que fica em text-xs) sobe só o corpo
+// da grade — o cabeçalho continua no tamanho atual. Cabe em cascata: células
+// com tamanho próprio (contador, EAP, código) não são afetadas, só as que
+// herdam o texto ambiente (descrição, unidade, qtde., valores).
+function rowCls(depth: number, rowIdx: number) {
+  if (depth === 0) return 'bg-primary-50 text-gray-900 font-bold text-sm hover:bg-primary-100'
   const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-  const weight = hasChildren ? 'font-bold' : 'font-normal'
-  return `${base} text-gray-900 ${weight} hover:bg-blue-100`
+  return `${base} text-gray-900 font-normal text-sm hover:bg-blue-100`
 }
 
 // ─── View principal ───────────────────────────────────────────────────────────
@@ -219,7 +228,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const rowVirtualizer = useVirtualizer({
     count: visible.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 25,   // altura estimada por linha em px
+    estimateSize: () => 33,   // altura real da linha em px (medida após o aumento de fonte/padding — ver rowCls/py-1)
     overscan: 15,              // linhas extras fora do viewport (cima+baixo)
   })
 
@@ -553,8 +562,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
 
   // ── Estilos reutilizáveis ───────────────────────────────────────────────────
 
-  const INP = 'w-full bg-white text-gray-900 outline-none ring-2 ring-inset ring-blue-500 rounded-sm text-xs px-1.5 py-0.5'
-  const CELL_HOVER = 'cursor-text select-none rounded px-1 -mx-1 hover:bg-white/40 hover:ring-1 hover:ring-blue-300 min-h-[1.2rem] leading-relaxed transition-all'
+  const INP = 'w-full bg-white text-gray-900 outline-none ring-2 ring-inset ring-blue-500 rounded-sm text-sm px-1.5 py-1'
+  const CELL_HOVER = 'cursor-text select-none rounded px-1 -mx-1 hover:bg-white/40 hover:ring-1 hover:ring-blue-300 min-h-[1.5rem] leading-relaxed transition-all'
 
   // Renderiza uma célula de texto simples
   function textCell(nodo: Nodo, field: string, display: React.ReactNode, extraInpClass = '') {
@@ -1273,17 +1282,17 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                 <Fragment key={nodo.id}>
                   <SortableRow
                     id={nodo.id}
-                    className={`group transition-colors ${rowCls(depth, isGroup, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''} ${nodo.codigo && invalidCodigos.has(nodo.codigo) ? 'outline outline-2 outline-red-400 bg-red-50' : ''}`}
+                    className={`group transition-colors ${rowCls(depth, rowIdx)} ${deletingId === nodo.id ? 'opacity-30' : ''} ${isDragging ? 'opacity-40' : ''} ${nodo.codigo && invalidCodigos.has(nodo.codigo) ? 'outline outline-2 outline-red-400 bg-red-50' : ''}`}
                     onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, nodo }) }}
                   >
 
                     {/* Contador */}
-                    <td className="px-1 py-0.5 text-center text-gray-400 font-mono text-[10px] select-none border border-gray-200 w-8">
+                    <td className="px-1 py-1 text-center text-gray-400 font-mono text-[11px] select-none border border-gray-200 w-8">
                       {rowIdx + 1}
                     </td>
 
                     {/* EAP / número (somente leitura — gerado automaticamente) */}
-                    <td className="px-2 py-0.5 font-mono border border-gray-200">
+                    <td className="px-2 py-1 font-mono border border-gray-200">
                       <div className="flex items-center gap-1">
                         {isGroup ? (
                           <button onClick={() => toggleCollapse(nodo.id)}
@@ -1295,12 +1304,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         ) : (
                           <span className="shrink-0 w-3.5" />
                         )}
-                        <span className="text-[11px] select-none text-gray-600 tabular-nums">{nodo.numero}</span>
+                        <span className="text-xs select-none text-gray-600 tabular-nums">{nodo.numero}</span>
                       </div>
                     </td>
 
                     {/* Composição (somente folhas) */}
-                    <td className="px-2 py-0.5 font-mono text-[10px] border border-gray-200">
+                    <td className="px-2 py-1 font-mono text-[11px] border border-gray-200">
                       {!isGroup && (() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'codigo'
                         if (editing) return (
@@ -1350,7 +1359,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     </td>
 
                     {/* Descrição completa */}
-                    <td className="px-2 py-0.5 border border-gray-200">
+                    <td className="px-2 py-1 border border-gray-200">
                       {(() => {
                         const editing = editingCell?.id === nodo.id && editingCell?.field === 'descricao'
                         if (editing) return (
@@ -1367,12 +1376,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     </td>
 
                     {/* Unidade (só folhas) */}
-                    <td className="px-2 py-0.5 text-center border border-gray-200">
+                    <td className="px-2 py-1 text-center border border-gray-200">
                       {!isGroup && textCell(nodo, 'unidade', <span>{nodo.unidade ?? ''}</span>, 'text-center w-14')}
                     </td>
 
                     {/* Qtde. (só folhas) */}
-                    <td className="px-2 py-0.5 text-right border border-gray-200">
+                    <td className="px-2 py-1 text-right border border-gray-200">
                       {!isGroup && numCell(nodo, 'quantidade',
                         nodo.quantidade != null && nodo.quantidade > 0
                           ? <span className="tabular-nums">{nodo.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</span>
@@ -1381,7 +1390,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     </td>
 
                     {/* Custo Unitário (só folhas; bloqueado se o código for uma composição) */}
-                    <td className="px-2 py-0.5 text-right border border-gray-200 relative">
+                    <td className="px-2 py-1 text-right border border-gray-200 relative">
                       {!isGroup && numCell(nodo, 'custo_unitario',
                         nodo.custo_unitario != null && nodo.custo_unitario > 0
                           ? (
@@ -1405,16 +1414,17 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       )}
                     </td>
 
-                    {/* Total Custo Unitário */}
-                    <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
+                    {/* Total Custo Unitário — mesma regra da descrição: negrito só no
+                        primeiro nível, não em todo item/subgrupo com total > 0. */}
+                    <td className="px-2 py-1 text-right tabular-nums border border-gray-200">
                       {nodo.total > 0
-                        ? <span className="font-semibold text-gray-900">{BRL(nodo.total)}</span>
+                        ? <span className={`text-gray-900 ${depth === 0 ? 'font-bold' : 'font-normal'}`}>{BRL(nodo.total)}</span>
                         : <span className="text-gray-300">0</span>}
                     </td>
 
                     {/* % BDI (só folhas, só no modelo de acréscimo BDI) */}
                     {usaBdi && (
-                      <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
+                      <td className="px-2 py-1 text-right tabular-nums border border-gray-200">
                         {!isGroup && (() => {
                           const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
                           const bdiEfetivo = nodo.bdi_especifico ?? bdiGlobal
@@ -1453,10 +1463,10 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       }
                       return (
                         <>
-                          <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200 text-gray-500">
+                          <td className="px-2 py-1 text-right tabular-nums border border-gray-200 text-gray-500">
                             {!isGroup && nodo.total > 0 ? `${pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : null}
                           </td>
-                          <td className="px-1 py-0.5 text-center border border-gray-200">
+                          <td className="px-1 py-1 text-center border border-gray-200">
                             {abc ? <span className={`inline-block px-1.5 rounded text-[10px] ${CLS[abc.classe]}`}>{abc.classe}</span> : null}
                           </td>
                         </>
@@ -1464,7 +1474,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     })()}
 
                     {/* Ações — visíveis só no hover */}
-                    <td className="px-1 py-0.5 border border-gray-200">
+                    <td className="px-1 py-1 border border-gray-200">
                       <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setAddingParentId(addingHere ? undefined : nodo.id)}
                           title="Adicionar sub-item"
