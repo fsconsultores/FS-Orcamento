@@ -70,10 +70,24 @@ function getClasse(acc: number): 'A' | 'B' | 'C' {
 }
 
 export function calcularCurvaAbc(
-  items: { codigo: string | null; descricao: string; unidade: string | null; quantidade: number; custo_unitario: number }[]
+  items: {
+    codigo: string | null
+    descricao: string
+    unidade: string | null
+    quantidade: number
+    custo_unitario: number
+    /**
+     * Valor já calculado a ser usado no ranking/percentuais, no lugar de
+     * `quantidade × custo_unitario` — usado quando o valor considerado (ex.:
+     * com BDI aplicado) não é uma simples multiplicação dos dois campos de
+     * exibição, mas `quantidade`/`custo_unitario` continuam mostrando o
+     * valor real/bruto do item (ver buildAbcBase em curva-abc.ts).
+     */
+    valor_total?: number
+  }[]
 ): AbcItem[] {
   const comValor = items
-    .map(i => ({ ...i, valor_total: i.quantidade * i.custo_unitario }))
+    .map(i => ({ ...i, valor_total: i.valor_total ?? i.quantidade * i.custo_unitario }))
     .filter(i => i.valor_total > 0)
 
   comValor.sort((a, b) => b.valor_total - a.valor_total)
@@ -102,6 +116,15 @@ export interface EstruturaItemBasico {
   unidade: string | null
   quantidade: number | null
   custo_unitario: number | null
+  /**
+   * BDI efetivo deste item, já resolvido pelo chamador: `bdi_especifico do
+   * item ?? bdi_global da planilha ?? bdi_global do orçamento` — mesma
+   * cadeia de fallback usada por getCadernoData() pra calcular "(A) Total
+   * Orçado". A Curva ABC usa essa mesma base (valor com BDI aplicado) pra
+   * não divergir do Total Orçado do Caderno — 0 quando o orçamento não usa
+   * BDI (ver bdiEfetivo em modelo-acrescimo.ts).
+   */
+  bdiPercentual: number
 }
 
 export interface ComposicaoBasica {
@@ -135,12 +158,22 @@ interface InsumoAccum {
   custo_unitario: number
   quantidade: number
   grupo: string | null
+  /** Valor com BDI já aplicado — ver comentário de EstruturaItemBasico.bdiPercentual. */
+  valorComBdi: number
+}
+
+function bdiFactor(bdiPercentual: number): number {
+  return 1 + bdiPercentual / 100
 }
 
 /**
  * Monta o split Serviços × mapa-base de Insumos (antes do ranking ABC), para
  * ser reaproveitado tanto pelo cálculo combinado (computeAbcCurves) quanto
- * pelo cálculo por categoria (computeAbcCurvesPorCategoria).
+ * pelo cálculo por categoria (computeAbcCurvesPorCategoria). `quantidade`/
+ * `custo_unitario` nos resultados continuam sendo os valores reais/brutos
+ * (pra exibição) — o valor usado no ranking/percentuais (`valorComBdi`, via
+ * `calcularCurvaAbc`'s `valor_total`) é que carrega o BDI de cada item de
+ * origem, pra bater com "(A) Total Orçado" do Caderno (mesma base).
  */
 function buildAbcBase(
   estItems: EstruturaItemBasico[],
@@ -162,16 +195,18 @@ function buildAbcBase(
   const directInsumoItems = estItems.filter(item => !item.codigo || !compCodesSet.has(item.codigo))
 
   // ABC de Serviços
-  const compMap = new Map<string, { descricao: string; unidade: string | null; quantidade: number; custo_unitario: number }>()
+  const compMap = new Map<string, { descricao: string; unidade: string | null; quantidade: number; custo_unitario: number; valorComBdi: number }>()
   for (const item of compItems) {
     const key = item.codigo ?? `__nocode__${item.descricao}`
     const qty = item.quantidade ?? 0
     const cu = item.custo_unitario ?? 0
+    const valorComBdi = qty * cu * bdiFactor(item.bdiPercentual)
     const existing = compMap.get(key)
     if (existing) {
       existing.quantidade += qty
+      existing.valorComBdi += valorComBdi
     } else {
-      compMap.set(key, { descricao: item.descricao, unidade: item.unidade, quantidade: qty, custo_unitario: cu })
+      compMap.set(key, { descricao: item.descricao, unidade: item.unidade, quantidade: qty, custo_unitario: cu, valorComBdi })
     }
   }
 
@@ -182,21 +217,32 @@ function buildAbcBase(
       unidade: d.unidade,
       quantidade: d.quantidade,
       custo_unitario: d.custo_unitario,
+      valor_total: d.valorComBdi,
     }))
   )
 
-  // ABC de Insumos
+  // ABC de Insumos — compQtyByCode segue guardando a quantidade REAL (usada
+  // pra exibição, quantidade "física" da composição consumida); compPesoByCode
+  // acumula em paralelo Σ(qty × fatorBdi) do mesmo código, só pra derivar o
+  // fator de BDI médio ponderado que cada insumo decomposto deve herdar (uma
+  // composição pode ser usada em mais de um item da planilha, cada um com seu
+  // próprio bdi_especifico).
   const compQtyByCode = new Map<string, number>()
+  const compPesoByCode = new Map<string, number>()
   for (const item of compItems) {
     if (item.codigo) {
-      compQtyByCode.set(item.codigo, (compQtyByCode.get(item.codigo) ?? 0) + (item.quantidade ?? 0))
+      const qty = item.quantidade ?? 0
+      compQtyByCode.set(item.codigo, (compQtyByCode.get(item.codigo) ?? 0) + qty)
+      compPesoByCode.set(item.codigo, (compPesoByCode.get(item.codigo) ?? 0) + qty * bdiFactor(item.bdiPercentual))
     }
   }
 
-  // Propaga quantidades por composições aninhadas: quando uma composição usada
-  // na planilha (qtyComp > 0) tem, entre seus sub-itens, o código de OUTRA
-  // composição (sub-composição), a quantidade efetiva desta também deve
-  // considerar essa demanda (qtyComp_pai × índice), e assim recursivamente.
+  // Propaga quantidades (e o peso de BDI, na mesma proporção) por composições
+  // aninhadas: quando uma composição usada na planilha (qtyComp > 0) tem,
+  // entre seus sub-itens, o código de OUTRA composição (sub-composição), a
+  // quantidade efetiva desta também deve considerar essa demanda (qtyComp_pai
+  // × índice), e assim recursivamente — o peso de BDI escala pelo mesmo
+  // índice, preservando o fator médio ponderado em cada nível.
   const compChildren = new Map<string, { childCodigo: string; indice: number }[]>()
   for (const ins of allInsumos) {
     if (!ins.composicao_id || !compCodesSet.has(ins.codigo)) continue
@@ -206,20 +252,22 @@ function buildAbcBase(
     children.push({ childCodigo: ins.codigo, indice: ins.indice })
     compChildren.set(parentCodigo, children)
   }
-  const propagacaoQueue: [string, number][] = []
+  const propagacaoQueue: [string, number, number][] = []
   for (const [codigo, qty] of compQtyByCode.entries()) {
-    if (qty > 0) propagacaoQueue.push([codigo, qty])
+    if (qty > 0) propagacaoQueue.push([codigo, qty, compPesoByCode.get(codigo) ?? qty])
   }
   let propagacaoIter = 0
   while (propagacaoQueue.length > 0 && propagacaoIter < 100000) {
     propagacaoIter++
-    const [codigo, qty] = propagacaoQueue.shift()!
+    const [codigo, qty, peso] = propagacaoQueue.shift()!
     for (const { childCodigo, indice } of compChildren.get(codigo) ?? []) {
       if (childCodigo === codigo) continue
       const addQty = qty * indice
+      const addPeso = peso * indice
       if (addQty === 0) continue
       compQtyByCode.set(childCodigo, (compQtyByCode.get(childCodigo) ?? 0) + addQty)
-      propagacaoQueue.push([childCodigo, addQty])
+      compPesoByCode.set(childCodigo, (compPesoByCode.get(childCodigo) ?? 0) + addPeso)
+      propagacaoQueue.push([childCodigo, addQty, addPeso])
     }
   }
 
@@ -238,8 +286,10 @@ function buildAbcBase(
     })
     if (matches.length === 1) {
       const m = matches[0]
-      compQtyByCode.set(c.codigo, m.quantidade ?? 0)
-      compMap.set(c.codigo, { descricao: m.descricao, unidade: m.unidade, quantidade: m.quantidade ?? 0, custo_unitario: m.custo_unitario ?? 0 })
+      const qty = m.quantidade ?? 0
+      compQtyByCode.set(c.codigo, qty)
+      compPesoByCode.set(c.codigo, qty * bdiFactor(m.bdiPercentual))
+      compMap.set(c.codigo, { descricao: m.descricao, unidade: m.unidade, quantidade: qty, custo_unitario: m.custo_unitario ?? 0, valorComBdi: qty * (m.custo_unitario ?? 0) * bdiFactor(m.bdiPercentual) })
     }
   }
 
@@ -264,6 +314,7 @@ function buildAbcBase(
     if (!compCodigo) continue
     const qtyComp = compQtyByCode.get(compCodigo) ?? 0
     if (qtyComp === 0) continue
+    const pesoComp = compPesoByCode.get(compCodigo) ?? qtyComp
 
     // Quando a descrição do sub-insumo é apenas uma cópia do rótulo (curto/
     // desatualizado) da própria composição, usamos a descrição do item da
@@ -274,15 +325,18 @@ function buildAbcBase(
     const custoEfetivo = precoMap.has(ins.codigo) ? precoMap.get(ins.codigo)! : ins.custo
 
     const qtdUsada = ins.indice * qtyComp
+    const valorComBdiUsado = ins.indice * custoEfetivo * pesoComp
     const existing = insumoMap.get(ins.codigo)
     if (existing) {
       existing.quantidade += qtdUsada
+      existing.valorComBdi += valorComBdiUsado
     } else {
       insumoMap.set(ins.codigo, {
         descricao,
         unidade: ins.unidade,
         custo_unitario: custoEfetivo,
         quantidade: qtdUsada,
+        valorComBdi: valorComBdiUsado,
         grupo: ins.grupo ?? grupoAvulsoPorCodigo.get(ins.codigo) ?? null,
       })
     }
@@ -305,15 +359,18 @@ function buildAbcBase(
     }
     const qty = item.quantidade ?? 0
     const custo = item.custo_unitario ?? 0
+    const valorComBdi = qty * custo * bdiFactor(item.bdiPercentual)
     const existing = insumoMap.get(key)
     if (existing) {
       existing.quantidade += qty
+      existing.valorComBdi += valorComBdi
     } else {
       insumoMap.set(key, {
         descricao: item.descricao,
         unidade: item.unidade,
         custo_unitario: custo,
         quantidade: qty,
+        valorComBdi,
         grupo: grupoAvulsoPorCodigo.get(key) ?? null,
       })
     }
@@ -346,6 +403,7 @@ export function computeAbcCurves(
         unidade: d.unidade,
         quantidade: d.quantidade,
         custo_unitario: d.custo_unitario,
+        valor_total: d.valorComBdi,
       }))
   )
 
@@ -400,7 +458,16 @@ export function computeAbcCurvaUnica(
   for (const [k, d] of entries) categoriaPorCodigo.set(k, classificarCategoriaAbc(d.grupo))
 
   const geral = calcularCurvaAbc(
-    entries.map(([k, d]) => ({ codigo: k, descricao: d.descricao, unidade: d.unidade, quantidade: d.quantidade, custo_unitario: d.custo_unitario }))
+    entries.map(([k, d]) => ({
+      // Chave interna pra itens sem código real (ver directInsumoItems em
+      // buildAbcBase) — nunca deve aparecer como "código" na tela.
+      codigo: k.startsWith('__nocode__') ? null : k,
+      descricao: d.descricao,
+      unidade: d.unidade,
+      quantidade: d.quantidade,
+      custo_unitario: d.custo_unitario,
+      valor_total: d.valorComBdi,
+    }))
   )
 
   return geral.map(item => ({

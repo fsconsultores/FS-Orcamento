@@ -782,9 +782,11 @@ export async function getCadernoData(
   }
 
   // ── Curva ABC (Insumos / Serviços) ────────────────────────────────────────────
+  // bdiPercentual reaproveita fatorBdiDoItem — mesma cadeia de fallback do
+  // Total Orçado (A) acima, pra Curva ABC nunca divergir dele por causa do BDI.
   const estItemsAbc: EstruturaItemBasico[] = estItems
     .filter(i => i.tipo === 'item' && !idsEstimados.has(i.id))
-    .map(i => ({ codigo: i.codigo, descricao: i.descricao, unidade: i.unidade, quantidade: i.quantidade, custo_unitario: i.custo_unitario }))
+    .map(i => ({ codigo: i.codigo, descricao: i.descricao, unidade: i.unidade, quantidade: i.quantidade, custo_unitario: i.custo_unitario, bdiPercentual: (fatorBdiDoItem(i) - 1) * 100 }))
   const insumosAvulsos: InsumoAvulsoBasico[] = todosInsumos
     .filter(ins => ins.composicao_id === null)
     .map(ins => ({ codigo: ins.codigo ?? '', descricao: ins.descricao ?? '', custo: ins.custo ?? 0 }))

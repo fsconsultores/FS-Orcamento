@@ -471,10 +471,10 @@ export function CurvaAbcView({
                   ) : (
                     <span
                       onClick={() => item.codigo && setEditandoCodigo(item.codigo)}
-                      className={`block tabular-nums ${item.codigo ? 'cursor-pointer hover:underline decoration-dotted' : ''} ${salvandoCodigo === item.codigo ? 'text-gray-400' : 'text-gray-700'}`}
+                      className={`block tabular-nums ${item.codigo ? 'cursor-pointer hover:underline decoration-dotted' : ''} ${item.codigo && salvandoCodigo === item.codigo ? 'text-gray-400' : 'text-gray-700'}`}
                       title={item.codigo ? 'Clique para editar' : undefined}
                     >
-                      {salvandoCodigo === item.codigo ? '…' : fmt(item.custo_unitario)}
+                      {item.codigo && salvandoCodigo === item.codigo ? '…' : fmt(item.custo_unitario)}
                     </span>
                   )}
                 </Td>
