@@ -14,6 +14,12 @@ export type OrcRow = {
   is_favorito?: boolean;
   is_modelo?: boolean;
   user_id: string;
+  grupo_id?: string;
+  numero_revisao?: number;
+  /** Quantas revisões a família deste orçamento tem — presente só na linha
+   * representante (a de maior numero_revisao) depois do agrupamento em
+   * fetchOrcamentos; undefined/1 = orçamento sem outras revisões. */
+  revisaoCount?: number;
 };
 
 export interface OrcamentosFilters {

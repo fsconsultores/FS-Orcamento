@@ -18,7 +18,7 @@ export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<Orcam
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, modelo_acrescimo, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, is_modelo, user_id')
+    .select('id, nome_obra, cliente, data, bdi_global, modelo_acrescimo, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, is_modelo, user_id, grupo_id, numero_revisao')
     .eq('is_modelo', modelosAtivo)
     .order('is_favorito', { ascending: false })
     .order('created_at', { ascending: false, nullsFirst: false })
@@ -40,11 +40,33 @@ export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<Orcam
   const idsComVersao = new Set(
     ((rawVersoes?.data ?? []) as { orcamento_id: string }[]).map((v) => v.orcamento_id)
   );
-  const orcamentos = (
+  const orcamentosFiltrados = (
     semVersaoAtivo
       ? ((rawOrc?.data ?? []) as OrcRow[]).filter((o) => !idsComVersao.has(o.id))
       : (rawOrc?.data ?? [])
   ) as OrcRow[];
+
+  // Uma família de revisões (mesmo grupo_id) aparece só uma vez na lista —
+  // a linha da revisão mais recente, com um contador de quantas existem.
+  // "grupo_id" pode não vir ainda se a migração de revisões não tiver sido
+  // aplicada neste banco — cada orçamento vira seu próprio grupo de 1 nesse caso.
+  const porGrupo = new Map<string, OrcRow[]>();
+  for (const o of orcamentosFiltrados) {
+    const chave = o.grupo_id ?? o.id;
+    const lista = porGrupo.get(chave) ?? [];
+    lista.push(o);
+    porGrupo.set(chave, lista);
+  }
+  // Representante de cada grupo = maior numero_revisao. Posição no resultado
+  // = posição do PRIMEIRO membro do grupo na ordem já vinda da query
+  // (favorito/created_at/id) — preserva a ordenação original sem precisar
+  // reordenar pelo representante (que pode não ser o primeiro a aparecer).
+  const orcamentos: OrcRow[] = [];
+  for (const membros of porGrupo.values()) {
+    const representante = membros.reduce((a, b) => ((b.numero_revisao ?? 1) > (a.numero_revisao ?? 1) ? b : a));
+    orcamentos.push(membros.length > 1 ? { ...representante, revisaoCount: membros.length } : representante);
+  }
+
   const totaisMap = Object.fromEntries(
     ((rawTot?.data ?? []) as { orcamento_id: string; total_com_bdi: number }[])
       .map((t) => [t.orcamento_id, t.total_com_bdi])

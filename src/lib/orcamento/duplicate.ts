@@ -257,6 +257,37 @@ async function clonarTaxaAdministracaoItens(sb: any, fromId: string, toId: strin
   if (error) console.error('[dup] taxa_administracao_itens:', error)
 }
 
+async function clonarServicosEstimados(sb: any, fromId: string, toId: string): Promise<void> {
+  const { data: servicos } = await sb
+    .from('orcamento_servicos_estimados')
+    .select('descricao, valor, ordem')
+    .eq('orcamento_id', fromId)
+    .order('ordem')
+  if (!servicos?.length) return
+
+  const { error } = await sb
+    .from('orcamento_servicos_estimados')
+    .insert(servicos.map((s: any) => ({ orcamento_id: toId, descricao: s.descricao, valor: s.valor, ordem: s.ordem })))
+  if (error) console.error('[dup] servicos_estimados:', error)
+}
+
+async function clonarPavimentos(sb: any, fromId: string, toId: string): Promise<void> {
+  const { data: pavimentos } = await sb
+    .from('orcamento_pavimentos')
+    .select('descricao, unidade, area_total, area_equivalente, area_coberta, ordem')
+    .eq('orcamento_id', fromId)
+    .order('ordem')
+  if (!pavimentos?.length) return
+
+  const { error } = await sb
+    .from('orcamento_pavimentos')
+    .insert(pavimentos.map((p: any) => ({
+      orcamento_id: toId, descricao: p.descricao, unidade: p.unidade,
+      area_total: p.area_total, area_equivalente: p.area_equivalente, area_coberta: p.area_coberta, ordem: p.ordem,
+    })))
+  if (error) console.error('[dup] pavimentos:', error)
+}
+
 export type DuplicateResult = {
   id: string
   nome_obra: string
@@ -270,10 +301,18 @@ export type DuplicateResult = {
 }
 
 /**
- * Pipeline de clonagem de conteúdo (planilhas, estrutura, itens legados,
- * composições e insumos) de um orçamento pra outro — compartilhado entre
- * duplicarOrcamento e criarOrcamentoAPartirDeModelo. `toId` já precisa
- * existir em tabela_orcamentos.
+ * Pipeline de clonagem de conteúdo — planilhas, estrutura, itens legados,
+ * composições, insumos, levantamentos, taxa de administração, serviços
+ * estimados e pavimentos — de um orçamento pra outro. Único pipeline de
+ * clonagem do sistema (antes havia um segundo, parcial, em versoes.ts —
+ * capturarSnapshot/aplicarSnapshot; este aqui passou a cobrir a união
+ * completa das duas listas, ver auditoria de revisões). Compartilhado entre
+ * duplicarOrcamento, criarOrcamentoAPartirDeModelo e criarRevisao. `toId` já
+ * precisa existir em tabela_orcamentos.
+ *
+ * Deliberadamente NÃO clona orcamento_insumo_cotacoes (histórico de
+ * negociação/fornecedor, não estado do orçamento) nem historico_alteracoes
+ * (o log de auditoria de uma cópia nova começa vazio, por design).
  */
 async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<void> {
   // Planilhas precisa vir antes da estrutura (a estrutura remapeia planilha_id).
@@ -285,6 +324,8 @@ async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<vo
     clonarComposicoes(sb, fromId, toId),
     clonarLevantamentos(sb, fromId, toId),
     clonarTaxaAdministracaoItens(sb, fromId, toId),
+    clonarServicosEstimados(sb, fromId, toId),
+    clonarPavimentos(sb, fromId, toId),
   ])
   await clonarInsumos(sb, fromId, toId, compIdMap)
 }
@@ -391,4 +432,92 @@ export async function criarOrcamentoAPartirDeModelo(
     ultimo_acesso: null,
     itemCount: 0,
   }
+}
+
+export type RevisaoResult = {
+  id: string
+  nome_obra: string
+  numero_revisao: number
+  grupo_id: string
+}
+
+/**
+ * Cria uma nova revisão a partir de um orçamento existente: cópia completa e
+ * independente (mesmo pipeline de clonagem de duplicarOrcamento — nenhum
+ * dado editável é compartilhado com a origem, cada linha nasce com id novo),
+ * mas pertencendo à MESMA família (grupo_id) da origem, com numero_revisao
+ * seguinte.
+ *
+ * Diferente de duplicarOrcamento (gera "Cópia de X", um projeto novo e sem
+ * relação nenhuma com o original) — aqui nome/código/cliente/áreas/numeração
+ * permanecem idênticos à origem, porque é a MESMA obra, só uma revisão nova
+ * dela. O usuário edita a partir daí sem afetar nenhuma outra revisão.
+ */
+export async function criarRevisao(
+  sb: any,
+  userId: string,
+  userEmail: string | null,
+  orcamentoOrigemId: string,
+): Promise<RevisaoResult> {
+  const { data: orig, error: errOrig } = await sb
+    .from('tabela_orcamentos')
+    .select('nome_obra, cliente, data, bdi_global, modelo_acrescimo, codigo, grupo_id, area_total, area_coberta, area_equivalente, local, numeracao_digitos, categorias_grafico')
+    .eq('id', orcamentoOrigemId)
+    .single()
+  if (errOrig || !orig) throw new Error(`Orçamento não encontrado: ${errOrig?.message ?? ''}`)
+
+  const grupoId = orig.grupo_id ?? orcamentoOrigemId
+
+  const { data: irmaos, error: errIrmaos } = await sb
+    .from('tabela_orcamentos')
+    .select('numero_revisao')
+    .eq('grupo_id', grupoId)
+    .order('numero_revisao', { ascending: false })
+    .limit(1)
+  if (errIrmaos) throw new Error(`Erro ao verificar revisões existentes: ${errIrmaos.message}`)
+  const proximoNumero = (irmaos?.[0]?.numero_revisao ?? 0) + 1
+
+  const { data: novo, error: novoErr } = await sb
+    .from('tabela_orcamentos')
+    .insert({
+      user_id: userId,
+      nome_obra: orig.nome_obra,
+      cliente: orig.cliente,
+      data: orig.data,
+      bdi_global: orig.bdi_global,
+      modelo_acrescimo: orig.modelo_acrescimo,
+      codigo: orig.codigo,
+      grupo_id: grupoId,
+      numero_revisao: proximoNumero,
+      origem_orcamento_id: orcamentoOrigemId,
+      criado_por_email: userEmail,
+      area_total: orig.area_total,
+      area_coberta: orig.area_coberta,
+      area_equivalente: orig.area_equivalente,
+      local: orig.local,
+      numeracao_digitos: orig.numeracao_digitos,
+      categorias_grafico: orig.categorias_grafico,
+    })
+    .select('id')
+    .single()
+  if (novoErr) throw new Error(`Erro ao criar revisão: ${novoErr.message}`)
+  const novoId = novo.id as string
+
+  try {
+    await clonarConteudo(sb, orcamentoOrigemId, novoId)
+
+    const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
+    if (planilhasNovas?.length) {
+      await persistirTotaisPlanilha(sb, novoId, planilhasNovas.map((p: { id: string }) => p.id))
+    }
+  } catch (e) {
+    // Sem transação de banco cobrindo os passos acima — uma falha no meio do
+    // clone não pode deixar uma revisão pela metade na lista: apaga o que foi
+    // criado (cascade cuida de planilhas/estrutura/composições/insumos já
+    // inseridos). Mesma rede de segurança de criarOrcamentoDeVersao.
+    await sb.from('tabela_orcamentos').delete().eq('id', novoId)
+    throw e
+  }
+
+  return { id: novoId, nome_obra: orig.nome_obra, numero_revisao: proximoNumero, grupo_id: grupoId }
 }

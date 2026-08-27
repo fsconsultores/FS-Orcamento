@@ -20,7 +20,7 @@ const TABS = [
   { suffix: 'estimados', label: 'Estimados' },
   { suffix: 'relatorios', label: 'Relatórios' },
   { suffix: 'importar', label: 'Importar' },
-  { suffix: 'versoes', label: 'Versões' },
+  { suffix: 'versoes', label: 'Revisões' },
   { suffix: 'configuracoes', label: 'Configurações' },
   { suffix: 'logs', label: 'Logs' },
 ]

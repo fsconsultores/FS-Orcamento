@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTransition, useState, useEffect } from 'react';
 import { Plus, Pencil, Copy, Trash2, FolderPlus } from 'lucide-react';
@@ -31,6 +32,7 @@ type OrcRow = {
   is_favorito?: boolean;
   is_modelo?: boolean;
   user_id: string;
+  revisaoCount?: number;
 };
 
 interface Props {
@@ -459,7 +461,21 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
                     {!isPending && <FavoriteButton entityType="orcamento" entityId={orc.id} initialFavorito={!!orc.is_favorito} />}
                   </Td>
                   <Td className="font-mono text-xs text-gray-500"><HighlightMatch text={orc.codigo} query={query} /></Td>
-                  <Td className="font-medium text-gray-900"><HighlightMatch text={orc.nome_obra} query={query} /></Td>
+                  <Td className="font-medium text-gray-900">
+                    <span className="inline-flex items-center gap-1.5">
+                      <HighlightMatch text={orc.nome_obra} query={query} />
+                      {!!orc.revisaoCount && orc.revisaoCount > 1 && (
+                        <Link
+                          href={`/orcamentos/${orc.id}/versoes`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-100"
+                          title="Ver todas as revisões"
+                        >
+                          {orc.revisaoCount} revisões
+                        </Link>
+                      )}
+                    </span>
+                  </Td>
                   <Td className="text-gray-600">{orc.cliente ? <HighlightMatch text={orc.cliente} query={query} /> : '—'}</Td>
                   <Td className="text-gray-500">{formatDateTime(createdAtCache[orc.id] ?? orc.created_at)}</Td>
                   <Td>
