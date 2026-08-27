@@ -6,6 +6,9 @@ import { salvarConfiguracoes } from './configuracoes-action'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, sugerirCategoria } from '@/lib/orcamento/categorias-grafico'
 import { Input } from '@/components/ui/input'
 import { Button, IconButton } from '@/components/ui/button'
+import { type ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
+import { ModeloAcrescimoSelect } from '../../modelo-acrescimo-select'
+import { TaxaAdministracaoItensEditor, type TaxaAdministracaoItemForm } from '../../taxa-administracao-itens-editor'
 
 const MIN_NIVEIS = 1
 const MAX_NIVEIS = 6
@@ -55,7 +58,8 @@ interface PavimentoForm {
 }
 
 export function ConfiguracoesView({
-  orcamentoId, nomeObra, codigo, cliente, local, dataOrcamento, bdiGlobal,
+  orcamentoId, nomeObra, codigo, cliente, local, dataOrcamento, bdiGlobal, modeloAcrescimo,
+  taxaAdministracaoItens,
   areaTotal, areaCoberta, areaEquivalente, numeracaoDigitos, servicosEstimados, pavimentos,
   gruposNivel1, categoriasGrafico,
 }: {
@@ -66,6 +70,8 @@ export function ConfiguracoesView({
   local: string
   dataOrcamento: string
   bdiGlobal: number
+  modeloAcrescimo: ModeloAcrescimo
+  taxaAdministracaoItens: { id?: string; descricao: string; percentual: number }[]
   areaTotal: number | null
   areaCoberta: number | null
   areaEquivalente: number | null
@@ -86,6 +92,10 @@ export function ConfiguracoesView({
     area_coberta: areaCoberta != null ? String(areaCoberta) : '',
     area_equivalente: areaEquivalente != null ? String(areaEquivalente) : '',
   })
+  const [modelo, setModelo] = useState<ModeloAcrescimo>(modeloAcrescimo)
+  const [taxaItens, setTaxaItens] = useState<TaxaAdministracaoItemForm[]>(
+    taxaAdministracaoItens.map(it => ({ id: it.id, descricao: it.descricao, percentual: String(it.percentual) }))
+  )
   const [servicos, setServicos] = useState<ServicoEstimadoForm[]>(
     servicosEstimados.map(s => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
   )
@@ -108,6 +118,16 @@ export function ConfiguracoesView({
 
   function update(field: keyof typeof form, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
+    setSalvo(false)
+  }
+
+  function updateModelo(value: ModeloAcrescimo) {
+    setModelo(value)
+    setSalvo(false)
+  }
+
+  function updateTaxaItens(itens: TaxaAdministracaoItemForm[]) {
+    setTaxaItens(itens)
     setSalvo(false)
   }
 
@@ -165,8 +185,18 @@ export function ConfiguracoesView({
   function handleSalvar() {
     setErro(null)
     if (!form.nome_obra.trim()) { setErro('Informe o nome da obra.'); return }
+    // Fora do modo BDI, o percentual digitado é ignorado — o campo nem aparece.
     const bdi = parseFloat(form.bdi_global.replace(',', '.'))
-    if (isNaN(bdi) || bdi < 0) { setErro('BDI global inválido.'); return }
+    if (modelo === 'bdi' && (isNaN(bdi) || bdi < 0)) { setErro('BDI global inválido.'); return }
+
+    // Mesmo raciocínio: só validamos/usamos os subgrupos quando o modelo
+    // ativo realmente é Taxa de Administração — o editor nem aparece fora dele.
+    const taxaItensValidos = taxaItens
+      .map(it => ({ id: it.id, descricao: it.descricao.trim(), percentual: parseFloat(it.percentual.replace(',', '.')) }))
+      .filter(it => it.descricao)
+    if (modelo === 'taxa_administracao' && taxaItensValidos.some(it => isNaN(it.percentual) || it.percentual < 0)) {
+      setErro('Percentual de Taxa de Administração inválido.'); return
+    }
 
     const servicosValidos = servicos
       .map(s => ({ descricao: s.descricao.trim(), valor: parseFloat(s.valor.replace(',', '.')) || 0 }))
@@ -191,7 +221,9 @@ export function ConfiguracoesView({
           cliente: form.cliente.trim() || null,
           local: form.local.trim() || null,
           data: form.data,
-          bdi_global: bdi,
+          bdi_global: isNaN(bdi) ? 0 : bdi,
+          modelo_acrescimo: modelo,
+          taxa_administracao_itens: modelo === 'taxa_administracao' ? taxaItensValidos : [],
           area_total: form.area_total ? parseFloat(form.area_total.replace(',', '.')) : null,
           area_coberta: form.area_coberta ? parseFloat(form.area_coberta.replace(',', '.')) : null,
           area_equivalente: form.area_equivalente ? parseFloat(form.area_equivalente.replace(',', '.')) : null,
@@ -223,7 +255,21 @@ export function ConfiguracoesView({
       </SettingsCard>
 
       <SettingsCard title="BDI e Numeração" icon={<Hash size={16} />}>
-        <Input type="number" min="0" step="0.01" label="BDI global (%)" className="max-w-40" value={form.bdi_global} onChange={e => update('bdi_global', e.target.value)} />
+        <ModeloAcrescimoSelect value={modelo} onChange={updateModelo} />
+
+        {modelo === 'bdi' && (
+          <Input type="number" min="0" step="0.01" label="BDI global (%)" className="max-w-40" value={form.bdi_global} onChange={e => update('bdi_global', e.target.value)} />
+        )}
+
+        {modelo === 'taxa_administracao' && (
+          <TaxaAdministracaoItensEditor itens={taxaItens} onChange={updateTaxaItens} />
+        )}
+
+        {modelo === 'sem_taxa' && (
+          <p className="text-xs text-gray-400">
+            Nenhum acréscimo será aplicado sobre o custo direto deste orçamento.
+          </p>
+        )}
 
         <div className="border-t border-gray-100 pt-4 space-y-3">
           <div>

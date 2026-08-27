@@ -61,11 +61,22 @@ const LEAF_FIELDS_COMPOSICAO = ['codigo', 'descricao', 'unidade', 'quantidade', 
 const GROUP_FIELDS = ['descricao'] as const
 
 // custo_unitario nunca é editável quando o código do item é uma composição —
-// o valor é sempre calculado a partir dos insumos utilizados.
-export function editableFields(nodo: { filhos: unknown[]; codigo: string | null }, composicaoCodigos: Set<string>): readonly string[] {
-  if (nodo.filhos.length > 0) return GROUP_FIELDS
-  if (nodo.codigo && composicaoCodigos.has(nodo.codigo)) return LEAF_FIELDS_COMPOSICAO
-  return LEAF_FIELDS
+// o valor é sempre calculado a partir dos insumos utilizados. bdi_especifico
+// só é editável no modelo de acréscimo BDI — nos outros dois modos a coluna
+// nem aparece na grid (ver planilha-view.tsx), então não pode ser um destino
+// válido de navegação por teclado (Tab/Enter entre células). Nenhum campo é
+// editável no grupo/itens "Taxa de Administração" auto-gerenciados
+// (eh_taxa_administracao) — o grupo inteiro é recriado do zero a cada
+// mudança nos demais itens (sincronizarItensTaxaAdministracao), então
+// qualquer edição manual (descrição, quantidade, custo) seria descartada na
+// próxima sincronização. Volta a ser editável normalmente quando o item
+// deixa de ser auto-gerenciado (ver aplicarModeloAcrescimo).
+export function editableFields(nodo: { filhos: unknown[]; codigo: string | null; eh_taxa_administracao?: boolean }, composicaoCodigos: Set<string>, usaBdi = true): readonly string[] {
+  if (nodo.eh_taxa_administracao) return []
+  const fields = nodo.filhos.length > 0
+    ? GROUP_FIELDS
+    : nodo.codigo && composicaoCodigos.has(nodo.codigo) ? LEAF_FIELDS_COMPOSICAO : LEAF_FIELDS
+  return usaBdi ? fields : fields.filter(f => f !== 'bdi_especifico')
 }
 
 export function fieldToStr(it: EstruturaItem, field: string): string {

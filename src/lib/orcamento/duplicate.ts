@@ -4,6 +4,9 @@
  * Those concerns live in the server action layer.
  */
 
+import { aplicarModeloAcrescimo, salvarTaxaAdministracaoItens, type ModeloAcrescimo, type TaxaAdministracaoItem } from './modelo-acrescimo'
+import { persistirTotaisPlanilha } from './motor-calculo'
+
 function chunk<T>(arr: T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, (i + 1) * size))
 }
@@ -33,6 +36,7 @@ async function criarNovoOrcamento(
       cliente: orig.cliente ?? null,
       data: orig.data,
       bdi_global: orig.bdi_global,
+      modelo_acrescimo: orig.modelo_acrescimo,
       codigo,
     })
     .select('id')
@@ -74,7 +78,7 @@ async function clonarEstrutura(
 ): Promise<void> {
   const { data: rows } = await sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao')
     .eq('orcamento_id', fromId)
     .order('nivel')
     .order('ordem')
@@ -105,6 +109,7 @@ async function clonarEstrutura(
           bdi_especifico: r.bdi_especifico,
           tipo: r.tipo,
           ordem: r.ordem,
+          eh_taxa_administracao: r.eh_taxa_administracao,
         }))
       )
       .select('id')
@@ -238,12 +243,27 @@ async function clonarLevantamentos(sb: any, fromId: string, toId: string): Promi
   if (itensErr) console.error('[dup] levantamento_itens:', itensErr)
 }
 
+async function clonarTaxaAdministracaoItens(sb: any, fromId: string, toId: string): Promise<void> {
+  const { data: itens } = await sb
+    .from('orcamento_taxa_administracao_itens')
+    .select('descricao, percentual, ordem')
+    .eq('orcamento_id', fromId)
+    .order('ordem')
+  if (!itens?.length) return
+
+  const { error } = await sb
+    .from('orcamento_taxa_administracao_itens')
+    .insert(itens.map((it: any) => ({ orcamento_id: toId, descricao: it.descricao, percentual: it.percentual, ordem: it.ordem })))
+  if (error) console.error('[dup] taxa_administracao_itens:', error)
+}
+
 export type DuplicateResult = {
   id: string
   nome_obra: string
   cliente: string | null
   data: string
   bdi_global: number
+  modelo_acrescimo: ModeloAcrescimo
   codigo: string | null
   ultimo_acesso: string | null
   itemCount: number
@@ -264,6 +284,7 @@ async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<vo
     clonarItens(sb, fromId, toId),
     clonarComposicoes(sb, fromId, toId),
     clonarLevantamentos(sb, fromId, toId),
+    clonarTaxaAdministracaoItens(sb, fromId, toId),
   ])
   await clonarInsumos(sb, fromId, toId, compIdMap)
 }
@@ -276,7 +297,7 @@ export async function duplicarOrcamento(
 ): Promise<DuplicateResult> {
   const { data: orig, error: errOrig } = await sb
     .from('tabela_orcamentos')
-    .select('nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id)')
+    .select('nome_obra, cliente, data, bdi_global, modelo_acrescimo, tabela_itens_orcamento(id)')
     .eq('id', orcamentoId)
     .single()
 
@@ -291,6 +312,7 @@ export async function duplicarOrcamento(
     cliente: orig.cliente ?? null,
     data: orig.data,
     bdi_global: orig.bdi_global,
+    modelo_acrescimo: orig.modelo_acrescimo,
     codigo: novoCodigo,
     ultimo_acesso: null,
     itemCount: (orig.tabela_itens_orcamento as any[])?.length ?? 0,
@@ -302,6 +324,8 @@ export type DadosNovoOrcamentoDeModelo = {
   cliente: string | null
   data: string
   bdi_global: number
+  modelo_acrescimo: ModeloAcrescimo
+  taxa_administracao_itens: TaxaAdministracaoItem[]
   codigo: string
 }
 
@@ -345,12 +369,24 @@ export async function criarOrcamentoAPartirDeModelo(
   const novoId = data.id
   await clonarConteudo(sb, modeloId, novoId)
 
+  // Conteúdo clonado traz bdi_global/bdi_especifico e possíveis subgrupos de
+  // Taxa de Administração do MODELO — sem os passos abaixo, as escolhas do
+  // formulário de criação não seriam respeitadas pelo conteúdo recém-copiado.
+  await salvarTaxaAdministracaoItens(sb, novoId, dados.taxa_administracao_itens)
+  await aplicarModeloAcrescimo(sb, novoId, dados.modelo_acrescimo, dados.bdi_global)
+
+  const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
+  if (planilhasNovas?.length) {
+    await persistirTotaisPlanilha(sb, novoId, planilhasNovas.map((p: { id: string }) => p.id))
+  }
+
   return {
     id: novoId,
     nome_obra: dados.nome_obra,
     cliente: dados.cliente,
     data: dados.data,
     bdi_global: dados.bdi_global,
+    modelo_acrescimo: dados.modelo_acrescimo,
     codigo: dados.codigo,
     ultimo_acesso: null,
     itemCount: 0,

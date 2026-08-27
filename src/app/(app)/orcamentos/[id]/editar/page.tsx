@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ConfirmDialog } from '@/components/ui/modal';
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo';
 
 export default function EditarOrcamentoPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +24,7 @@ export default function EditarOrcamentoPage() {
     area_coberta: '',
     area_equivalente: '',
   });
+  const [modeloAcrescimo, setModeloAcrescimo] = useState<ModeloAcrescimo>('bdi');
   const [servicosEstimados, setServicosEstimados] = useState<{ id?: string; descricao: string; valor: string }[]>([]);
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
 
@@ -48,6 +50,7 @@ export default function EditarOrcamentoPage() {
         area_coberta: data.area_coberta != null ? String(data.area_coberta) : '',
         area_equivalente: data.area_equivalente != null ? String(data.area_equivalente) : '',
       });
+      setModeloAcrescimo(data.modelo_acrescimo ?? 'bdi');
       setServicosEstimados(
         (servicos ?? []).map((s: any) => ({ id: s.id, descricao: s.descricao, valor: String(s.valor) }))
       );
@@ -76,8 +79,10 @@ export default function EditarOrcamentoPage() {
     e.preventDefault();
     setError(null);
     if (!form.nome_obra.trim()) { setError('Informe o nome da obra.'); return; }
+    // Fora do modo BDI o campo fica desabilitado (o modelo de acréscimo em si
+    // só é editável em Configurações) — o valor aqui é sempre o já salvo.
     const bdi = parseFloat(form.bdi_global);
-    if (isNaN(bdi) || bdi < 0) { setError('BDI inválido.'); return; }
+    if (modeloAcrescimo === 'bdi' && (isNaN(bdi) || bdi < 0)) { setError('BDI inválido.'); return; }
 
     const servicosValidos = servicosEstimados
       .map(s => ({ descricao: s.descricao.trim(), valor: parseFloat(s.valor) || 0 }))
@@ -213,14 +218,20 @@ export default function EditarOrcamentoPage() {
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">BDI global (%)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.bdi_global}
-              onChange={(e) => update('bdi_global', e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-            />
+            {modeloAcrescimo === 'bdi' ? (
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.bdi_global}
+                onChange={(e) => update('bdi_global', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            ) : (
+              <p className="text-xs text-gray-400 pt-2">
+                {modeloAcrescimo === 'sem_taxa' ? 'Sem taxa' : 'Taxa de Administração'} — edite em Configurações.
+              </p>
+            )}
           </div>
         </div>
 

@@ -32,8 +32,10 @@ export function gerarAlertas(input: {
     planilhasPorOrcamento.set(p.orcamento_id, arr)
   }
 
+  // Fora do modelo 'bdi', bdi_global=0 é o comportamento CORRETO ("Sem taxa"/
+  // "Taxa de Administração" já forçam isso) — não é "esquecido de configurar".
   const orcamentosSemBdi = orcamentos.filter(o =>
-    (planilhasPorOrcamento.get(o.id) ?? []).some(p => !p.bdi_global)
+    o.modelo_acrescimo === 'bdi' && (planilhasPorOrcamento.get(o.id) ?? []).some(p => !p.bdi_global)
   )
   if (orcamentosSemBdi.length > 0) {
     alertas.push({

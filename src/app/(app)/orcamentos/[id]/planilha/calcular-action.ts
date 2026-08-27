@@ -10,6 +10,7 @@ import {
 } from '@/lib/orcamento/motor-calculo'
 import { createPlanilha, deletePlanilha, updatePlanilha, duplicatePlanilha, getOrCreateDefaultPlanilha } from '@/lib/orcamento/planilhas'
 import { registrarHistorico } from '@/lib/log'
+import { bdiEfetivo, getTaxaAdministracaoItens, sincronizarItensTaxaAdministracao } from '@/lib/orcamento/modelo-acrescimo'
 import type { CalculoResult, ConsistenciaReport } from '@/lib/orcamento/motor-calculo'
 import type { OrcamentoPlanilha, OrfaosDetectados } from '@/lib/orcamento/types'
 
@@ -137,7 +138,24 @@ export async function criarPlanilhaAction(
   bdiGlobal: number
 ): Promise<OrcamentoPlanilha> {
   const supabase = await createClient()
-  return createPlanilha(supabase as any, orcamentoId, nome, bdiGlobal)
+  const sb = supabase as any
+  // Fora do modelo 'bdi' do orçamento, nenhuma planilha pode ter BDI próprio
+  // — sem esse clamp, o formulário de nova planilha (que sempre tem um campo
+  // de BDI livre) furaria a garantia de "sem acréscimo" de Sem taxa/Taxa de
+  // Administração numa planilha isolada.
+  const { data: orc } = await sb.from('tabela_orcamentos').select('modelo_acrescimo').eq('id', orcamentoId).single()
+  const bdi = bdiEfetivo(orc?.modelo_acrescimo ?? 'bdi', bdiGlobal)
+  const planilha = await createPlanilha(sb, orcamentoId, nome, bdi)
+
+  // No modelo Taxa de Administração, toda planilha do orçamento tem seu
+  // próprio grupo auto-gerenciado — sem isso, uma planilha nova ficaria sem
+  // ele até a próxima recomputação de totais que a incluísse.
+  if (orc?.modelo_acrescimo === 'taxa_administracao') {
+    const itensTaxa = await getTaxaAdministracaoItens(sb, orcamentoId)
+    await sincronizarItensTaxaAdministracao(sb, orcamentoId, [planilha.id], itensTaxa)
+  }
+
+  return planilha
 }
 
 export async function renomearPlanilhaAction(
@@ -153,7 +171,11 @@ export async function atualizarBdiPlanilhaAction(
   bdiGlobal: number
 ): Promise<OrcamentoPlanilha> {
   const supabase = await createClient()
-  return updatePlanilha(supabase as any, planilhaId, { bdi_global: bdiGlobal })
+  const sb = supabase as any
+  const { data: planilha } = await sb.from('orcamento_planilhas').select('orcamento_id').eq('id', planilhaId).single()
+  const { data: orc } = await sb.from('tabela_orcamentos').select('modelo_acrescimo').eq('id', planilha?.orcamento_id).single()
+  const bdi = bdiEfetivo(orc?.modelo_acrescimo ?? 'bdi', bdiGlobal)
+  return updatePlanilha(sb, planilhaId, { bdi_global: bdi })
 }
 
 export async function excluirPlanilhaAction(planilhaId: string): Promise<void> {

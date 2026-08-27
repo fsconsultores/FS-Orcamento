@@ -11,6 +11,9 @@ import { createPlanilha } from '@/lib/orcamento/planilhas';
 import { seedLevantamentosPadrao } from '@/lib/orcamento/levantamentos';
 import { listModelosAction, criarOrcamentoDeModeloAction } from '../actions';
 import type { ModeloInfo } from '../actions';
+import { bdiEfetivo, salvarTaxaAdministracaoItens, sincronizarItensTaxaAdministracao, type ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo';
+import { ModeloAcrescimoSelect } from '../modelo-acrescimo-select';
+import { TaxaAdministracaoItensEditor, type TaxaAdministracaoItemForm } from '../taxa-administracao-itens-editor';
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
@@ -23,8 +26,10 @@ export default function NovoOrcamentoPage() {
     cliente: '',
     data: new Date().toISOString().split('T')[0],
     bdi_global: '25',
+    modelo_acrescimo: 'bdi' as ModeloAcrescimo,
     codigo: '0',
   });
+  const [taxaItens, setTaxaItens] = useState<TaxaAdministracaoItemForm[]>([{ descricao: 'Taxa de Administração', percentual: '0' }]);
 
   const [bases, setBases] = useState<BaseInfo[]>([]);
   const [basesSelecionadas, setBasesSelecionadas] = useState<Set<string>>(new Set());
@@ -55,8 +60,12 @@ export default function NovoOrcamentoPage() {
     });
   }
 
-  function update(field: keyof typeof form, value: string) {
+  function update(field: Exclude<keyof typeof form, 'modelo_acrescimo'>, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function updateModeloAcrescimo(value: ModeloAcrescimo) {
+    setForm((prev) => ({ ...prev, modelo_acrescimo: value }));
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -67,15 +76,31 @@ export default function NovoOrcamentoPage() {
       setError('Informe o nome da obra.');
       return;
     }
-    const bdi = parseFloat(form.bdi_global);
-    if (isNaN(bdi) || bdi < 0) {
+    // Fora do modo BDI, o percentual digitado é ignorado (bdiEfetivo força 0)
+    // — só validamos o campo quando ele realmente vai ser usado.
+    const bdiDigitado = parseFloat(form.bdi_global);
+    if (form.modelo_acrescimo === 'bdi' && (isNaN(bdiDigitado) || bdiDigitado < 0)) {
       setError('BDI inválido.');
+      return;
+    }
+    const bdi = bdiEfetivo(form.modelo_acrescimo, bdiDigitado);
+
+    // Mesmo raciocínio do BDI acima: só validamos/usamos os subgrupos da
+    // Taxa de Administração quando esse é o modelo escolhido.
+    const taxaItensValidos = taxaItens
+      .map((it) => ({ descricao: it.descricao.trim(), percentual: parseFloat(it.percentual) }))
+      .filter((it) => it.descricao);
+    if (form.modelo_acrescimo === 'taxa_administracao' && taxaItensValidos.some((it) => isNaN(it.percentual) || it.percentual < 0)) {
+      setError('Percentual de Taxa de Administração inválido.');
       return;
     }
 
     setLoading(true);
     try {
-      const supabase = createClient();
+      // any: tipos gerados (src/lib/supabase/types.ts) estão desatualizados
+      // frente ao schema real (mesmo padrão do resto do projeto) — bdi_global
+      // e modelo_acrescimo abaixo não existem no tipo gerado de tabela_orcamentos.
+      const supabase = createClient() as any;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/login'); return; }
 
@@ -90,6 +115,8 @@ export default function NovoOrcamentoPage() {
           cliente: form.cliente.trim() || null,
           data: form.data,
           bdi_global: bdi,
+          modelo_acrescimo: form.modelo_acrescimo,
+          taxa_administracao_itens: form.modelo_acrescimo === 'taxa_administracao' ? taxaItensValidos : [],
           codigo: form.codigo,
         });
         startTransition(() => {
@@ -107,6 +134,7 @@ export default function NovoOrcamentoPage() {
           cliente: form.cliente.trim() || null,
           data: form.data,
           bdi_global: bdi,
+          modelo_acrescimo: form.modelo_acrescimo,
           codigo: form.codigo,
         })
         .select('id')
@@ -124,7 +152,16 @@ export default function NovoOrcamentoPage() {
 
       // Cria a planilha principal já aqui — sem isso, ela só nasceria de forma
       // preguiçosa quando a tela /planilha fosse aberta pela primeira vez.
-      await createPlanilha(supabase, data.id, 'Planilha Principal', bdi);
+      const planilha = await createPlanilha(supabase, data.id, 'Planilha Principal', bdi);
+
+      // No modo Taxa de Administração, salva os subgrupos e materializa o
+      // grupo auto-gerenciado já na criação — sem isso ele só apareceria na
+      // primeira vez que algo disparasse persistirTotaisPlanilha (ver
+      // sincronizarItensTaxaAdministracao).
+      if (form.modelo_acrescimo === 'taxa_administracao') {
+        await salvarTaxaAdministracaoItens(supabase, data.id, taxaItensValidos);
+        await sincronizarItensTaxaAdministracao(supabase, data.id, [planilha.id], taxaItensValidos);
+      }
 
       // Semeia a lista padrão de áreas de levantamento — orçamento criado a
       // partir de modelo não passa por aqui (já recebe a estrutura clonada
@@ -223,21 +260,23 @@ export default function NovoOrcamentoPage() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <label htmlFor="data" className="text-sm font-medium text-gray-700">
-              Data
-            </label>
-            <input
-              id="data"
-              type="date"
-              value={form.data}
-              onChange={(e) => update('data', e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-            />
-          </div>
+        <div className="space-y-1">
+          <label htmlFor="data" className="text-sm font-medium text-gray-700">
+            Data
+          </label>
+          <input
+            id="data"
+            type="date"
+            value={form.data}
+            onChange={(e) => update('data', e.target.value)}
+            className="w-full max-w-48 rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          />
+        </div>
 
-          <div className="space-y-1">
+        <ModeloAcrescimoSelect value={form.modelo_acrescimo} onChange={updateModeloAcrescimo} />
+
+        {form.modelo_acrescimo === 'bdi' && (
+          <div className="space-y-1 max-w-48">
             <label htmlFor="bdi_global" className="text-sm font-medium text-gray-700">
               BDI global (%)
             </label>
@@ -251,7 +290,11 @@ export default function NovoOrcamentoPage() {
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
-        </div>
+        )}
+
+        {form.modelo_acrescimo === 'taxa_administracao' && (
+          <TaxaAdministracaoItensEditor itens={taxaItens} onChange={setTaxaItens} />
+        )}
 
         {modelos.length > 0 && (
           <div className="space-y-2">

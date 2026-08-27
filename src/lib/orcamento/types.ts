@@ -1,6 +1,8 @@
 // Tipos para insumos e composições vinculados a um orçamento específico.
 // Isolados por orcamento_id — nunca compartilhados entre orçamentos.
 
+import type { ModeloAcrescimo } from './modelo-acrescimo'
+
 export interface OrcamentoPlanilha {
   id: string
   orcamento_id: string
@@ -84,6 +86,7 @@ export interface OrcamentoResumo {
   cliente: string | null
   data: string
   bdi_global: number
+  modelo_acrescimo: ModeloAcrescimo
 }
 
 export type CreateInsumoData = Omit<OrcamentoInsumo, 'id' | 'orcamento_id' | 'created_at'>

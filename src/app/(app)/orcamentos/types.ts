@@ -1,9 +1,12 @@
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo';
+
 export type OrcRow = {
   id: string;
   nome_obra: string;
   cliente: string | null;
   data: string;
   bdi_global: number;
+  modelo_acrescimo: ModeloAcrescimo;
   codigo: string;
   ultimo_acesso: string | null;
   created_at: string;

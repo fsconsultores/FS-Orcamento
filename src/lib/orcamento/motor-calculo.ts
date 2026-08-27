@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ModoCalculo, CalculoOptions, OrfaosDetectados } from './types'
 import { registrarHistorico } from '@/lib/log'
+import { getTaxaAdministracaoItens, sincronizarItensTaxaAdministracao } from './modelo-acrescimo'
 
 export interface ConsistenciaReport {
   ok: boolean
@@ -306,6 +307,21 @@ export async function persistirTotaisPlanilha(
 ): Promise<TotaisPlanilha[]> {
   const agora = new Date().toISOString()
   const resultado: TotaisPlanilha[] = []
+
+  // Modelo 'taxa_administracao': mantém o item auto-gerenciado em dia ANTES
+  // de somar os totais abaixo, pra ele entrar no total_custo já atualizado
+  // nesta mesma passada. A fórmula de BDI logo abaixo não muda em nada — só
+  // roda uma vez a mais quando esse modelo está ativo (ver modelo-acrescimo.ts).
+  const sbAny = supabase as any
+  const { data: orcAcrescimo } = await sbAny
+    .from('tabela_orcamentos')
+    .select('modelo_acrescimo')
+    .eq('id', orcamentoId)
+    .single()
+  if (orcAcrescimo?.modelo_acrescimo === 'taxa_administracao') {
+    const itensTaxa = await getTaxaAdministracaoItens(supabase, orcamentoId)
+    await sincronizarItensTaxaAdministracao(supabase, orcamentoId, planilhaIds, itensTaxa)
+  }
 
   for (const planilhaId of planilhaIds) {
     const { data: planilha } = await supabase

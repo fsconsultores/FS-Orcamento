@@ -18,6 +18,10 @@ export interface EstruturaItem {
   bdi_especifico: number | null
   tipo: 'grupo' | 'item'
   ordem: number
+  /** Marca o item auto-gerenciado "Taxa de Administração" de uma planilha —
+   * ver src/lib/orcamento/modelo-acrescimo.ts. Opcional pra não exigir esse
+   * campo em todo lugar que já constrói um EstruturaItem hoje. */
+  eh_taxa_administracao?: boolean
 }
 
 export async function buscarItensEstrutura(
@@ -28,7 +32,7 @@ export async function buscarItensEstrutura(
   const sb = supabase as any
   let q = sb
     .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem')
+    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao')
     .eq('orcamento_id', orcamentoId)
     .order('nivel', { ascending: true })
     .order('ordem', { ascending: true })
@@ -125,6 +129,7 @@ export async function restaurarEstruturaSnapshot(
         bdi_especifico: it.bdi_especifico,
         tipo: it.tipo,
         ordem: it.ordem,
+        eh_taxa_administracao: it.eh_taxa_administracao ?? false,
       }))
       const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
       if (error) throw new Error(`Erro ao descartar alterações (nível ${nivel}): ${error.message}`)

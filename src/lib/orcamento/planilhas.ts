@@ -111,6 +111,7 @@ export async function duplicatePlanilha(
       bdi_especifico: it.bdi_especifico,
       tipo:          it.tipo,
       ordem:         it.ordem,
+      eh_taxa_administracao: it.eh_taxa_administracao,
     }))
 
     const { data: inserted, error: insertErr } = await supabase

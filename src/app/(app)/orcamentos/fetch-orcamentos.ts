@@ -18,7 +18,7 @@ export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<Orcam
 
   let orcQuery = sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, data, bdi_global, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, is_modelo, user_id')
+    .select('id, nome_obra, cliente, data, bdi_global, modelo_acrescimo, tabela_itens_orcamento(id), codigo, ultimo_acesso, created_at, is_favorito, is_modelo, user_id')
     .eq('is_modelo', modelosAtivo)
     .order('is_favorito', { ascending: false })
     .order('created_at', { ascending: false, nullsFirst: false })

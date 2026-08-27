@@ -1,4 +1,5 @@
 import { unstable_cache } from 'next/cache'
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
 
 // Mesmo padrão do resto do projeto: tipos gerados (src/lib/supabase/types.ts)
 // estão desatualizados frente ao schema real, então as queries usam `as any`.
@@ -12,6 +13,7 @@ export interface OrcamentoResumo {
   data: string | null
   ultimo_acesso: string | null
   created_at: string
+  modelo_acrescimo: ModeloAcrescimo
 }
 
 export interface PlanilhaResumo {
@@ -83,7 +85,7 @@ export interface ResumoSistema {
 export async function getOrcamentosResumo(sb: SB): Promise<OrcamentoResumo[]> {
   const { data } = await sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, codigo, data, ultimo_acesso, created_at')
+    .select('id, nome_obra, cliente, codigo, data, ultimo_acesso, created_at, modelo_acrescimo')
     .eq('is_modelo', false)
     .order('ultimo_acesso', { ascending: false, nullsFirst: false })
   return data ?? []

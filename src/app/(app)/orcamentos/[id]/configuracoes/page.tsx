@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { ConfiguracoesView } from './configuracoes-view'
 import { PageHeader } from '@/components/ui/toolbar'
 import { getPavimentosByOrcamento } from '@/lib/orcamento/pavimentos'
+import { getTaxaAdministracaoItens } from '@/lib/orcamento/modelo-acrescimo'
 
 export default async function ConfiguracoesPage({
   params,
@@ -12,9 +13,9 @@ export default async function ConfiguracoesPage({
   const supabase = await createClient()
   const sb = supabase as any
 
-  const [{ data: orc }, { data: extra }, { data: servicos }, { data: grupos }, pavimentos] = await Promise.all([
+  const [{ data: orc }, { data: extra }, { data: servicos }, { data: grupos }, pavimentos, taxaAdministracaoItens] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, data, bdi_global, area_total, area_coberta, area_equivalente')
+      .select('nome_obra, codigo, cliente, data, bdi_global, modelo_acrescimo, area_total, area_coberta, area_equivalente')
       .eq('id', orcamentoId)
       .single(),
     sb.from('tabela_orcamentos')
@@ -32,6 +33,7 @@ export default async function ConfiguracoesPage({
       .is('parent_id', null)
       .order('ordem', { ascending: true }),
     getPavimentosByOrcamento(supabase, orcamentoId),
+    getTaxaAdministracaoItens(supabase, orcamentoId),
   ])
 
   const gruposNivel1 = (grupos ?? []).filter((g: any) => !g.estimado)
@@ -48,6 +50,8 @@ export default async function ConfiguracoesPage({
         local={extra?.local ?? ''}
         dataOrcamento={orc?.data ?? ''}
         bdiGlobal={orc?.bdi_global ?? 0}
+        modeloAcrescimo={orc?.modelo_acrescimo ?? 'bdi'}
+        taxaAdministracaoItens={taxaAdministracaoItens}
         areaTotal={orc?.area_total ?? null}
         areaCoberta={orc?.area_coberta ?? null}
         areaEquivalente={orc?.area_equivalente ?? null}

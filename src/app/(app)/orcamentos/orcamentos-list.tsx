@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { useToast } from '@/components/ui/toast';
 import { FavoriteButton } from '@/components/ui/favorite-button';
 import { HighlightMatch } from '@/components/ui/highlight-match';
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo';
 
 type OrcRow = {
   id: string;
@@ -22,6 +23,7 @@ type OrcRow = {
   cliente: string | null;
   data: string;
   bdi_global: number;
+  modelo_acrescimo: ModeloAcrescimo;
   codigo: string;
   tabela_itens_orcamento: { id: string }[];
   ultimo_acesso: string | null;
@@ -62,6 +64,7 @@ interface EditModal {
   cliente: string;
   data: string;
   bdi_global: string;
+  modelo_acrescimo: ModeloAcrescimo;
   is_modelo: boolean;
   error?: string;
 }
@@ -80,6 +83,7 @@ function resultToRow(r: DuplicateResult, itemCount: number, ownerId: string): Or
     cliente: r.cliente,
     data: r.data,
     bdi_global: r.bdi_global,
+    modelo_acrescimo: r.modelo_acrescimo,
     codigo: r.codigo ?? '',
     tabela_itens_orcamento: Array.from({ length: itemCount }, (_, i) => ({ id: String(i) })),
     ultimo_acesso: r.ultimo_acesso,
@@ -144,6 +148,7 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
       cliente: orc.cliente ?? '',
       data: orc.data,
       bdi_global: String(orc.bdi_global),
+      modelo_acrescimo: orc.modelo_acrescimo,
       is_modelo: orc.is_modelo ?? false,
     });
   }
@@ -158,8 +163,10 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
       setEditModal(prev => prev ? { ...prev, error: 'Informe o nome da obra.' } : prev);
       return;
     }
+    // Fora do modo BDI o campo fica desabilitado (edição completa do modelo
+    // de acréscimo é em Configurações) — o valor aqui é sempre o já salvo.
     const bdi = parseFloat(editModal.bdi_global);
-    if (isNaN(bdi) || bdi < 0) {
+    if (editModal.modelo_acrescimo === 'bdi' && (isNaN(bdi) || bdi < 0)) {
       setEditModal(prev => prev ? { ...prev, error: 'BDI inválido.' } : prev);
       return;
     }
@@ -230,6 +237,7 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
       cliente: orc.cliente,
       data: orc.data,
       bdi_global: orc.bdi_global,
+      modelo_acrescimo: orc.modelo_acrescimo,
       codigo,
       tabela_itens_orcamento: orc.tabela_itens_orcamento,
       ultimo_acesso: null,
@@ -327,7 +335,16 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
             <Input label="Código" value={editModal.codigo} onChange={e => updateEdit('codigo', e.target.value)} />
             <Input label="Cliente" value={editModal.cliente} onChange={e => updateEdit('cliente', e.target.value)} />
             <Input type="date" label="Data" value={editModal.data} onChange={e => updateEdit('data', e.target.value)} />
-            <Input type="number" min="0" step="0.01" label="BDI global (%)" value={editModal.bdi_global} onChange={e => updateEdit('bdi_global', e.target.value)} />
+            {editModal.modelo_acrescimo === 'bdi' ? (
+              <Input type="number" min="0" step="0.01" label="BDI global (%)" value={editModal.bdi_global} onChange={e => updateEdit('bdi_global', e.target.value)} />
+            ) : (
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">BDI global (%)</label>
+                <p className="text-xs text-gray-400 pt-2">
+                  {editModal.modelo_acrescimo === 'sem_taxa' ? 'Sem taxa' : 'Taxa de Administração'} — edite em Configurações.
+                </p>
+              </div>
+            )}
             <label className="col-span-2 flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"

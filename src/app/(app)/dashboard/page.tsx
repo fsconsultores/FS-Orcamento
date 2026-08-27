@@ -109,7 +109,7 @@ export default async function DashboardPage() {
 
   const projetosRecentes: ProjetoRecenteItem[] = orcamentos.slice(0, 6).map((o) => {
     const { comBdi } = valorOrcamento(o.id)
-    const status = derivarStatusProjeto(planilhasPorOrcamento.get(o.id) ?? [])
+    const status = derivarStatusProjeto(planilhasPorOrcamento.get(o.id) ?? [], o.modelo_acrescimo)
     return {
       id: o.id,
       nome: o.nome_obra,

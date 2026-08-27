@@ -1,4 +1,5 @@
 import type { PlanilhaResumo } from './queries'
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
 
 export type StatusProjeto = 'sem_bdi' | 'desatualizado' | 'rascunho' | 'atualizado'
 
@@ -22,12 +23,14 @@ type PlanilhaStatusInput = Pick<PlanilhaResumo, 'bdi_global' | 'invalidado_em' |
  * sem coluna nova no banco. Não existe `tabela_orcamentos.status`; um
  * orçamento pode ter múltiplas planilhas, então usamos o "pior caso" entre
  * elas (precedência abaixo, do mais para o menos crítico).
+ * `modeloAcrescimo`: fora do modelo 'bdi', bdi_global=0 é esperado ("Sem
+ * taxa"/"Taxa de Administração" já forçam isso) — não deve virar "Sem BDI".
  */
-export function derivarStatusProjeto(planilhas: PlanilhaStatusInput[]): StatusProjetoInfo {
+export function derivarStatusProjeto(planilhas: PlanilhaStatusInput[], modeloAcrescimo: ModeloAcrescimo = 'bdi'): StatusProjetoInfo {
   if (planilhas.length === 0) {
     return { status: 'rascunho', ...STATUS_INFO.rascunho }
   }
-  if (planilhas.some(p => !p.bdi_global)) {
+  if (modeloAcrescimo === 'bdi' && planilhas.some(p => !p.bdi_global)) {
     return { status: 'sem_bdi', ...STATUS_INFO.sem_bdi }
   }
   if (planilhas.some(p => p.invalidado_em && (!p.ultima_calculo_em || p.invalidado_em > p.ultima_calculo_em))) {

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { aplicarModeloAcrescimo } from './modelo-acrescimo'
+import { persistirTotaisPlanilha } from './motor-calculo'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +41,7 @@ export interface VersaoSnapshotV1 {
     bdi_especifico: number | null
     tipo: 'grupo' | 'item'
     ordem: number
+    eh_taxa_administracao: boolean
   }[]
   composicoes: {
     id: string
@@ -138,7 +141,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
   const [estrutura, composicoes, insumos, servicosEstimadosRows, pavimentosRows] = await Promise.all([
     fetchPaginado<VersaoSnapshotV1['estrutura'][number]>(
       sb, 'orcamento_estrutura',
-      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem',
+      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao',
       orcamentoId
     ),
     fetchPaginado<VersaoSnapshotV1['composicoes'][number]>(
@@ -349,6 +352,10 @@ async function restaurarEstrutura(
       bdi_especifico: it.bdi_especifico,
       tipo: it.tipo,
       ordem: it.ordem,
+      // Snapshots capturados antes desta feature não têm esse campo —
+      // undefined vira o default da coluna (false), que é o certo: nenhum
+      // item era "taxa de administração" antes dela existir.
+      eh_taxa_administracao: it.eh_taxa_administracao,
     }))
     const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
     if (error) throw new Error(`Erro ao restaurar estrutura (nível ${nivel}): ${error.message}`)
@@ -436,4 +443,19 @@ export async function aplicarSnapshot(
   await restaurarEstrutura(sb, orcamentoId, snapshot.estrutura, planilhaIdMap)
   await restaurarServicosEstimados(sb, orcamentoId, snapshot.servicosEstimados)
   await restaurarPavimentos(sb, orcamentoId, snapshot.pavimentos)
+
+  // Snapshots (mesmo os capturados antes de existir modelo_acrescimo) trazem
+  // bdi_global de cada planilha e bdi_especifico de cada item — reaplicados
+  // literalmente pelas etapas acima. Sem este passo, restaurar uma versão
+  // antiga reintroduziria um BDI numérico mesmo num orçamento hoje em "Sem
+  // taxa"/"Taxa de Administração": o modelo de acréscimo é uma configuração
+  // atual do orçamento, não um dado de conteúdo capturado na versão — restore
+  // sempre respeita o modelo ATUAL, nunca o de quando a versão foi salva.
+  const { data: orcAtual } = await sb.from('tabela_orcamentos').select('modelo_acrescimo, bdi_global').eq('id', orcamentoId).single()
+  await aplicarModeloAcrescimo(sb, orcamentoId, orcAtual?.modelo_acrescimo ?? 'bdi', orcAtual?.bdi_global ?? 0)
+
+  const { data: planilhasParaRecalcular } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', orcamentoId)
+  if (planilhasParaRecalcular?.length) {
+    await persistirTotaisPlanilha(sb, orcamentoId, planilhasParaRecalcular.map((p: { id: string }) => p.id))
+  }
 }

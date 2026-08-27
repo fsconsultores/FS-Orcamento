@@ -29,10 +29,17 @@ import { usePlanilhaSave } from './use-planilha-save'
 import { usePlanilhaCalculo } from './use-planilha-calculo'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
+import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
 
 export type { EstruturaItem }
 
 const BRL = formatCurrency
+
+const LABEL_MODELO_ACRESCIMO: Record<ModeloAcrescimo, string> = {
+  sem_taxa: 'Sem taxa',
+  taxa_administracao: 'Taxa de Administração',
+  bdi: '',
+}
 
 function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
   const base = rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'
@@ -42,17 +49,20 @@ function rowCls(depth: number, hasChildren: boolean, rowIdx: number) {
 
 // ─── View principal ───────────────────────────────────────────────────────────
 
-export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePlanilha, bdiGlobal = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1], activePlanilhaId = null }: {
+export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePlanilha, bdiGlobal = 0, modeloAcrescimo = 'bdi', taxaAdministracaoPercentual = 0, cliente, dataOrcamento, numeracaoDigitos = [1, 1, 1, 1], activePlanilhaId = null }: {
   initialItems: EstruturaItem[]
   orcamentoId: string
   nomeOrcamento?: string
   nomePlanilha?: string | null
   bdiGlobal?: number
+  modeloAcrescimo?: ModeloAcrescimo
+  taxaAdministracaoPercentual?: number
   cliente?: string | null
   dataOrcamento?: string | null
   numeracaoDigitos?: number[]
   activePlanilhaId?: string | null
 }) {
+  const usaBdi = modeloAcrescimo === 'bdi'
   const [items, setItems]               = useState<EstruturaItem[]>(initialItems)
   const toast = useToast()
   const [confirmarRemoverId, setConfirmarRemoverId] = useState<string | null>(null)
@@ -271,8 +281,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   function openCell(id: string, field: string) {
     const nodoFlat = flatNodeMap.get(id)
     if (!nodoFlat) return
-    if (!editableFields(nodoFlat.nodo, composicaoCodigos).includes(field)) {
-      if (field === 'custo_unitario' && nodoFlat.nodo.codigo && composicaoCodigos.has(nodoFlat.nodo.codigo)) {
+    if (!editableFields(nodoFlat.nodo, composicaoCodigos, usaBdi).includes(field)) {
+      const mostraTravaComposicao = field === 'custo_unitario' && nodoFlat.nodo.codigo && composicaoCodigos.has(nodoFlat.nodo.codigo)
+      if (mostraTravaComposicao || nodoFlat.nodo.eh_taxa_administracao) {
         setCustoLockNodoId(id)
         setTimeout(() => setCustoLockNodoId(prev => (prev === id ? null : prev)), 2500)
       }
@@ -303,25 +314,25 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   function navigateFrom(id: string, field: string, dir: 'tab' | 'back' | 'enter') {
     const nodoFlat = flatNodeMap.get(id)
     if (!nodoFlat) { setEditingCell(null); return }
-    const fields = editableFields(nodoFlat.nodo, composicaoCodigos)
+    const fields = editableFields(nodoFlat.nodo, composicaoCodigos, usaBdi)
     const colIdx = (fields as readonly string[]).indexOf(field)
     const rowIdx = visibleIndexMap.get(id) ?? -1
 
     if (dir === 'tab') {
       if (colIdx < fields.length - 1) { openCell(id, fields[colIdx + 1]); return }
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        const f = editableFields(visible[i].nodo, composicaoCodigos)
+        const f = editableFields(visible[i].nodo, composicaoCodigos, usaBdi)
         if (f.length) { openCell(visible[i].nodo.id, f[0]); return }
       }
     } else if (dir === 'back') {
       if (colIdx > 0) { openCell(id, fields[colIdx - 1]); return }
       for (let i = rowIdx - 1; i >= 0; i--) {
-        const f = editableFields(visible[i].nodo, composicaoCodigos)
+        const f = editableFields(visible[i].nodo, composicaoCodigos, usaBdi)
         if (f.length) { openCell(visible[i].nodo.id, f[f.length - 1]); return }
       }
     } else if (dir === 'enter') {
       for (let i = rowIdx + 1; i < visible.length; i++) {
-        if ((editableFields(visible[i].nodo, composicaoCodigos) as readonly string[]).includes(field)) { openCell(visible[i].nodo.id, field); return }
+        if ((editableFields(visible[i].nodo, composicaoCodigos, usaBdi) as readonly string[]).includes(field)) { openCell(visible[i].nodo.id, field); return }
       }
     }
     setEditingCell(null)
@@ -590,8 +601,16 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             </div>
           )}
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">BDI Global</p>
-            <p className="text-sm font-bold text-primary-700 mt-0.5">{bdiGlobal}%</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              {usaBdi ? 'BDI Global' : 'Modelo de Acréscimo'}
+            </p>
+            <p className="text-sm font-bold text-primary-700 mt-0.5">
+              {usaBdi
+                ? `${bdiGlobal}%`
+                : modeloAcrescimo === 'taxa_administracao'
+                  ? `${LABEL_MODELO_ACRESCIMO[modeloAcrescimo]} (${taxaAdministracaoPercentual}%)`
+                  : LABEL_MODELO_ACRESCIMO[modeloAcrescimo]}
+            </p>
           </div>
         </div>
       </div>
@@ -864,7 +883,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         if (!num || num <= 0) return null
                         const base = tipoValorFinal === 'custo' ? grandTotal : grandTotalComBdi
                         const fator = base > 0 ? num / base : 0
-                        const bdiNecessario = tipoValorFinal === 'venda' && grandTotal > 0
+                        const bdiNecessario = usaBdi && tipoValorFinal === 'venda' && grandTotal > 0
                           ? (num / grandTotal - 1) * 100
                           : null
                         return (
@@ -1105,6 +1124,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
             className="fixed z-50 min-w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-xl text-xs"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
+          {contextMenu.nodo.eh_taxa_administracao ? (
+            <p className="px-3 py-2 text-gray-500 max-w-52">
+              Grupo/item auto-gerenciado da Taxa de Administração — edite os subgrupos em Configurações.
+            </p>
+          ) : (
+            <>
             <button
               onClick={() => handleInsert(contextMenu.nodo, 'above')}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-gray-50"
@@ -1161,6 +1186,8 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               </svg>
               Remover linha
             </button>
+            </>
+          )}
           </div>
         </>
       )}
@@ -1221,7 +1248,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
               <th className="px-2 py-2 w-20 text-right border border-primary-800 font-semibold">Qtde.</th>
               <th className="px-2 py-2 w-28 text-right border border-primary-800 font-semibold">Custo Unitário</th>
               <th className="px-2 py-2 w-32 text-right border border-primary-800 font-semibold">Total Custo Unitário</th>
-              <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% BDI</th>
+              {usaBdi && (
+                <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% BDI</th>
+              )}
               <th className="px-2 py-2 w-16 text-right border border-primary-800 font-semibold">% Custo</th>
               <th className="px-2 py-2 w-10 text-center border border-primary-800 font-semibold">ABC</th>
               <th className="px-2 py-2 w-8 border border-primary-800" />
@@ -1369,7 +1398,9 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                       )}
                       {custoLockNodoId === nodo.id && (
                         <div className="absolute right-0 top-full mt-1 z-50 w-56 whitespace-normal rounded bg-gray-800 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg">
-                          O valor da composição é calculado automaticamente pelos insumos utilizados.
+                          {nodo.eh_taxa_administracao
+                            ? 'Calculado automaticamente pela Taxa de Administração — edite os subgrupos em Configurações.'
+                            : 'O valor da composição é calculado automaticamente pelos insumos utilizados.'}
                         </div>
                       )}
                     </td>
@@ -1381,33 +1412,35 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         : <span className="text-gray-300">0</span>}
                     </td>
 
-                    {/* % BDI (só folhas) */}
-                    <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
-                      {!isGroup && (() => {
-                        const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
-                        const bdiEfetivo = nodo.bdi_especifico ?? bdiGlobal
-                        const isGlobal = nodo.bdi_especifico == null
-                        if (editing) return (
-                          <input
-                            autoFocus type="number" step="any" min="0" value={cellDraft}
-                            onChange={e => setCellDraft(e.target.value)}
-                            onKeyDown={e => handleKey(e, 'bdi_especifico')}
-                            onBlur={handleBlur}
-                            className={`${INP} text-right`}
-                            placeholder={String(bdiGlobal)}
-                          />
-                        )
-                        return (
-                          <div
-                            onClick={() => openCell(nodo.id, 'bdi_especifico')}
-                            className={`${CELL_HOVER} text-right`}
-                            title={isGlobal ? 'BDI global — clique para definir BDI específico' : 'BDI específico'}
-                          >
-                            <span className={isGlobal ? 'text-gray-400' : 'font-semibold text-blue-700'}>{bdiEfetivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                          </div>
-                        )
-                      })()}
-                    </td>
+                    {/* % BDI (só folhas, só no modelo de acréscimo BDI) */}
+                    {usaBdi && (
+                      <td className="px-2 py-0.5 text-right tabular-nums border border-gray-200">
+                        {!isGroup && (() => {
+                          const editing = editingCell?.id === nodo.id && editingCell?.field === 'bdi_especifico'
+                          const bdiEfetivo = nodo.bdi_especifico ?? bdiGlobal
+                          const isGlobal = nodo.bdi_especifico == null
+                          if (editing) return (
+                            <input
+                              autoFocus type="number" step="any" min="0" value={cellDraft}
+                              onChange={e => setCellDraft(e.target.value)}
+                              onKeyDown={e => handleKey(e, 'bdi_especifico')}
+                              onBlur={handleBlur}
+                              className={`${INP} text-right`}
+                              placeholder={String(bdiGlobal)}
+                            />
+                          )
+                          return (
+                            <div
+                              onClick={() => openCell(nodo.id, 'bdi_especifico')}
+                              className={`${CELL_HOVER} text-right`}
+                              title={isGlobal ? 'BDI global — clique para definir BDI específico' : 'BDI específico'}
+                            >
+                              <span className={isGlobal ? 'text-gray-400' : 'font-semibold text-blue-700'}>{bdiEfetivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          )
+                        })()}
+                      </td>
+                    )}
 
                     {/* % Custo e Classe ABC — apenas folhas */}
                     {(() => {
