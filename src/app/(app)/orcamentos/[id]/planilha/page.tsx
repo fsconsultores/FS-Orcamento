@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { PlanilhaView } from './planilha-view'
 import { ImportPlanilhaForm } from './import-planilha-form'
+import { ConferenciaImportacaoForm } from './conferencia-importacao-form'
 import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
 import { DevProfiler } from '@/components/dev-profiler'
 import type { EstruturaItem } from './planilha-crud-action'
@@ -64,7 +65,10 @@ export default async function PlanilhaPage({
               : `${items.filter(i => i.tipo === 'item').length} item(ns) em ${items.filter(i => i.tipo === 'grupo').length} grupo(s)`}
           </p>
         </div>
-        <ImportPlanilhaForm orcamentoId={orcamentoId} planilhaId={activePlanilha.id} />
+        <div className="flex items-start gap-2 flex-wrap">
+          <ImportPlanilhaForm orcamentoId={orcamentoId} planilhaId={activePlanilha.id} />
+          <ConferenciaImportacaoForm orcamentoId={orcamentoId} planilhaId={activePlanilha.id} />
+        </div>
       </div>
 
       <DevProfiler id="PlanilhaView">

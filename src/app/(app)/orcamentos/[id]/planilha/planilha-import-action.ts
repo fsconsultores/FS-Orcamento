@@ -142,6 +142,40 @@ export async function importarEstrutura(
   return { ok: idMap.size, erros }
 }
 
+export interface EstruturaAtualRow {
+  id: string
+  numero: string
+  descricao: string
+  unidade: string | null
+  quantidade: number | null
+  nivel: number
+  ordem: number
+}
+
+/**
+ * Estrutura atual do orçamento/planilha, no formato que a Conferência de
+ * Importação precisa pra comparar contra um Excel reenviado — ver
+ * compararComExcel em conferencia-importacao.ts. Só leitura, nada é
+ * alterado; nenhum dado do Excel é persistido por essa tela.
+ */
+export async function buscarEstruturaParaConferencia(
+  orcamentoId: string,
+  planilhaId?: string | null
+): Promise<EstruturaAtualRow[]> {
+  const supabase = await createClient()
+  const sb = supabase as any
+
+  let query = sb
+    .from('orcamento_estrutura')
+    .select('id, numero, descricao, unidade, quantidade, nivel, ordem')
+    .eq('orcamento_id', orcamentoId)
+  if (planilhaId) query = query.eq('planilha_id', planilhaId)
+
+  const { data, error } = await query.order('nivel', { ascending: true }).order('ordem', { ascending: true })
+  if (error) throw new Error(`Erro ao buscar estrutura atual: ${error.message}`)
+  return (data ?? []) as EstruturaAtualRow[]
+}
+
 export async function limparPlanilha(
   orcamentoId: string,
   planilhaId?: string | null
