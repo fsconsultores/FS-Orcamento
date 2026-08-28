@@ -57,3 +57,74 @@ export async function listarRevisoes(
     ehAtual: r.numero_revisao === maiorNumero,
   }))
 }
+
+export interface InsumoComparado {
+  codigo: string
+  descricao: string
+  unidade: string
+  /** custo em cada revisão, alinhado por posição às `revisoes` do resultado — null quando o insumo não existe (ainda) naquela revisão. */
+  precos: (number | null)[]
+}
+
+export interface ComparacaoRevisoes {
+  revisoes: RevisaoResumo[]
+  insumos: InsumoComparado[]
+}
+
+function variacaoAbsoluta(precos: (number | null)[]): number {
+  const presentes = precos.filter((p): p is number => p != null)
+  return Math.abs(presentes[presentes.length - 1] - presentes[0])
+}
+
+/**
+ * Compara o preço dos insumos avulsos entre todas as revisões de uma
+ * família — só os que realmente têm mais de um valor distinto em algum
+ * ponto (avulsos idênticos em toda a família não entram, não sobra nada pra
+ * "comparar"). Um insumo ausente numa revisão específica (cadastrado ou
+ * removido depois) aparece como null naquela posição em vez de quebrar a
+ * comparação. Ordenado pela maior variação absoluta entre o primeiro e o
+ * último valor presente — quem mudou mais em R$ aparece primeiro.
+ */
+export async function compararInsumosRevisoes(
+  supabase: SupabaseClient,
+  orcamentoId: string
+): Promise<ComparacaoRevisoes> {
+  const sb = supabase as any
+  const revisoes = await listarRevisoes(supabase, orcamentoId)
+  if (revisoes.length < 2) return { revisoes, insumos: [] }
+
+  const porRevisao = await Promise.all(
+    revisoes.map(async r => {
+      const { data, error } = await sb
+        .from('orcamento_insumos')
+        .select('codigo, descricao, unidade, custo')
+        .eq('orcamento_id', r.id)
+        .is('composicao_id', null)
+      if (error) throw new Error(`Erro ao buscar insumos da revisão ${r.numero_revisao}: ${error.message}`)
+      return data as { codigo: string; descricao: string; unidade: string; custo: number }[]
+    })
+  )
+
+  const porCodigo = new Map<string, { descricao: string; unidade: string; precos: (number | null)[] }>()
+  porRevisao.forEach((insumos, idx) => {
+    for (const ins of insumos) {
+      if (!ins.codigo) continue
+      let entry = porCodigo.get(ins.codigo)
+      if (!entry) {
+        entry = { descricao: ins.descricao, unidade: ins.unidade, precos: new Array(revisoes.length).fill(null) }
+        porCodigo.set(ins.codigo, entry)
+      }
+      entry.precos[idx] = ins.custo
+    }
+  })
+
+  const mudaram: InsumoComparado[] = []
+  for (const [codigo, entry] of porCodigo) {
+    const presentes = entry.precos.filter((p): p is number => p != null)
+    if (new Set(presentes).size < 2) continue
+    mudaram.push({ codigo, descricao: entry.descricao, unidade: entry.unidade, precos: entry.precos })
+  }
+  mudaram.sort((a, b) => variacaoAbsoluta(b.precos) - variacaoAbsoluta(a.precos))
+
+  return { revisoes, insumos: mudaram }
+}

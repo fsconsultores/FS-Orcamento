@@ -7,6 +7,12 @@ import { usePathname } from 'next/navigation'
 interface Props {
   orcamentoId: string
   orcamentoNome: string
+  /** Indicador "Revisão N de M" — ver RevisaoIndicator em layout.tsx. Fica
+   * colado no nome do orçamento (não em `actions`) porque é identidade da
+   * página, não uma ação, e precisa estar visível em toda navegação entre
+   * abas pra evitar o exato tipo de confusão que motivou construir isso:
+   * editar algo numa revisão sem perceber que não é a que se pretendia. */
+  badge?: ReactNode
   actions?: ReactNode
 }
 
@@ -21,7 +27,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   editar: 'Editar',
 }
 
-export function OrcamentoBreadcrumb({ orcamentoId, orcamentoNome, actions }: Props) {
+export function OrcamentoBreadcrumb({ orcamentoId, orcamentoNome, badge, actions }: Props) {
   const pathname = usePathname()
   const base = `/orcamentos/${orcamentoId}` as any
 
@@ -52,6 +58,7 @@ export function OrcamentoBreadcrumb({ orcamentoId, orcamentoNome, actions }: Pro
             <span className="font-medium text-gray-900">{pageLabel}</span>
           </>
         )}
+        {badge}
       </div>
       {actions}
     </nav>

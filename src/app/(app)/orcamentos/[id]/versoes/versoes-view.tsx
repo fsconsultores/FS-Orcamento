@@ -7,6 +7,7 @@ import { Plus, Eye, RotateCcw, History, GitCommit, GitBranchPlus, ArrowRight, Ch
 import type { OrcamentoVersaoResumo, VersaoSnapshotV1 } from '@/lib/orcamento/versoes'
 import type { RevisaoResumo } from '@/lib/orcamento/revisoes'
 import { criarVersao, restaurarVersao, buscarSnapshotVersao, criarOrcamentoDeVersao, criarRevisaoAction } from './versoes-action'
+import { ComparacaoPrecos } from './comparacao-precos'
 import { formatCurrency } from '@/lib/costs'
 import { PageHeader } from '@/components/ui/toolbar'
 import { Timeline, TimelineItem } from '@/components/ui/timeline'
@@ -320,6 +321,10 @@ export function VersoesView({
             )}
           </div>
         </div>
+      )}
+
+      {!revisoesFetchError && revisoesIniciais.length > 1 && (
+        <ComparacaoPrecos orcamentoId={orcamentoId} />
       )}
 
       <button

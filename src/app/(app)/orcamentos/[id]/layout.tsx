@@ -1,9 +1,12 @@
 import { notFound } from 'next/navigation'
 import { after } from 'next/server'
+import Link from 'next/link'
+import { GitBranch } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { OrcamentoBreadcrumb } from '@/components/orcamento-breadcrumb'
 import { OrcamentoSubNav } from '@/components/orcamento-subnav'
 import { SyncActiveProject } from '@/components/sync-active-project'
+import { Badge } from '@/components/ui/badge'
 import { PlanilhaSwitcher } from './planilha/planilha-switcher'
 import { GlobalCreateActions } from './global-create-actions'
 import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
@@ -46,6 +49,16 @@ export default async function OrcamentoLayout({
       <OrcamentoBreadcrumb
         orcamentoId={id}
         orcamentoNome={orcamento.nome_obra}
+        badge={
+          orcamento.totalRevisoes > 1 ? (
+            <Link href={`/orcamentos/${id}/versoes`} title="Ver todas as revisões desta família">
+              <Badge variant="brand" className="ml-1.5 hover:bg-primary-100">
+                <GitBranch size={11} />
+                Revisão {orcamento.numeroRevisao} de {orcamento.totalRevisoes}
+              </Badge>
+            </Link>
+          ) : undefined
+        }
         actions={
           <div className="flex items-center gap-2">
             {planilhas.length > 0 && (

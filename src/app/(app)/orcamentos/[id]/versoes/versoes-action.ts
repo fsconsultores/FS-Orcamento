@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/supabase/auth'
 import { revalidatePath } from 'next/cache'
 import { capturarSnapshot, aplicarSnapshot, type VersaoSnapshotV1, type OrcamentoVersaoResumo } from '@/lib/orcamento/versoes'
-import { listarRevisoes, type RevisaoResumo } from '@/lib/orcamento/revisoes'
+import { listarRevisoes, compararInsumosRevisoes, type RevisaoResumo, type ComparacaoRevisoes } from '@/lib/orcamento/revisoes'
 import { criarRevisao, type RevisaoResult } from '@/lib/orcamento/duplicate'
 import { executarCalculo } from '@/lib/orcamento/motor-calculo'
 import { registrarHistorico } from '@/lib/log'
@@ -20,6 +20,16 @@ function revalidarRotasOrcamento(orcamentoId: string) {
 export async function listarRevisoesAction(orcamentoId: string): Promise<RevisaoResumo[]> {
   const supabase = await createClient()
   return listarRevisoes(supabase, orcamentoId)
+}
+
+/**
+ * Carregada sob demanda (botão "Comparar revisões", não no carregamento da
+ * página) — busca os avulsos de TODAS as revisões da família pra montar a
+ * comparação, custo que só vale a pena pagar quando o usuário realmente pede.
+ */
+export async function compararRevisoesAction(orcamentoId: string): Promise<ComparacaoRevisoes> {
+  const supabase = await createClient()
+  return compararInsumosRevisoes(supabase, orcamentoId)
 }
 
 /**
