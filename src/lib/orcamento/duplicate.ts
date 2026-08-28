@@ -45,7 +45,7 @@ async function criarNovoOrcamento(
   return { id: data.id, nome_obra: nomeNovo }
 }
 
-async function clonarPlanilhas(sb: any, fromId: string, toId: string): Promise<Record<string, string>> {
+async function clonarPlanilhas(sb: any, fromId: string, toId: string, userId: string): Promise<Record<string, string>> {
   const { data: planilhas } = await sb
     .from('orcamento_planilhas')
     .select('id, nome, bdi_global, ordem')
@@ -59,6 +59,7 @@ async function clonarPlanilhas(sb: any, fromId: string, toId: string): Promise<R
     .from('orcamento_planilhas')
     .insert(planilhas.map((p: any) => ({
       orcamento_id: toId,
+      user_id: userId,
       nome: p.nome,
       bdi_global: p.bdi_global,
       ordem: p.ordem,
@@ -317,10 +318,10 @@ export type DuplicateResult = {
  * negociação/fornecedor, não estado do orçamento) nem historico_alteracoes
  * (o log de auditoria de uma cópia nova começa vazio, por design).
  */
-async function clonarConteudo(sb: any, fromId: string, toId: string): Promise<void> {
+async function clonarConteudo(sb: any, fromId: string, toId: string, userId: string): Promise<void> {
   // Planilhas precisa vir antes da estrutura (a estrutura remapeia planilha_id).
   // Itens e composições em paralelo com a estrutura — insumos depois (precisa do compIdMap)
-  const planilhaIdMap = await clonarPlanilhas(sb, fromId, toId)
+  const planilhaIdMap = await clonarPlanilhas(sb, fromId, toId, userId)
   const [, , compIdMap] = await Promise.all([
     clonarEstrutura(sb, fromId, toId, planilhaIdMap),
     clonarItens(sb, fromId, toId),
@@ -348,7 +349,7 @@ export async function duplicarOrcamento(
   if (errOrig || !orig) throw new Error(`Orçamento não encontrado: ${errOrig?.message ?? ''}`)
 
   const { id: novoId, nome_obra: nomeNovo } = await criarNovoOrcamento(sb, userId, orig, novoCodigo)
-  await clonarConteudo(sb, orcamentoId, novoId)
+  await clonarConteudo(sb, orcamentoId, novoId, userId)
 
   return {
     id: novoId,
@@ -411,7 +412,7 @@ export async function criarOrcamentoAPartirDeModelo(
   if (error) throw new Error(`Erro ao criar orçamento: ${error.message}`)
 
   const novoId = data.id
-  await clonarConteudo(sb, modeloId, novoId)
+  await clonarConteudo(sb, modeloId, novoId, userId)
 
   // Conteúdo clonado traz bdi_global/bdi_especifico e possíveis subgrupos de
   // Taxa de Administração do MODELO — sem os passos abaixo, as escolhas do
@@ -507,7 +508,7 @@ export async function criarRevisao(
   const novoId = novo.id as string
 
   try {
-    await clonarConteudo(sb, orcamentoOrigemId, novoId)
+    await clonarConteudo(sb, orcamentoOrigemId, novoId, userId)
 
     const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
     if (planilhasNovas?.length) {
