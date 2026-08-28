@@ -277,14 +277,21 @@ async function drawResumoGeralSection(
   yLeft += 8
 
   // Filtra só a LISTAGEM — o total (B) acima sempre reflete o valor real,
-  // completo, independente do que fica visível aqui. Só linhas com `id`
-  // (serviço com insumo de preço estimado, ver ServicoComInsumoEstimado)
-  // podem ser ocultadas — itens "- Estimado" sem insumo e os manuais
-  // (orcamento_servicos_estimados) não têm essa opção, sempre aparecem.
-  // Escolha feita na hora de gerar o relatório (Relatórios > Caderno >
-  // "Configurar..."), nunca salva no orçamento.
+  // completo, independente do que fica visível aqui. Só linhas que vieram de
+  // data.servicosComInsumoEstimado (serviço com insumo de preço estimado,
+  // ver ServicoComInsumoEstimado) podem ser ocultadas — itens marcados
+  // diretamente na aba Estimados (sem insumo estimado associado) e os
+  // manuais (orcamento_servicos_estimados) não têm essa opção, sempre
+  // aparecem. `s.id` sozinho NÃO diferencia os dois casos — caderno.ts grava
+  // `id: node.id` tanto pro serviço com insumo quanto pro item marcado
+  // direto, então checar só a presença de `id` também escondia os itens
+  // marcados direto sempre que "Incluir Serviços com Preços Estimados"
+  // estava desmarcado (bug real, corrigido: exige o id estar no conjunto de
+  // servicosComInsumoEstimado). Escolha feita na hora de gerar o relatório
+  // (Relatórios > Caderno > "Configurar..."), nunca salva no orçamento.
+  const idsComInsumoEstimado = new Set(data.servicosComInsumoEstimado.map(s => s.id))
   const servicosVisiveis = data.servicosEstimados.filter(s => {
-    if (!s.id) return true
+    if (!s.id || !idsComInsumoEstimado.has(s.id)) return true
     if (!incluirServicosComInsumoEstimado) return false
     return !servicosComInsumoEstimadoOcultos.has(s.id)
   })
@@ -294,13 +301,16 @@ async function drawResumoGeralSection(
       startY: yLeft,
       margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
       head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-      // Só a descrição exata do item, igual está na planilha — nada de
-      // numeração nem do item pai (esse continua existindo em
-      // ServicoEstimado.itemPaiDescricao só pra desambiguar internamente
-      // quando o mesmo nome se repete em mais de um lugar da árvore, ver
-      // servicos-estimados-modal.tsx; não aparece mais no Caderno).
+      // Número do PRÓPRIO item + descrição do PRÓPRIO item (nunca a do
+      // insumo que motivou a marcação nem só a do pai — ver ServicoEstimado
+      // em caderno.ts) na 1ª linha da célula; nome do pai imediato numa 2ª
+      // linha, como contexto. A mesma descrição pode se repetir em mais de
+      // um lugar da árvore (ex.: "Armação" em "Fundação" E em "Estrutura")
+      // — número + descrição + pai juntos são o que de fato desambigua qual
+      // ocorrência é essa. Manuais (orcamento_servicos_estimados) não têm
+      // número nem pai — mostram só a descrição, 1 linha.
       body: servicosVisiveis.map(s => [
-        s.descricao,
+        [s.numero ? `${s.numero} — ${s.descricao}` : s.descricao, s.itemPaiDescricao].filter(Boolean).join('\n'),
         fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0),
       ]),
       foot: [['TOTAL', fmt(B), '100,00%']],

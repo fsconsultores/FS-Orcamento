@@ -111,6 +111,14 @@ export interface ListaInsumoGrupo {
 }
 
 export interface ServicoEstimado {
+  /**
+   * Número do próprio item/grupo estimado, exatamente como na Planilha
+   * (orcamento_estrutura.numero) — mesma numeração, nunca recalculada à
+   * parte pro Caderno. Ausente (string vazia) só pros manuais
+   * (orcamento_servicos_estimados), que não têm posição na EAP.
+   */
+  numero: string
+  /** Descrição do PRÓPRIO item/grupo estimado — nunca a do insumo que motivou a marcação (ver infoInsumoEstimado) nem a do pai. */
   descricao: string
   valor: number
   /**
@@ -123,13 +131,16 @@ export interface ServicoEstimado {
    */
   id?: string
   /**
-   * Nome do item/grupo pai imediato na Planilha — mesmo código (`descricao`)
-   * pode se repetir em mais de um lugar da árvore (ex.: "Armação Aço -
-   * Estimado" dentro de "Fundação" E dentro de "Estrutura"), então o nome
-   * sozinho não basta pra saber QUAL ocorrência está em B. Null quando o
-   * item está na raiz da planilha (sem pai) ou é uma entrada manual.
+   * Nome do item/grupo pai imediato na Planilha — mesma descrição pode se
+   * repetir em mais de um lugar da árvore (ex.: "Armação" dentro de
+   * "Fundação" E dentro de "Estrutura"), então número + descrição + pai
+   * juntos são o que de fato identifica qual ocorrência está em B (ver
+   * "(B) Serviços Estimados" em export-caderno-pdf.ts). Null quando o item
+   * está na raiz da planilha (sem pai) ou é uma entrada manual.
    */
   itemPaiDescricao?: string | null
+  /** Motivo registrado na aba Estimados — ausente pros detectados automaticamente por insumo estimado e pros manuais. */
+  estimadoMotivo?: string | null
 }
 
 /**
@@ -582,9 +593,16 @@ export async function getCadernoData(
       valor,
       qtdInsumosEstimados: info.qtd,
     })
+    // descricao é a do PRÓPRIO item (raw), não a do insumo que motivou a
+    // marcação (info.descricao) — essa detalhada continua só em
+    // servicosComInsumoEstimado.descricao, pro modal "Configurar...", que
+    // precisa saber QUAL insumo. Aqui, "(B) Serviços Estimados" do Caderno
+    // precisa identificar o SERVIÇO (número + descrição + pai), igual a
+    // qualquer outro serviço estimado.
     autoServicosEstimados.push({
-      id: raw.id, descricao: info.descricao, valor,
+      id: raw.id, numero: raw.numero, descricao: raw.descricao, valor,
       itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
+      estimadoMotivo: raw.estimado_motivo,
     })
   }
 
@@ -595,8 +613,9 @@ export async function getCadernoData(
         const info = infoInsumoEstimado(node)
         if (info) registrarServicoComInsumo(node, node.descricao, info, caminho, valorEstimadoComBdi(node))
         else autoServicosEstimados.push({
-          id: node.id, descricao: node.descricao, valor: valorEstimadoComBdi(node) ?? sumLeaves(node),
+          id: node.id, numero: node.numero, descricao: node.descricao, valor: valorEstimadoComBdi(node) ?? sumLeaves(node),
           itemPaiDescricao: caminho.length > 0 ? caminho[caminho.length - 1] : null,
+          estimadoMotivo: node.estimado_motivo,
         })
         continue
       }
@@ -1008,6 +1027,7 @@ export async function getCadernoData(
     }))
 
   const servicosEstimadosManuais: ServicoEstimado[] = (servicosEstimadosRows ?? []).map((s: any) => ({
+    numero: '',
     descricao: s.descricao,
     valor: s.valor ?? 0,
   }))
