@@ -62,8 +62,13 @@ export function gerarAlertas(input: {
     })
   }
 
+  // Uma revisão com numero_revisao > 1 já tem sua própria salvaguarda: a
+  // revisão anterior continua existindo intacta para sempre (ver criarRevisao
+  // em duplicate.ts) — não precisa de um snapshot manual pra isso. Sem esse
+  // filtro, o alerta dispararia pra toda família com 2+ revisões, já que uma
+  // revisão nova nunca herda os snapshots da anterior.
   const idsComVersao = new Set(versoes.map(v => v.orcamento_id))
-  const orcamentosSemVersao = orcamentos.filter(o => !idsComVersao.has(o.id))
+  const orcamentosSemVersao = orcamentos.filter(o => o.numero_revisao === 1 && !idsComVersao.has(o.id))
   if (orcamentosSemVersao.length > 0) {
     alertas.push({
       key: 'sem-versao',

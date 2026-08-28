@@ -14,6 +14,10 @@ export interface OrcamentoResumo {
   ultimo_acesso: string | null
   created_at: string
   modelo_acrescimo: ModeloAcrescimo
+  /** >1 quando esta é a revisão mais recente de uma família com outras
+   * revisões anteriores — usado pelo alerta "sem versão salva" (as revisões
+   * anteriores já são a própria salvaguarda, não precisam de snapshot). */
+  numero_revisao: number
 }
 
 export interface PlanilhaResumo {
@@ -81,14 +85,46 @@ export interface ResumoSistema {
 
 /** Orçamentos do usuário logado (RLS já filtra) — alimenta KPI "Projetos ativos",
  * "Projetos Recentes" e a base de dados dos Alertas. Exclui modelos (`is_modelo`)
- * — não são projetos reais, não devem entrar em KPIs/alertas/Curva ABC Geral. */
+ * — não são projetos reais, não devem entrar em KPIs/alertas/Curva ABC Geral.
+ *
+ * Cada família de revisões (mesmo grupo_id) conta como UM projeto aqui — sem
+ * isso, "Projetos ativos"/"Valor total orçado" e tudo que deriva de
+ * orcamentoIdsValidos em page.tsx (planilhas, Curva ABC Geral, insumos por
+ * categoria) somariam a mesma obra uma vez por revisão. Mesmo agrupamento
+ * (grupo_id -> maior numero_revisao) já usado em fetch-orcamentos.ts; grupo_id
+ * pode faltar se a migração de revisões ainda não rodou nesse banco — cada
+ * orçamento vira seu próprio grupo de 1 nesse caso. */
 export async function getOrcamentosResumo(sb: SB): Promise<OrcamentoResumo[]> {
   const { data } = await sb
     .from('tabela_orcamentos')
-    .select('id, nome_obra, cliente, codigo, data, ultimo_acesso, created_at, modelo_acrescimo')
+    .select('id, nome_obra, cliente, codigo, data, ultimo_acesso, created_at, modelo_acrescimo, grupo_id, numero_revisao')
     .eq('is_modelo', false)
     .order('ultimo_acesso', { ascending: false, nullsFirst: false })
-  return data ?? []
+
+  const porGrupo = new Map<string, any[]>()
+  for (const o of data ?? []) {
+    const chave = o.grupo_id ?? o.id
+    const lista = porGrupo.get(chave) ?? []
+    lista.push(o)
+    porGrupo.set(chave, lista)
+  }
+
+  const representantes: any[] = []
+  for (const membros of porGrupo.values()) {
+    representantes.push(membros.reduce((a: any, b: any) => ((b.numero_revisao ?? 1) > (a.numero_revisao ?? 1) ? b : a)))
+  }
+
+  return representantes.map((o) => ({
+    id: o.id,
+    nome_obra: o.nome_obra,
+    cliente: o.cliente,
+    codigo: o.codigo,
+    data: o.data,
+    ultimo_acesso: o.ultimo_acesso,
+    created_at: o.created_at,
+    modelo_acrescimo: o.modelo_acrescimo,
+    numero_revisao: o.numero_revisao ?? 1,
+  }))
 }
 
 /** Todas as planilhas de todos os orçamentos do usuário (RLS já filtra) — um
