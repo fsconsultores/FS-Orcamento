@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { upsertAvulsoInsumo, type CotacaoInsumoInput } from '@/lib/orcamento/insumos'
 import { recalcularAutoAction } from './planilha/calcular-action'
@@ -36,6 +37,19 @@ export async function atualizarPrecoInsumoAction(
 
   await upsertAvulsoInsumo(sb, orcamentoId, codigo, novoCusto, extra, cotacao)
   recalcularAutoAction(orcamentoId).catch(console.error)
+
+  // Sem isso, o Next servia o payload em cache da última visita a estas
+  // abas em vez de buscar de novo — o preço editado "sumia" ao sair e voltar
+  // pra tela até algo mais invalidar o cache por conta própria (ver relato
+  // de 2026-08-28: preço editado numa revisão revertia ao navegar pra outra
+  // revisão e voltar). Mesmo escopo de telas afetadas por preço de insumo
+  // que salvarInfoCadernoAction/estimadosAction já revalidam.
+  revalidatePath(`/orcamentos/${orcamentoId}/insumos`)
+  revalidatePath(`/orcamentos/${orcamentoId}/composicoes`)
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+  revalidatePath(`/orcamentos/${orcamentoId}/curva-abc`)
+  revalidatePath(`/orcamentos/${orcamentoId}/relatorios`)
+  revalidatePath('/orcamentos')
 
   if (atual?.custo !== novoCusto) {
     const { data: { user } } = await supabase.auth.getUser()
