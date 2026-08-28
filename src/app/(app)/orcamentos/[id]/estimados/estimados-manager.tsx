@@ -5,12 +5,8 @@ import type { CadernoNode } from '@/lib/orcamento/caderno'
 import { atualizarItensEstimadosAction, type AlteracaoEstimado } from './estimados-action'
 import { formatCurrency } from '@/lib/costs'
 import { HighlightMatch } from '@/components/ui/highlight-match'
-
-// Mesma ideia do antigo sufixo "- Estimado" no nome, só que agora é só uma
-// SUGESTÃO de partida (pré-marcada), nunca a decisão em si — quem decide de
-// verdade é sempre o orçamentista, salvando explicitamente. Cobre as variações
-// de texto encontradas em planilhas reais (não só "estimado").
-const SUGESTAO_RE = /-\s*(estimados?|a\s*definir|à\s*definir|aguardando\s+defini[cç][aã]o|pendente\s+defini[cç][aã]o)\b/i
+import { useToast } from '@/components/ui/toast'
+import { SUGESTAO_ESTIMADO_RE } from '@/lib/orcamento/estimado-sugestao'
 
 interface Linha {
   node: CadernoNode
@@ -52,7 +48,7 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
   const estadoInicial = useMemo(() => {
     const m = new Map<string, EstadoItem>()
     for (const { node } of linhas) {
-      const sugerido = !node.estimado && SUGESTAO_RE.test(node.descricao)
+      const sugerido = !node.estimado && SUGESTAO_ESTIMADO_RE.test(node.descricao)
       m.set(node.id, {
         estimado: node.estimado || sugerido,
         motivo: node.estimado_motivo ?? '',
@@ -62,10 +58,10 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     return m
   }, [linhas])
 
+  const toast = useToast()
   const [estado, setEstado] = useState(estadoInicial)
   const [query, setQuery] = useState('')
   const [salvando, setSalvando] = useState(false)
-  const [mensagem, setMensagem] = useState<string | null>(null)
 
   const q = query.trim().toLowerCase()
   const linhasVisiveis = q
@@ -140,7 +136,6 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
 
   async function salvar() {
     setSalvando(true)
-    setMensagem(null)
     const alteracoes: AlteracaoEstimado[] = []
     for (const { node } of linhas) {
       const atual = estado.get(node.id)
@@ -155,9 +150,9 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     }
     try {
       await atualizarItensEstimadosAction(orcamentoId, alteracoes)
-      setMensagem(`${alteracoes.length} item(ns) salvo(s) com sucesso.`)
+      toast.show(`${alteracoes.length} item(ns) salvo(s) com sucesso.`)
     } catch (e) {
-      setMensagem(e instanceof Error ? e.message : 'Erro ao salvar.')
+      toast.show(e instanceof Error ? e.message : 'Erro ao salvar.', 'error')
     } finally {
       setSalvando(false)
     }
@@ -197,7 +192,6 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
           {salvando ? 'Salvando…' : 'Salvar'}
         </button>
       </div>
-      {mensagem && <p className="text-sm text-gray-600">{mensagem}</p>}
 
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-22rem)] rounded-lg border border-gray-200">
         <table className="w-full text-sm">

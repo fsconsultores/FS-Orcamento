@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type { CadernoData } from '@/lib/orcamento/caderno'
+import Link from 'next/link'
+import type { CadernoData, CadernoNode } from '@/lib/orcamento/caderno'
 import type { AbcItem } from '@/lib/curva-abc'
 import { fmt as fmtCurrency, fmtPct, fmtQtd } from '@/lib/curva-abc'
 import { REPORT_CATALOG, type ReportDef, type ReportFormat, type CurvaAbcTab } from './report-catalog'
@@ -17,9 +18,20 @@ import { exportPlanilhaAnaliticaPdf } from './exporters/export-planilha-analitic
 import { CadernoInfoForm } from './caderno-info-form'
 import { ServicosEstimadosModal } from './servicos-estimados-modal'
 import { Button } from '@/components/ui/button'
-import { Download, Settings2 } from 'lucide-react'
+import { Modal } from '@/components/ui/modal'
+import { Download, Settings2, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { registrarHistorico } from '@/lib/log'
+import { pareceEstimado } from '@/lib/orcamento/estimado-sugestao'
+
+/** Achata a árvore do Caderno (que já vem SEM os itens marcados como
+ * estimados — ver removerEstimados em caderno.ts) — usado só pra achar
+ * sugestões (nome parece estimado) que nunca foram confirmadas na aba
+ * Estimados, e por isso continuam aqui dentro do Total Orçado (A). */
+function achatarNos(nodes: CadernoNode[], out: CadernoNode[] = []): CadernoNode[] {
+  for (const n of nodes) { out.push(n); achatarNos(n.filhos, out) }
+  return out
+}
 
 const CADERNO_SECOES = [
   'Capa', 'Resumo executivo', 'Custo por m²', 'Planilha de preços',
@@ -74,12 +86,31 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
   const [incluirServicosComInsumoEstimado, setIncluirServicosComInsumoEstimado] = useState(true)
   const [servicosEstimadosOcultosIds, setServicosEstimadosOcultosIds] = useState<Set<string>>(new Set())
   const [modalServicosAberto, setModalServicosAberto] = useState(false)
+  // Serviços cujo nome parece estimado (ex.: "- Estimado", "- A definir") mas
+  // que ninguém confirmou na aba Estimados — mesma sugestão pré-marcada de
+  // lá, aqui só pra avisar antes de exportar. Sem isso, esses itens entram
+  // caladinhos no Total Orçado (A) em vez de Serviços Estimados (B), e o
+  // orçamentista só percebe (se perceber) já com o Caderno pronto — ver
+  // relato de 2026-08-28.
+  const sugestoesNaoConfirmadas = useMemo(
+    () => (report.kind.type === 'caderno' ? achatarNos(data.arvore).filter(n => pareceEstimado(n.descricao)) : []),
+    [report.kind, data.arvore]
+  )
+  const [modalSugestoesAberto, setModalSugestoesAberto] = useState(false)
 
   const analiticaRows = useMemo(
     () => (report.kind.type === 'planilha-analitica' ? buildAnaliticaRows(data, analitica) : null),
     [report.kind, data, analitica]
   )
   const abcItems = report.kind.type === 'curva-abc' ? getAbcItems(data, report.kind.tab) : null
+
+  function handleExportClick() {
+    if (report.kind.type === 'caderno' && sugestoesNaoConfirmadas.length > 0) {
+      setModalSugestoesAberto(true)
+      return
+    }
+    handleExport()
+  }
 
   async function handleExport() {
     setLoading(true); setError(null)
@@ -174,6 +205,19 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
                 areaEquivalente={data.orcamento.area_equivalente}
                 servicosEstimados={servicosEstimadosManuais}
               />
+              {sugestoesNaoConfirmadas.length > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-800">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <p>
+                    <strong>{sugestoesNaoConfirmadas.length}</strong> serviço(s) parecem estimados pelo nome (ex.: "- Estimado",
+                    "- A definir") mas não foram confirmados na aba Estimados — vão entrar no Total Orçado (A), não em
+                    Serviços Estimados (B).{' '}
+                    <Link href={`/orcamentos/${orcamentoId}/estimados`} className="font-medium underline hover:no-underline">
+                      Revisar agora
+                    </Link>
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-xs font-semibold text-gray-700 mb-2">Seções incluídas</p>
                 <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
@@ -240,7 +284,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
 
         <div className="flex items-center gap-3">
           <Button
-            onClick={handleExport}
+            onClick={handleExportClick}
             disabled={escopo === 'selecionar' && planilhaIds.length === 0}
             loading={loading}
             icon={<Download size={15} />}
@@ -258,6 +302,39 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
         ocultosIds={servicosEstimadosOcultosIds}
         onChange={setServicosEstimadosOcultosIds}
       />
+
+      <Modal
+        open={modalSugestoesAberto}
+        onClose={() => setModalSugestoesAberto(false)}
+        title="Serviços parecem estimados, mas não foram confirmados"
+        size="sm"
+        footer={
+          <>
+            <Link href={`/orcamentos/${orcamentoId}/estimados`}>
+              <Button size="sm">Revisar na aba Estimados</Button>
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setModalSugestoesAberto(false); handleExport() }}
+            >
+              Exportar mesmo assim
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-gray-600">
+          <p>
+            O nome de {sugestoesNaoConfirmadas.length} serviço(s) sugere que {sugestoesNaoConfirmadas.length === 1 ? 'ele é' : 'eles são'} estimado(s)
+            (ex.: "- Estimado", "- A definir"), mas ninguém confirmou isso na aba Estimados. Exportando agora,
+            {sugestoesNaoConfirmadas.length === 1 ? ' ele entra' : ' eles entram'} no Total Orçado (A) em vez de Serviços Estimados (B).
+          </p>
+          <ul className="max-h-40 list-disc list-inside space-y-0.5 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+            {sugestoesNaoConfirmadas.slice(0, 8).map(n => <li key={n.id} className="truncate">{n.descricao}</li>)}
+            {sugestoesNaoConfirmadas.length > 8 && <li>e mais {sugestoesNaoConfirmadas.length - 8}…</li>}
+          </ul>
+        </div>
+      </Modal>
     </div>
   )
 }
