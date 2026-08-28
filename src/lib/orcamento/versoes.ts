@@ -42,6 +42,10 @@ export interface VersaoSnapshotV1 {
     tipo: 'grupo' | 'item'
     ordem: number
     eh_taxa_administracao: boolean
+    /** Opcionais: snapshots gerados antes da aba Estimados existir não os têm — restaura como não-estimado. */
+    estimado?: boolean
+    estimado_motivo?: string | null
+    valor_estimado?: number | null
   }[]
   composicoes: {
     id: string
@@ -141,7 +145,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
   const [estrutura, composicoes, insumos, servicosEstimadosRows, pavimentosRows] = await Promise.all([
     fetchPaginado<VersaoSnapshotV1['estrutura'][number]>(
       sb, 'orcamento_estrutura',
-      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao',
+      'id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao, estimado, estimado_motivo, valor_estimado',
       orcamentoId
     ),
     fetchPaginado<VersaoSnapshotV1['composicoes'][number]>(
@@ -354,8 +358,13 @@ async function restaurarEstrutura(
       ordem: it.ordem,
       // Snapshots capturados antes desta feature não têm esse campo —
       // undefined vira o default da coluna (false), que é o certo: nenhum
-      // item era "taxa de administração" antes dela existir.
+      // item era "taxa de administração" antes dela existir. Mesmo raciocínio
+      // pros 3 campos de estimado abaixo (aba Estimados) — undefined vira
+      // false/null, item volta a ser tratado como não-estimado.
       eh_taxa_administracao: it.eh_taxa_administracao,
+      estimado: it.estimado,
+      estimado_motivo: it.estimado_motivo,
+      valor_estimado: it.valor_estimado,
     }))
     const { data: inserted, error } = await sb.from('orcamento_estrutura').insert(rows).select('id')
     if (error) throw new Error(`Erro ao restaurar estrutura (nível ${nivel}): ${error.message}`)
