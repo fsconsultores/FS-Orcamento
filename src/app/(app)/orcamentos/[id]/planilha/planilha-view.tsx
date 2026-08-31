@@ -35,6 +35,23 @@ export type { EstruturaItem }
 
 const BRL = formatCurrency
 
+// Constante de módulo (não recriada a cada render) — objeto inline em
+// useSensor(PointerSensor, {...}) faz useSensors devolver uma config nova
+// em toda renderização, mesmo sem o valor mudar (achado da auditoria de
+// performance, Fase 11 "DND-1" — regrediu num refactor de UI e voltou aqui).
+const POINTER_SENSOR_OPTS = { activationConstraint: { distance: 8 } }
+
+type AbcClasse = 'A' | 'B' | 'C'
+
+// Idem (Fase 11 "S7") — este objeto vivia dentro do .map() de linha, sendo
+// recriado por linha visível (até ~50 com virtualização) em TODA
+// renderização, não só quando a classificação ABC muda.
+const ABC_CLASSE_CLS: Record<AbcClasse, string> = {
+  A: 'bg-red-100 text-red-700 font-bold',
+  B: 'bg-amber-100 text-amber-700 font-bold',
+  C: 'bg-green-100 text-green-700 font-bold',
+}
+
 const LABEL_MODELO_ACRESCIMO: Record<ModeloAcrescimo, string> = {
   sem_taxa: 'Sem taxa',
   taxa_administracao: 'Taxa de Administração',
@@ -146,7 +163,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   } = usePlanilhaCalculo({ orcamentoId, activePlanilhaId, setItems, structuralChangeSeqRef, onRecalculated: resetBaseline })
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, POINTER_SENSOR_OPTS)
   )
 
   // Map id→item para lookups O(1) — evita items.find() em loops O(n²)
@@ -219,6 +236,12 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   const flatNodeMap = useMemo(() => new Map(flat.map(f => [f.nodo.id, f])), [flat])
   const flatIndexMap = useMemo(() => new Map(flat.map((f, i) => [f.nodo.id, i])), [flat])
   const visibleIndexMap = useMemo(() => new Map(visible.map((v, i) => [v.nodo.id, i])), [visible])
+  // Regressão da mesma auditoria (Fase 11 "S2") — SortableContext recebia
+  // `visible.map(...)` inline na JSX, recriando o array em TODA renderização
+  // mesmo com `visible` estável (memoizado acima). Com milhares de linhas,
+  // isso é alocação + trabalho de comparação por render que não precisa
+  // existir.
+  const sortableIds = useMemo(() => visible.map(v => v.nodo.id), [visible])
 
   // ── Virtualização ─────────────────────────────────────────────────────────
   // Ativa quando: modo sintético + sem formulário inline + >50 linhas visíveis
@@ -243,7 +266,6 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
     : visible.map(({ nodo, depth }, rowIdx) => ({ rowIdx, nodo, depth }))
 
   // ── Curva ABC — memoizado, só recalcula quando flat/grandTotal mudam ──────
-  type AbcClasse = 'A' | 'B' | 'C'
   const abcMap = useMemo(() => {
     const map = new Map<string, { percentual: number; classe: AbcClasse }>()
     if (grandTotal > 0) {
@@ -1243,7 +1265,7 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
         onDragEnd={handleDragEnd}
         onDragCancel={() => setDragActiveId(null)}
       >
-      <SortableContext items={visible.map(v => v.nodo.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
       <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-16rem)] border border-gray-300 shadow-sm">
         <table className="w-full text-xs min-w-[700px] border-collapse">
           <thead className="sticky top-0 z-10 text-left">
@@ -1456,18 +1478,13 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                     {(() => {
                       const abc = !isGroup ? abcMap.get(nodo.id) : undefined
                       const pct = !isGroup && grandTotal > 0 ? (nodo.total / grandTotal) * 100 : 0
-                      const CLS: Record<AbcClasse, string> = {
-                        A: 'bg-red-100 text-red-700 font-bold',
-                        B: 'bg-amber-100 text-amber-700 font-bold',
-                        C: 'bg-green-100 text-green-700 font-bold',
-                      }
                       return (
                         <>
                           <td className="px-2 py-1 text-right tabular-nums border border-gray-200 text-gray-500">
                             {!isGroup && nodo.total > 0 ? `${pct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : null}
                           </td>
                           <td className="px-1 py-1 text-center border border-gray-200">
-                            {abc ? <span className={`inline-block px-1.5 rounded text-[10px] ${CLS[abc.classe]}`}>{abc.classe}</span> : null}
+                            {abc ? <span className={`inline-block px-1.5 rounded text-[10px] ${ABC_CLASSE_CLS[abc.classe]}`}>{abc.classe}</span> : null}
                           </td>
                         </>
                       )
