@@ -182,7 +182,7 @@ async function clonarInsumos(
 ): Promise<void> {
   const { data: insumos, error } = await sb
     .from('orcamento_insumos')
-    .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id, estimado, estimado_motivo')
+    .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id, estimado, estimado_motivo, categoria')
     .eq('orcamento_id', fromId)
 
   if (error) console.error('[dup] insumos fetch:', error)
@@ -202,6 +202,7 @@ async function clonarInsumos(
     composicao_id: i.composicao_id ? (compIdMap[i.composicao_id] ?? null) : null,
     estimado: i.estimado ?? false,
     estimado_motivo: i.estimado_motivo ?? null,
+    categoria: i.categoria ?? null,
   }))
 
   const erros = await Promise.all(chunk(rows, 500).map(l => sb.from('orcamento_insumos').insert(l)))

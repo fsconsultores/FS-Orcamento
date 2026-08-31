@@ -14,6 +14,8 @@ import { Truck, CalendarDays, Sparkles } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
+import { CategoriaCombobox } from '@/components/ui/categoria-combobox'
+import type { CategoriaResumo } from '@/lib/orcamento/categorias-insumo'
 import { formatCurrency } from '@/lib/costs'
 import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 import { ComposicoesModal, type ComposicoesModalState } from './composicoes-modal'
@@ -40,7 +42,7 @@ const GRUPOS = [
   { value: 'T',  label: 'T — Transporte' },
 ]
 
-type EditableField = 'grupo' | 'base'
+type EditableField = 'grupo' | 'base' | 'categoria'
 
 interface Editing {
   id: string
@@ -84,10 +86,13 @@ function SortIcon({ field, sortField, sortDir }: { field: 'fornecedor' | 'data_c
 export function OrcamentoInsumosTable({
   initialInsumos,
   orcamentoId,
+  categorias,
 }: {
   /** Só avulsos — insumos embutidos em composições sem avulso equivalente chegam depois, em background. */
   initialInsumos: OrcamentoInsumo[]
   orcamentoId: string
+  /** Categorias já usadas em qualquer obra — alimenta o combobox da coluna Categoria. */
+  categorias: CategoriaResumo[]
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -881,6 +886,7 @@ export function OrcamentoInsumosTable({
               <th className="px-4 py-3 text-center" title="Insumo estimado — aparece destacado no Resumo do Orçamento">Estim.</th>
               <th className="px-4 py-3">Grupo</th>
               <th className="px-4 py-3">Base</th>
+              <th className="px-4 py-3">Categoria</th>
               <th className="px-4 py-3">Data Ref.</th>
               <th className="px-4 py-3 w-20" />
             </tr>
@@ -994,6 +1000,28 @@ export function OrcamentoInsumosTable({
                         <span onClick={e => startEdit(e, insumo.id, 'base', insumo.base ?? '')}
                           className={cellClass()} title="Clique para editar">
                           {insumo.base || <span className="text-gray-300">—</span>}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Categoria — família/tipo do insumo, pra comparar entre obras
+                        (ver categorias-insumo.ts). Combobox em vez de texto livre:
+                        mostra as já usadas em qualquer obra, aceita uma nova só
+                        quando digitada de propósito. */}
+                    <td className="px-4 py-3 text-gray-500">
+                      {isEditing(insumo.id, 'categoria') ? (
+                        <CategoriaCombobox
+                          compact
+                          autoFocus
+                          value={insumo.categoria ?? ''}
+                          categorias={categorias}
+                          onChange={() => {}}
+                          onBlurCommit={v => commitEdit(v)}
+                        />
+                      ) : (
+                        <span onClick={e => startEdit(e, insumo.id, 'categoria', insumo.categoria ?? '')}
+                          className={cellClass()} title="Clique para editar">
+                          {insumo.categoria || <span className="text-gray-300">—</span>}
                         </span>
                       )}
                     </td>

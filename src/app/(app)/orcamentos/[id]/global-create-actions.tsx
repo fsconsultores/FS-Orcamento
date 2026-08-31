@@ -6,7 +6,9 @@ import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { createInsumo, createComposicao } from '@/lib/orcamento'
 import type { CreateInsumoData, CreateComposicaoData } from '@/lib/orcamento'
+import { listarCategoriasUsadas, type CategoriaResumo } from '@/lib/orcamento/categorias-insumo'
 import { Modal } from '@/components/ui/modal'
+import { CategoriaCombobox } from '@/components/ui/categoria-combobox'
 
 const GRUPOS = [
   { value: 'E',  label: 'E — Equipamento' },
@@ -34,6 +36,7 @@ const emptyInsumo = (): CreateInsumoData => ({
   grupo: null,
   base: null,
   data_ref: null,
+  categoria: null,
 })
 
 const emptyComposicao = (): CreateComposicaoData => ({
@@ -62,6 +65,9 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
 
   const [composicoes, setComposicoes] = useState<{ id: string; codigo: string; descricao: string }[]>([])
   const [composicoesCarregadas, setComposicoesCarregadas] = useState(false)
+
+  const [categorias, setCategorias] = useState<CategoriaResumo[]>([])
+  const [categoriasCarregadas, setCategoriasCarregadas] = useState(false)
 
   // Namespace de ids estável — label/input aqui eram só visualmente
   // adjacentes (sem htmlFor/id), então nem leitor de tela nem
@@ -94,6 +100,17 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
         setComposicoesCarregadas(true)
       })
   }, [insumoOpen, composicoesCarregadas, orcamentoId])
+
+  // Categorias já usadas em QUALQUER obra (não só esta) — alimenta o
+  // combobox "Categoria", mesma ideia/gatilho do carregamento de composições
+  // acima. Cross-obra de propósito: RLS de orcamento_insumos já é por
+  // domínio (mesma base da sugestão de preço cross-obra existente).
+  useEffect(() => {
+    if (!insumoOpen || categoriasCarregadas) return
+    listarCategoriasUsadas(createClient() as any)
+      .then(cats => { setCategorias(cats); setCategoriasCarregadas(true) })
+      .catch(() => setCategoriasCarregadas(true))
+  }, [insumoOpen, categoriasCarregadas])
 
   function closeInsumo() {
     setInsumoOpen(false)
@@ -256,6 +273,16 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
                 value={insumoForm.base ?? ''}
                 onChange={(e) => setInsumoForm(p => ({ ...p, base: e.target.value || null }))}
                 className={inp}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Categoria</label>
+              <CategoriaCombobox
+                compact
+                value={insumoForm.categoria ?? ''}
+                onChange={(v) => setInsumoForm(p => ({ ...p, categoria: v || null }))}
+                categorias={categorias}
               />
             </div>
 
