@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { createInsumo, createComposicao } from '@/lib/orcamento'
 import type { CreateInsumoData, CreateComposicaoData } from '@/lib/orcamento'
-import { listarCategoriasUsadas, type CategoriaResumo } from '@/lib/orcamento/categorias-insumo'
+import { listarCategoriasUsadas, sugerirCategoriaPorDescricao, type CategoriaResumo } from '@/lib/orcamento/categorias-insumo'
 import { Modal } from '@/components/ui/modal'
 import { CategoriaCombobox } from '@/components/ui/categoria-combobox'
 
@@ -221,7 +221,19 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
                 id={`${uid}-insumo-descricao`}
                 required
                 value={insumoForm.descricao}
-                onChange={(e) => setInsumoForm(p => ({ ...p, descricao: e.target.value }))}
+                onChange={(e) => {
+                  const descricao = e.target.value
+                  // Pré-preenche a Categoria a partir da descrição, só quando o
+                  // campo ainda está vazio — nunca sobrescreve uma escolha que a
+                  // pessoa já fez (digitada ou selecionada). Sugestão sem match
+                  // (categoria nova, 1ª vez) devolve null e não muda nada — ver
+                  // sugerirCategoriaPorDescricao.
+                  setInsumoForm(p => ({
+                    ...p,
+                    descricao,
+                    categoria: p.categoria || sugerirCategoriaPorDescricao(descricao, categorias),
+                  }))
+                }}
                 className={inp}
               />
             </div>

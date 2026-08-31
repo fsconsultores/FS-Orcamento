@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mesclarVariantesCategoria } from './categorias-insumo'
+import { mesclarVariantesCategoria, sugerirCategoriaPorDescricao } from './categorias-insumo'
 
 describe('mesclarVariantesCategoria', () => {
   it('mantém categorias distintas separadas', () => {
@@ -72,5 +72,48 @@ describe('mesclarVariantesCategoria', () => {
 
   it('lista vazia não quebra', () => {
     expect(mesclarVariantesCategoria([])).toEqual([])
+  })
+})
+
+describe('sugerirCategoriaPorDescricao', () => {
+  const categorias = [
+    { categoria: 'Abajur', usos: 5 },
+    { categoria: 'Luminária', usos: 3 },
+  ]
+
+  it('sugere quando a descrição contém a categoria como palavra inteira', () => {
+    expect(sugerirCategoriaPorDescricao('Abajur 2 metros verde', categorias)).toBe('Abajur')
+    expect(sugerirCategoriaPorDescricao('Luminária pendente dourada', categorias)).toBe('Luminária')
+  })
+
+  it('é insensível a maiúscula/acento na descrição e na categoria', () => {
+    expect(sugerirCategoriaPorDescricao('ABAJUR grande verde', categorias)).toBe('Abajur')
+    expect(sugerirCategoriaPorDescricao('luminaria de mesa', categorias)).toBe('Luminária')
+  })
+
+  it('não sugere por substring solto (palavra inteira, não qualquer trecho)', () => {
+    // "Ar" não deve bater dentro de "Armário".
+    const r = sugerirCategoriaPorDescricao('Armário embutido branco', [{ categoria: 'Ar', usos: 1 }])
+    expect(r).toBeNull()
+  })
+
+  it('sem nenhuma categoria batendo, devolve null (nada a sugerir na 1ª vez)', () => {
+    expect(sugerirCategoriaPorDescricao('Torneira de cozinha', categorias)).toBeNull()
+  })
+
+  it('prefere a categoria mais específica (nome mais comprido) quando mais de uma bate', () => {
+    const comMaisEspecifica = [
+      { categoria: 'Luminária', usos: 10 },
+      { categoria: 'Luminária de mesa', usos: 1 },
+    ]
+    expect(sugerirCategoriaPorDescricao('Luminária de mesa pendente', comMaisEspecifica)).toBe('Luminária de mesa')
+  })
+
+  it('lista de categorias vazia devolve null', () => {
+    expect(sugerirCategoriaPorDescricao('Abajur 2m verde', [])).toBeNull()
+  })
+
+  it('descrição vazia devolve null', () => {
+    expect(sugerirCategoriaPorDescricao('', categorias)).toBeNull()
   })
 })

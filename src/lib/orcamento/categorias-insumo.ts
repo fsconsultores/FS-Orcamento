@@ -57,3 +57,32 @@ export async function listarCategoriasUsadas(supabase: SupabaseClient): Promise<
   if (error) throw new Error(`Erro ao listar categorias: ${error.message}`)
   return mesclarVariantesCategoria((data ?? []) as { categoria: string; usos: number }[])
 }
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Sugere uma categoria já usada em qualquer obra a partir do texto da
+ * descrição de um insumo novo — casa por PALAVRA INTEIRA (não substring
+ * solto, pra "Ar" não bater dentro de "Armário"), preferindo a categoria
+ * mais específica (nome mais comprido) quando mais de uma bate na mesma
+ * descrição. Só pré-preenche um campo que continua editável — nunca decide
+ * sozinho, mesmo espírito da "sugestão" já usada na aba Estimados (ver
+ * estimado-sugestao.ts). Sem match nenhum (primeira vez que a categoria
+ * apareceria), devolve null — a pessoa digita uma vez, e a partir daí toda
+ * descrição parecida em qualquer obra passa a sugerir sozinha.
+ */
+export function sugerirCategoriaPorDescricao(descricao: string, categorias: CategoriaResumo[]): string | null {
+  const descNorm = normalizeText(descricao)
+  if (!descNorm) return null
+
+  const candidatas = [...categorias].sort((a, b) => b.categoria.length - a.categoria.length)
+  for (const cat of candidatas) {
+    const catNorm = normalizeText(cat.categoria)
+    if (!catNorm) continue
+    const re = new RegExp(`(^|\\s)${escapeRegExp(catNorm)}(\\s|$)`)
+    if (re.test(descNorm)) return cat.categoria
+  }
+  return null
+}
