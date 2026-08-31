@@ -1,11 +1,18 @@
 import type { ReactNode } from 'react';
-import { stripDiacritics } from '@/lib/text-normalize';
 
-// Só minúsculo + sem acento, SEM trim/colapsar espaço — precisa preservar
-// comprimento e posição de cada caractere do texto original pra mapear o
-// match encontrado aqui de volta pro texto acentuado exibido na tela.
+// Remove marcas diacríticas (acentos) após decompor em NFD — cada caractere
+// acentuado comum do português (á, é, ç, ã, ...) decompõe em exatamente
+// 1 base + 1 marca, então o texto normalizado mantém o mesmo comprimento e
+// os mesmos índices do texto original (necessário pra mapear a posição do
+// match de volta pro texto com acento, não a versão sem acento). Faixa
+// "Combining Diacritical Marks" (U+0300-U+036F) construída via charCode pra
+// não depender de caracteres literais no arquivo-fonte.
+const DIACRITICS_RE = new RegExp(
+  '[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']',
+  'g'
+);
 function normalize(s: string): string {
-  return stripDiacritics(s).toLowerCase();
+  return s.normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase();
 }
 
 /** Realça a(s) parte(s) de `text` que batem com `query` — case e

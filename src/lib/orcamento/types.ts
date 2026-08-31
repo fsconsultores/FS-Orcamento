@@ -39,8 +39,6 @@ export interface OrcamentoInsumo {
   // registrada com "preço estimado" marcado. Ver upsertAvulsoInsumo.
   estimado?: boolean
   estimado_motivo?: string | null
-  /** Família/tipo do insumo (ex.: "Abajur") — pra comparar entre obras sem exigir que sejam o mesmo produto. Texto livre, nunca uma FK (ver categorias-insumo.ts). */
-  categoria?: string | null
   created_at: string
 }
 

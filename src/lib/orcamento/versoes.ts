@@ -72,8 +72,6 @@ export interface VersaoSnapshotV1 {
     /** Opcionais: snapshots gerados antes desse campo existir não o têm — restaura como `false`/`null`. */
     estimado?: boolean
     estimado_motivo?: string | null
-    /** Família/tipo do insumo (ver categorias-insumo.ts) — opcional pelo mesmo motivo de estimado acima. */
-    categoria?: string | null
   }[]
   servicosEstimados: {
     descricao: string
@@ -158,7 +156,7 @@ export async function capturarSnapshot(supabase: SupabaseClient, orcamentoId: st
     ),
     fetchPaginado<VersaoSnapshotV1['insumos'][number]>(
       sb, 'orcamento_insumos',
-      'id, composicao_id, codigo, codigo_original, descricao, unidade, custo, grupo, base, data_ref, indice, estimado, estimado_motivo, categoria',
+      'id, composicao_id, codigo, codigo_original, descricao, unidade, custo, grupo, base, data_ref, indice, estimado, estimado_motivo',
       orcamentoId,
       (q: any) => q.is('deleted_at', null)
     ),
@@ -319,7 +317,6 @@ async function restaurarInsumos(
         custo_atualizado_em: null, // força recálculo completo no próximo "Calcular"
         estimado: i.estimado ?? false,
         estimado_motivo: i.estimado_motivo ?? null,
-        categoria: i.categoria ?? null,
       })))
     if (error) throw new Error(`Erro ao restaurar insumos: ${error.message}`)
   }

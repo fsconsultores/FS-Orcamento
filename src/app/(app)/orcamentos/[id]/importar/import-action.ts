@@ -23,8 +23,6 @@ export interface ImportInsumoRow {
    */
   fornecedor?: string | null
   data_cotacao?: string | null
-  /** Família/tipo do insumo (ver categorias-insumo.ts) — só vem preenchido quando a Base Global já tiver o insumo classificado. */
-  categoria?: string | null
 }
 
 export interface ImportComposicaoRow {
@@ -132,7 +130,6 @@ export async function importarInsumos(
     data_ref: ins.data_ref,
     fornecedor: ins.fornecedor?.trim() || null,
     data_cotacao: ins.data_cotacao || null,
-    categoria: ins.categoria?.trim() || null,
     cotacao_id: cotacaoIdByCodigo.get(ins.codigo) ?? null,
   }))
 
@@ -357,7 +354,7 @@ export async function importarDaBase(
     while (true) {
       const { data, error } = await sb
         .from('tabela_insumos')
-        .select('codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia, categoria')
+        .select('codigo, descricao, unidade, preco_base, grupo, fonte, data_referencia')
         .eq('base_id', baseId)
         .range(start, start + BATCH - 1)
       if (error) { result.erros.push(`Insumos: ${error.message}`); break }
@@ -376,7 +373,6 @@ export async function importarDaBase(
         grupo: ins.grupo ?? null,
         base: ins.fonte ?? baseLabel,
         data_ref: ins.data_referencia ?? null,
-        categoria: ins.categoria ?? null,
       }))
       const r = await importarInsumos(orcamentoId, rows)
       result.insumosCriados += r.insumosCriados

@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { getAvulsosBasico, getComposicoesBasico } from '@/lib/orcamento'
-import { listarCategoriasUsadas } from '@/lib/orcamento/categorias-insumo'
 import { OrcamentoInsumosTable } from './insumos-table'
 import { DevProfiler } from '@/components/dev-profiler'
 
@@ -22,10 +21,9 @@ export default async function OrcamentoInsumosPage({
   // orçamento real) dependem do vínculo composição→insumos ou de uma busca
   // cross-orçamento cara e são carregados à parte, em background — ver
   // getInsumosDetalhadoAction.
-  const [avulsos, composicoes, categorias] = await Promise.all([
+  const [avulsos, composicoes] = await Promise.all([
     getAvulsosBasico(sb, orcamentoId),
     getComposicoesBasico(sb, orcamentoId),
-    listarCategoriasUsadas(supabase).catch(() => []),
   ])
 
   // Bases utilizadas: conta avulsos por base + composições por base
@@ -75,7 +73,7 @@ export default async function OrcamentoInsumosPage({
       </div>
 
       <DevProfiler id="OrcamentoInsumosTable">
-        <OrcamentoInsumosTable initialInsumos={avulsos} orcamentoId={orcamentoId} categorias={categorias} />
+        <OrcamentoInsumosTable initialInsumos={avulsos} orcamentoId={orcamentoId} />
       </DevProfiler>
     </div>
   )

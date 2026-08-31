@@ -7,16 +7,14 @@ interface FieldWrapperProps {
   required?: boolean
 }
 
-export const FIELD_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:bg-gray-50 disabled:text-gray-400'
-export const ERROR_CLS = 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
+const FIELD_CLS = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 disabled:bg-gray-50 disabled:text-gray-400'
+const ERROR_CLS = 'border-red-300 focus:border-red-500 focus:ring-red-500/20'
 
 // htmlFor/id associa o <label> ao campo de verdade — sem isso, leitor de
 // tela não lê o label ao focar o campo, e Playwright getByLabel() não acha
 // o elemento (achado real: nenhum modal do sistema funcionava com
 // getByLabel antes desta correção, ver tests/e2e/versionamento-flow.spec.ts).
-// Exportado pra ser reaproveitado por campos compostos fora deste arquivo
-// (ex.: CategoriaCombobox) sem duplicar o wrapper de label/help/error.
-export function FieldShell({ id, label, help, error, required, children }: FieldWrapperProps & { id: string; children: ReactNode }) {
+function FieldShell({ id, label, help, error, required, children }: FieldWrapperProps & { id: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
       {label && (
