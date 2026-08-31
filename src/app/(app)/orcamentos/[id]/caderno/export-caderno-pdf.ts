@@ -215,6 +215,33 @@ function addSectionBanner(doc: jsPDF, margin: number, contentW: number, numero: 
 
 // ─── Seção: Resumo Geral do Orçamento ────────────────────────────────────────
 
+// Faixa cheia de destaque (rótulo à esquerda, valor à direita, cor sólida) —
+// mesma linguagem visual das faixas de "Custo Total"/"Custo/m²" da seção 4.0,
+// reaproveitada aqui pro número mais importante da página (C).
+function drawHeroBar(doc: jsPDF, x: number, y: number, w: number, h: number, label: string, value: string, bg: string) {
+  doc.setFillColor(bg)
+  doc.rect(x, y, w, h, 'F')
+  doc.setTextColor('#ffffff')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(13)
+  doc.text(label, x + 4, y + h / 2 + 2)
+  doc.setFontSize(15)
+  doc.text(value, x + w - 4, y + h / 2 + 2, { align: 'right' })
+}
+
+// Título de subseção — barra fina colorida, mesmo tratamento em toda a
+// página (hero bar / KPIs / donut / tabelas), pra reforçar que é tudo uma
+// composição só, não blocos desencontrados.
+function drawSubsectionLabel(doc: jsPDF, x: number, y: number, w: number, title: string, value?: string) {
+  doc.setFillColor(BRAND_SECONDARY)
+  doc.rect(x, y, w, 8, 'F')
+  doc.setTextColor('#ffffff')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.text(title, x + 3, y + 5.5)
+  if (value) doc.text(value, x + w - 3, y + 5.5, { align: 'right' })
+}
+
 async function drawResumoGeralSection(
   doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string,
   incluirServicosComInsumoEstimado: boolean, servicosComInsumoEstimadoOcultos: Set<string>
@@ -224,58 +251,108 @@ async function drawResumoGeralSection(
   doc.addPage('a4', 'landscape')
   addSectionBanner(doc, margin, contentW, numero, 'RESUMO GERAL DO ORÇAMENTO', subtitle)
 
-  const top = margin + 16 + 8
-  const leftW = 120
-  const gap = 4
-  const rightX = margin + leftW + gap
-  const rightW = contentW - leftW - gap
-
   const A = data.totalGeralComBdi
   const B = data.totalServicosEstimados
   const C = A + B
   const { area_total, area_coberta, area_equivalente } = data.orcamento
 
-  // ── Coluna esquerda: (A) Total Orçado ─────────────────────────────────────
-  let yLeft = top
-  doc.setFillColor(BRAND_SECONDARY)
-  doc.rect(margin, yLeft, leftW, 8, 'F')
-  doc.setTextColor('#ffffff')
+  // Todo o conteúdo de altura FIXA (hero + KPIs + donut) é desenhado ANTES de
+  // qualquer autoTable — nunca depois. Layout antigo desenhava os cards/donut
+  // numa coluna à direita usando uma coordenada Y calculada no início da
+  // função, mas as tabelas (A)/(B) rodavam DEPOIS e podiam estourar pra uma
+  // 2ª página em orçamentos com muitas categorias (comum em obra real) — o
+  // cursor de página do jsPDF, após a tabela, já não era mais o da página
+  // onde os cards deveriam aparecer, e eles acabavam desenhados soltos numa
+  // página seguinte, deixando a 1ª página com a metade direita em branco.
+  // Ordem daqui pra baixo é estritamente sequencial (hero → KPIs → donut →
+  // tabela A → tabela B), cada bloco usando a largura CHEIA da página —
+  // nunca mais miscigena coordenada fixa com conteúdo de altura variável.
+  let y = margin + 16 + 8
+
+  // ── Faixa de destaque: Total Geral (C) ────────────────────────────────────
+  drawHeroBar(doc, margin, y, contentW, 14, 'TOTAL GERAL DO ORÇAMENTO  (A + B)', fmt(C), BRAND_PRIMARY)
+  y += 14 + 5
+
+  // ── KPIs em linha única, largura cheia ────────────────────────────────────
+  const cardGap = 3
+  const cardCount = 5
+  const cardW = (contentW - cardGap * (cardCount - 1)) / cardCount
+  const cardH = 18
+
+  drawKpiCard(doc, margin, y, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, CADERNO_KPI_PRIMARY)
+  drawKpiCard(doc, margin + (cardW + cardGap), y, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, CADERNO_KPI_PRIMARY)
+  drawKpiCard(doc, margin + (cardW + cardGap) * 2, y, cardW, cardH, 'CUSTO/M² (ÁREA TOTAL)',
+    area_total ? fmt(C / area_total) : '—',
+    area_total ? `Área: ${fmtQtd(area_total)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
+  drawKpiCard(doc, margin + (cardW + cardGap) * 3, y, cardW, cardH, 'CUSTO/M² (ÁREAS COBERTAS)',
+    area_coberta ? fmt(C / area_coberta) : '—',
+    area_coberta ? `Área: ${fmtQtd(area_coberta)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
+  drawKpiCard(doc, margin + (cardW + cardGap) * 4, y, cardW, cardH, 'CUSTO/M² (ÁREA EQUIVALENTE)',
+    area_equivalente ? fmt(C / area_equivalente) : '—',
+    area_equivalente ? `Área: ${fmtQtd(area_equivalente)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
+  y += cardH + 8
+
+  // ── Distribuição dos custos (gráfico de rosca), largura cheia ────────────
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
-  doc.text('(A) TOTAL ORÇADO', margin + 3, yLeft + 5.5)
-  doc.text(fmt(A), margin + leftW - 3, yLeft + 5.5, { align: 'right' })
-  yLeft += 8
+  doc.setTextColor('#374151')
+  doc.text('DISTRIBUIÇÃO DOS CUSTOS (A)', margin, y)
+
+  const segments: DonutSegment[] = data.distribuicaoCustos.map(d => ({
+    label: d.numero ? `${d.numero} ${d.label}` : d.label,
+    value: d.value,
+    color: d.color,
+  }))
+
+  const outerR = 26
+  const donutCx = margin + outerR + 2
+  const donutCy = y + 6 + outerR
+  drawDonutChart(doc, segments, donutCx, donutCy, outerR)
+
+  // Legenda ganha a largura inteira que sobra ao lado do gráfico — antes
+  // cabia em ~90mm e truncava rótulos ("04 EQUIPAMENTOS E CONSU…"); agora
+  // tem a página toda pra se espalhar em mais colunas.
+  const legendX = donutCx + outerR + 8
+  const legendW = margin + contentW - legendX
+  const lineH = 4.2
+  const maxRowsPerCol = Math.max(1, Math.floor((outerR * 2) / lineH))
+  const numCols = Math.max(1, Math.ceil(segments.length / maxRowsPerCol))
+  const colW = legendW / numCols
+  drawDonutLegend(doc, segments, legendX, donutCy - outerR + lineH, lineH, 6.5, colW, maxRowsPerCol)
+
+  y = donutCy + outerR + 10
+
+  // ── (A) Detalhamento por categoria — tabela de largura cheia ──────────────
+  // Largura cheia (em vez dos 70mm de antes) é o que de fato resolve a
+  // "quebra de linha desnecessária": a maioria das descrições de categoria
+  // passa a caber numa linha só. Sem coluna reservada ao lado, a tabela pode
+  // estourar pra quantas páginas precisar (comum com muitas categorias) sem
+  // arrastar nenhum outro elemento junto — autoTable já lida com isso
+  // sozinho (repete cabeçalho, showFoot só na última página).
+  drawSubsectionLabel(doc, margin, y, contentW, '(A) DETALHAMENTO POR CATEGORIA', fmt(A))
+  y += 8
 
   autoTable(doc, {
-    startY: yLeft,
-    margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
+    startY: y,
+    margin: { left: margin, right: margin, bottom: margin },
     head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
     body: data.arvore.map(n => [n.descricao, fmt(n.totalComBdi), fmtPct(n.percentualComBdi)]),
     foot: [['TOTAL GERAL', fmt(A), '100,00%']],
     showFoot: 'lastPage',
-    styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+    styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
+    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
     footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
     columnStyles: {
-      0: { cellWidth: leftW - 50 },
-      1: { cellWidth: 30, halign: 'right' },
-      2: { cellWidth: 20, halign: 'right' },
+      0: { cellWidth: contentW - 90 },
+      1: { cellWidth: 55, halign: 'right' },
+      2: { cellWidth: 35, halign: 'right' },
     },
   })
 
   // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
-  yLeft = doc.lastAutoTable.finalY + 6
+  y = doc.lastAutoTable.finalY + 6
 
-  // ── Coluna esquerda: (B) Serviços Estimados ───────────────────────────────
-  doc.setFillColor(BRAND_SECONDARY)
-  doc.rect(margin, yLeft, leftW, 8, 'F')
-  doc.setTextColor('#ffffff')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text('(B) SERVIÇOS ESTIMADOS', margin + 3, yLeft + 5.5)
-  doc.text(fmt(B), margin + leftW - 3, yLeft + 5.5, { align: 'right' })
-  yLeft += 8
-
+  // ── (B) Serviços Estimados — mesma largura cheia ──────────────────────────
   // Filtra só a LISTAGEM — o total (B) acima sempre reflete o valor real,
   // completo, independente do que fica visível aqui. Só linhas que vieram de
   // data.servicosComInsumoEstimado (serviço com insumo de preço estimado,
@@ -296,10 +373,13 @@ async function drawResumoGeralSection(
     return !servicosComInsumoEstimadoOcultos.has(s.id)
   })
 
+  drawSubsectionLabel(doc, margin, y, contentW, '(B) SERVIÇOS ESTIMADOS', fmt(B))
+  y += 8
+
   if (servicosVisiveis.length > 0) {
     autoTable(doc, {
-      startY: yLeft,
-      margin: { left: margin, right: margin + contentW - leftW, bottom: margin },
+      startY: y,
+      margin: { left: margin, right: margin, bottom: margin },
       head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
       // Número do PRÓPRIO item + descrição do PRÓPRIO item (nunca a do
       // insumo que motivou a marcação nem só a do pai — ver ServicoEstimado
@@ -315,13 +395,13 @@ async function drawResumoGeralSection(
       ]),
       foot: [['TOTAL', fmt(B), '100,00%']],
       showFoot: 'lastPage',
-      styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
+      styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
+      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
       footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
       columnStyles: {
-        0: { cellWidth: leftW - 50 },
-        1: { cellWidth: 30, halign: 'right' },
-        2: { cellWidth: 20, halign: 'right' },
+        0: { cellWidth: contentW - 90 },
+        1: { cellWidth: 55, halign: 'right' },
+        2: { cellWidth: 35, halign: 'right' },
       },
     })
   } else {
@@ -332,55 +412,9 @@ async function drawResumoGeralSection(
       data.servicosEstimados.length === 0
         ? 'Nenhum serviço estimado cadastrado.'
         : 'Nenhum serviço estimado selecionado para exibição nesta exportação.',
-      margin + 3, yLeft + 5
+      margin + 3, y + 5
     )
   }
-
-  // ── Coluna direita: KPI cards ──────────────────────────────────────────────
-  const cardGap = 3
-  const cardW = (rightW - cardGap * 2) / 3
-  const cardH = 18
-
-  drawKpiCard(doc, rightX, top, cardW, cardH, 'TOTAL GERAL (C) = (A+B)', fmt(C), undefined, CADERNO_KPI_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap), top, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, CADERNO_KPI_PRIMARY)
-  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, top, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, CADERNO_KPI_PRIMARY)
-
-  const row2Y = top + cardH + cardGap
-  drawKpiCard(doc, rightX, row2Y, cardW, cardH, 'CUSTO/M² (ÁREA TOTAL)',
-    area_total ? fmt(C / area_total) : '—',
-    area_total ? `Área: ${fmtQtd(area_total)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-  drawKpiCard(doc, rightX + (cardW + cardGap), row2Y, cardW, cardH, 'CUSTO/M² (ÁREAS COBERTAS)',
-    area_coberta ? fmt(C / area_coberta) : '—',
-    area_coberta ? `Área: ${fmtQtd(area_coberta)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-  drawKpiCard(doc, rightX + (cardW + cardGap) * 2, row2Y, cardW, cardH, 'CUSTO/M² (ÁREA EQUIVALENTE)',
-    area_equivalente ? fmt(C / area_equivalente) : '—',
-    area_equivalente ? `Área: ${fmtQtd(area_equivalente)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-
-  // ── Coluna direita: distribuição dos custos (gráfico de rosca) ────────────
-  const donutTop = row2Y + cardH + 8
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.setTextColor('#374151')
-  doc.text('DISTRIBUIÇÃO DOS CUSTOS (A)', rightX, donutTop)
-
-  const segments: DonutSegment[] = data.distribuicaoCustos.map(d => ({
-    label: d.numero ? `${d.numero} ${d.label}` : d.label,
-    value: d.value,
-    color: d.color,
-  }))
-
-  const outerR = 32
-  const cx = rightX + outerR + 4
-  const cy = donutTop + 6 + outerR
-  drawDonutChart(doc, segments, cx, cy, outerR)
-
-  const legendX = cx + outerR + 6
-  const legendW = rightX + rightW - legendX
-  const lineH = 4
-  const maxRowsPerCol = Math.max(1, Math.floor((outerR * 2) / lineH))
-  const numCols = Math.max(1, Math.ceil(segments.length / maxRowsPerCol))
-  const colW = legendW / numCols
-  drawDonutLegend(doc, segments, legendX, cy - outerR + lineH, lineH, 6, colW, maxRowsPerCol)
 }
 
 // ─── Seção: Custo / m² ────────────────────────────────────────────────────────
