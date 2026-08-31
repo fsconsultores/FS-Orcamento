@@ -6,6 +6,17 @@ import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CU
 import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
 import { getPavimentosByOrcamento, type OrcamentoPavimento } from './pavimentos'
 
+// Alguns catálogos de insumos importados (SINAPI/SICRO/etc.) trazem descrição
+// com múltiplos espaços em sequência — resquício de padding de coluna de
+// largura fixa do arquivo de origem (ex.: "TÉCNICO DE SEGURANÇA DO␣␣␣␣␣␣␣␣
+// TRABALHO"). Sem normalizar, o Caderno em PDF mostra esse espaçamento cru
+// como um vão feio no meio do texto. Corrigido uma vez aqui, na entrada de
+// todo dado que passa por getCadernoData, em vez de repetir a limpeza em
+// cada seção do PDF que desenha uma descrição.
+function normalizarEspacos(s: string): string {
+  return s.replace(/\s+/g, ' ').trim()
+}
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 export type CategoriaCusto = 'mat' | 'mo' | 'terceiros'
@@ -317,6 +328,13 @@ export async function getCadernoData(
   })
 
   const estItems: EstruturaFullItem[] = estrutura ?? []
+
+  // Normaliza espaçamento interno das descrições logo na entrada, antes de
+  // qualquer seção do PDF ler esse campo — ver normalizarEspacos acima.
+  for (const item of estItems) item.descricao = normalizarEspacos(item.descricao)
+  for (const ins of todosInsumos) ins.descricao = normalizarEspacos(ins.descricao)
+  for (const ins of insumosDeComposicao) ins.descricao = normalizarEspacos(ins.descricao)
+  for (const c of composicoes) c.descricao = normalizarEspacos(c.descricao)
 
   // Área efetiva do orçamento: se houver pavimentos cadastrados (Configurações),
   // é a SOMA deles — senão, cai pros campos únicos de tabela_orcamentos (sem
