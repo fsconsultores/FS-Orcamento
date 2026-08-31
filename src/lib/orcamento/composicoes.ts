@@ -195,8 +195,19 @@ export async function sincronizarCustosPlanilha(
 
   if (updates.length === 0) return
 
-  // Atualiza item a item: upsert exigiria todas as colunas NOT NULL e violaria as
-  // políticas de RLS de INSERT (que verificam orcamento_id, ausente neste payload).
+  // 1 round-trip via RPC (update em massa com unnest) em vez de N/10 lotes de
+  // 10 updates concorrentes — ver migration sincronizar_custos_estrutura_bulk.
+  const { error: rpcError } = await supabase.rpc('sincronizar_custos_estrutura', {
+    p_orcamento_id: orcamentoId,
+    p_ids: updates.map((u) => u.id),
+    p_custos: updates.map((u) => u.custo_unitario),
+  })
+  if (!rpcError) return
+
+  // RPC ainda não existe nesse banco (migração não aplicada) — cai pro
+  // caminho antigo item a item. Upsert exigiria todas as colunas NOT NULL e
+  // violaria as políticas de RLS de INSERT (que verificam orcamento_id,
+  // ausente neste payload).
   const BATCH = 10
   for (let i = 0; i < updates.length; i += BATCH) {
     const lote = updates.slice(i, i + BATCH)
