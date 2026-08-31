@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { baseLabelFromOrgao } from '@/components/base-labels'
 import type { InsumoComBase } from '@/lib/supabase/types'
 import { formatDateOnly } from '@/lib/format-date'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 /**
  * Busca todos os insumos que casam com os filtros da tela (não só a página
@@ -35,21 +36,18 @@ export async function exportInsumosAction(filtros: { q?: string; orgao?: string;
     return query
   }
 
-  const insumosExport: InsumoComBase[] = []
-  const BATCH = 1000
-  let start = 0
-  while (true) {
-    const { data, error } = await addFilters(
+  // Paginação em PARALELO (mesmo padrão da Fase 4.3 da auditoria) — em bases
+  // grandes como SINAPI isso ainda é ~20 páginas mesmo só sob demanda; pedir
+  // todas de uma vez em vez de uma após a outra é a diferença entre somar a
+  // latência de cada página e pagar só a da mais lenta.
+  const insumosExport = await fetchAllPaginatedParallel<InsumoComBase>((from, to) =>
+    addFilters(
       sb.from('tabela_insumos')
-        .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)')
+        .select('id, codigo, descricao, grupo, unidade, preco_base, data_referencia, base_id, base_origem, tabela_bases(orgao, tipo_base)', { count: 'exact' })
         .order('codigo')
-        .range(start, start + BATCH - 1)
+        .range(from, to)
     )
-    if (error) throw new Error(`Erro ao buscar insumos para export: ${error.message}`)
-    insumosExport.push(...((data ?? []) as InsumoComBase[]))
-    if ((data?.length ?? 0) < BATCH) break
-    start += BATCH
-  }
+  )
 
   return insumosExport.map((ins) => ({
     'Código': ins.codigo,

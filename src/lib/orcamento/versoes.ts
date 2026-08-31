@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { aplicarModeloAcrescimo } from './modelo-acrescimo'
 import { persistirTotaisPlanilha } from './motor-calculo'
+import { fetchAllPaginatedParallel } from './paginate'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,11 @@ export interface OrcamentoVersaoResumo {
 
 // ─── Captura ─────────────────────────────────────────────────────────────────
 
+// Paginação em PARALELO (mesmo padrão da Fase 4.3 da auditoria de
+// performance — pede a 1ª página com count, depois dispara o resto de uma
+// vez) — antes era sequencial página a página, o que em orçamentos com
+// milhares de insumos/itens de estrutura fazia "Salvar versão" demorar
+// segundos a mais só de round-trips somados.
 async function fetchPaginado<T>(
   sb: SupabaseClient,
   table: string,
@@ -106,20 +112,15 @@ async function fetchPaginado<T>(
   orcamentoId: string,
   extra?: (q: any) => any
 ): Promise<T[]> {
-  const BATCH = 1000
-  const out: T[] = []
-  let start = 0
-  while (true) {
-    let query = (sb as any).from(table).select(select).eq('orcamento_id', orcamentoId).range(start, start + BATCH - 1)
-    if (extra) query = extra(query)
-    const { data, error } = await query
-    if (error) throw new Error(`Erro ao capturar ${table}: ${error.message}`)
-    if (!data || data.length === 0) break
-    out.push(...(data as T[]))
-    if (data.length < BATCH) break
-    start += BATCH
+  try {
+    return await fetchAllPaginatedParallel<T>((from, to) => {
+      let query = (sb as any).from(table).select(select, { count: 'exact' }).eq('orcamento_id', orcamentoId).range(from, to)
+      if (extra) query = extra(query)
+      return query
+    })
+  } catch (e) {
+    throw new Error(`Erro ao capturar ${table}: ${e instanceof Error ? e.message : String(e)}`)
   }
-  return out
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

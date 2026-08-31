@@ -4,6 +4,7 @@ import { CurvaAbcView } from './curva-abc-view'
 import { PageHeader } from '@/components/ui/toolbar'
 import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
 import { DevProfiler } from '@/components/dev-profiler'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 export default async function CurvaAbcPage({
   params,
@@ -61,44 +62,30 @@ export default async function CurvaAbcPage({
       bdiPercentual: e.bdi_especifico ?? activePlanilha.bdi_global ?? orcamento?.bdi_global ?? 0,
     }))
 
-  // 2. Insumos dentro de composições (paginado) — necessário antes do split
-  const allInsumos: InsumoComposicaoBasico[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data } = await sb
+  // 2. Insumos dentro de composições + 3. avulsos (composicao_id null, usados
+  // pra mapear itens diretos da planilha com código não-"I" pro código "I"
+  // real correspondente) — cada busca paginada em PARALELO internamente, e as
+  // duas buscas independentes disparadas juntas (mesmo padrão da Fase 4.3 da
+  // auditoria: sequencial vira minutos em orçamentos com milhares de
+  // avulsos, já que cada página paga o piso de latência deste ambiente).
+  const [allInsumos, insumosAvulsos] = await Promise.all([
+    fetchAllPaginatedParallel<InsumoComposicaoBasico>((from, to) =>
+      sb
         .from('orcamento_insumos')
-        .select('codigo, descricao, unidade, custo, indice, composicao_id, grupo')
+        .select('codigo, descricao, unidade, custo, indice, composicao_id, grupo', { count: 'exact' })
         .eq('orcamento_id', orcamentoId)
         .not('composicao_id', 'is', null)
-        .range(start, start + BATCH - 1)
-      if (!data || data.length === 0) break
-      allInsumos.push(...data)
-      if (data.length < BATCH) break
-      start += BATCH
-    }
-  }
-
-  // 3. Insumos avulsos (composicao_id null) — usados para mapear itens diretos
-  // da planilha com código não-"I" para o código "I" real correspondente
-  const insumosAvulsos: InsumoAvulsoBasico[] = []
-  {
-    const BATCH = 1000
-    let start = 0
-    while (true) {
-      const { data } = await sb
+        .range(from, to)
+    ),
+    fetchAllPaginatedParallel<InsumoAvulsoBasico>((from, to) =>
+      sb
         .from('orcamento_insumos')
-        .select('codigo, descricao, custo, grupo')
+        .select('codigo, descricao, custo, grupo', { count: 'exact' })
         .eq('orcamento_id', orcamentoId)
         .is('composicao_id', null)
-        .range(start, start + BATCH - 1)
-      if (!data || data.length === 0) break
-      insumosAvulsos.push(...data)
-      if (data.length < BATCH) break
-      start += BATCH
-    }
-  }
+        .range(from, to)
+    ),
+  ])
 
   const items = computeAbcCurvaUnica(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
 
