@@ -71,18 +71,6 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     ? linhas.filter(({ node }) => node.descricao.toLowerCase().includes(q) || node.numero.toLowerCase().includes(q) || (node.codigo ?? '').toLowerCase().includes(q))
     : linhas
 
-  const houveMudanca = useMemo(() => {
-    for (const { node } of linhas) {
-      const atual = estado.get(node.id)
-      const salvo = { estimado: node.estimado, motivo: node.estimado_motivo ?? '', valor: node.valor_estimado }
-      if (!atual) continue
-      if (atual.estimado !== salvo.estimado) return true
-      if (atual.estimado && atual.motivo.trim() !== salvo.motivo.trim()) return true
-      if (atual.estimado && parseValor(atual.valor) !== salvo.valor) return true
-    }
-    return false
-  }, [estado, linhas])
-
   // sumLeaves já vem embutido no `total`/`totalComBdi` de cada nó (soma dos
   // filhos) — pra não contar duas vezes quando um grupo E um filho dele estão
   // marcados, soma só os nós marcados que não têm ancestral também marcado.
@@ -253,7 +241,8 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
         </div>
         <button
           onClick={salvar}
-          disabled={!houveMudanca || salvando}
+          disabled={salvando}
+          title="Salva o que estiver marcado/preenchido agora — mesmo que o resultado bata com o que já está salvo (ex.: depois de desmarcar sugestões que nunca chegaram a ser salvas)"
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
         >
           {salvando ? 'Salvando…' : 'Salvar'}
