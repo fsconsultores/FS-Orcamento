@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { CheckSquare, Square, Sparkles, RotateCcw } from 'lucide-react'
 import type { CadernoNode } from '@/lib/orcamento/caderno'
 import { atualizarItensEstimadosAction, type AlteracaoEstimado } from './estimados-action'
 import { formatCurrency } from '@/lib/costs'
@@ -214,18 +215,42 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
           onChange={e => setQuery(e.target.value)}
           className="flex-1 min-w-[300px] max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
         />
-        <select
-          value=""
-          onChange={(e) => { if (e.target.value) aplicarAcaoEmMassa(e.target.value as AcaoEmMassa); e.target.value = '' }}
-          title="Aplica só aos itens visíveis abaixo (respeita a busca) — nada é salvo até clicar em Salvar"
-          className="rounded-md border border-gray-300 px-2.5 py-2 text-sm text-gray-600 outline-none focus:border-blue-500"
-        >
-          <option value="">Ações em massa…</option>
-          <option value="marcar-todos">Marcar todos os visíveis</option>
-          <option value="desmarcar-todos">Desmarcar todos os visíveis</option>
-          <option value="marcar-sugeridos">Marcar apenas sugeridos</option>
-          <option value="restaurar">Restaurar (desfazer alterações não salvas)</option>
-        </select>
+      </div>
+
+      {/* Ações em linha própria, separada da busca — mesmo padrão de filtros
+          vs. ações já usado em Insumos/Composições do orçamento. */}
+      <div className="flex items-center gap-2 flex-wrap justify-between">
+        <div className="flex items-center gap-1.5 flex-wrap" title="Aplica só aos itens visíveis abaixo (respeita a busca) — nada é salvo até clicar em Salvar">
+          <span className="text-xs text-gray-400 mr-0.5">Em massa:</span>
+          <button
+            onClick={() => aplicarAcaoEmMassa('marcar-todos')}
+            className="flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+          >
+            <CheckSquare size={13} />
+            Marcar todos os visíveis
+          </button>
+          <button
+            onClick={() => aplicarAcaoEmMassa('desmarcar-todos')}
+            className="flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+          >
+            <Square size={13} />
+            Desmarcar todos os visíveis
+          </button>
+          <button
+            onClick={() => aplicarAcaoEmMassa('marcar-sugeridos')}
+            className="flex items-center gap-1.5 rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50"
+          >
+            <Sparkles size={13} />
+            Marcar apenas sugeridos
+          </button>
+          <button
+            onClick={() => aplicarAcaoEmMassa('restaurar')}
+            className="flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+          >
+            <RotateCcw size={13} />
+            Restaurar
+          </button>
+        </div>
         <button
           onClick={salvar}
           disabled={!houveMudanca || salvando}

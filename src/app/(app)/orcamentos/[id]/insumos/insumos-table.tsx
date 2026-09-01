@@ -791,18 +791,19 @@ export function OrcamentoInsumosTable({
           )}
         </select>
         {basesPresentesAvulsos.length > 0 && (
-          <select
-            value=""
-            onChange={(e) => { if (e.target.value) setBaseParaConfirmar(e.target.value); e.target.value = '' }}
-            disabled={removendoBase !== null}
-            title="Remove os insumos avulsos que vieram de uma importação específica — sem afetar avulsos de outras bases nem insumos embutidos em composições"
-            className="rounded-md border border-gray-300 px-2.5 py-2 text-xs text-gray-600 outline-none focus:border-blue-500 disabled:opacity-40"
-          >
-            <option value="">{removendoBase ? `Removendo "${removendoBase}"…` : 'Remover base importada…'}</option>
+          <div className="flex items-center gap-1.5 flex-wrap" title="Remove os insumos avulsos que vieram de uma importação específica — sem afetar avulsos de outras bases nem insumos embutidos em composições">
+            <span className="text-xs text-gray-400">Remover base importada:</span>
             {basesPresentesAvulsos.map(([base, count]) => (
-              <option key={base} value={base}>{base} ({count})</option>
+              <button
+                key={base}
+                onClick={() => setBaseParaConfirmar(base)}
+                disabled={removendoBase !== null}
+                className="rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:border-red-300 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {removendoBase === base ? `Removendo…` : `${base} (${count})`}
+              </button>
             ))}
-          </select>
+          </div>
         )}
       </div>
       {/* Ações em linha própria — separada dos filtros acima de propósito: com
