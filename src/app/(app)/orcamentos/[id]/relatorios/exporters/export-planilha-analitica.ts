@@ -9,6 +9,10 @@ export interface AnaliticaFilterState {
   modo: AnaliticaModo
   categorias: Set<CategoriaAnalitica>
   classesAbc: Set<AbcClasse>
+  // Controla tanto o VALOR quanto a PRESENÇA das colunas "R$ Unit."/"R$ Total"
+  // — desligado, elas somem do export (não ficam em branco), pra quem só
+  // quer o consumo físico de insumo por item (índice × quantidade do item,
+  // ver quantidadeTotalItem) sem nenhuma coluna de preço.
   mostrarPrecos: boolean
   // Opções da Gestão de Cotações — cada uma independente, default desligada
   // (não muda o formato do export pra quem não pediu).
@@ -56,17 +60,29 @@ export function fmtDataCotacao(dataIso: string | null | undefined): string {
   return formatDateOnly(dataIso)
 }
 
+// Mantém uma célula fora do array quando `incluir` é false — em vez de uma
+// pilha de ternários por combinação de mostrarTotalItem × mostrarPrecos,
+// cada coluna opcional declara sua própria condição uma vez só.
+function linha(...celulas: [boolean, unknown][]): unknown[] {
+  return celulas.filter(([incluir]) => incluir).map(([, valor]) => valor)
+}
+
 export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: AnaliticaFilterState) {
   const rows = buildAnaliticaRows(data, opts)
   // "Total no Item" (índice × quantidade do item na planilha) só faz sentido nos
   // modos Normal/Decomposta — no Agrupado a coluna "Qtde" já é o total do
   // orçamento inteiro, mostrar as duas seria redundante.
   const mostrarTotalItem = opts.modo !== 'agrupada'
-  const cUnit = mostrarTotalItem ? 7 : 6
-  const cTotal = mostrarTotalItem ? 8 : 7
+  const mostrarPrecos = opts.mostrarPrecos
 
-  // Colunas de cotação são sempre acrescentadas no final, na mesma ordem das
-  // opções — não interferem em cUnit/cTotal nem no resto do layout existente.
+  // Posição (1-based, mesma indexação do `c` do eachCell) de cada coluna
+  // opcional, calculada uma vez — usada só pra formatação/alinhamento.
+  let col = 5 // 1:Item 2:Código 3:Descrição 4:Und 5:Qtde/Índice
+  const cTotalItem = mostrarTotalItem ? ++col : null
+  const cUnit = mostrarPrecos ? ++col : null
+  const cTotal = mostrarPrecos ? ++col : null
+  const ultimaColPrincipal = col
+
   const extraCols: { header: string; width: number; get: (row: PlanilhaAnaliticaRow) => string }[] = []
   if (opts.exibirFornecedor) extraCols.push({ header: 'Fornecedor', width: 20, get: r => r.tipo === 'insumo' ? sanitize(r.fornecedor ?? '') || '' : '' })
   if (opts.exibirDataCotacao) extraCols.push({ header: 'Data Cotação', width: 13, get: r => r.tipo === 'insumo' ? fmtDataCotacao(r.dataCotacao) : '' })
@@ -77,19 +93,29 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
   wb.creator = 'FS Orçamento'
   const ws = wb.addWorksheet('Planilha Analítica')
 
+  // Descrição absorve a largura das colunas opcionais que sumiram — cheia
+  // (8 colunas) fica em 48; sem preço e sem total-no-item (5 colunas, só
+  // "consumo físico") fica bem mais larga.
+  const descricaoWidth = mostrarTotalItem && mostrarPrecos ? 48 : mostrarTotalItem || mostrarPrecos ? 55 : 65
+
   ws.columns = [
-    ...(mostrarTotalItem
-      ? [{ width: 10 }, { width: 13 }, { width: 48 }, { width: 6 }, { width: 11 }, { width: 13 }, { width: 15 }, { width: 16 }]
-      : [{ width: 10 }, { width: 13 }, { width: 55 }, { width: 6 }, { width: 12 }, { width: 15 }, { width: 16 }]),
+    ...linha(
+      [true, { width: 10 }], [true, { width: 13 }],
+      [true, { width: descricaoWidth }],
+      [true, { width: 6 }], [true, { width: 11 }],
+      [mostrarTotalItem, { width: 13 }], [mostrarPrecos, { width: 15 }], [mostrarPrecos, { width: 16 }],
+    ),
     ...extraCols.map(c => ({ width: c.width })),
-  ]
+  ] as any
 
   await addSheetHeader(wb, ws, TITULOS[opts.modo], data.orcamento)
 
   const headers = [
-    ...(mostrarTotalItem
-      ? ['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'Total no Item', 'R$ Unit.', 'R$ Total']
-      : ['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total']),
+    ...linha(
+      [true, 'Item'], [true, 'Código'], [true, 'Descrição'], [true, 'Und'],
+      [true, mostrarTotalItem ? 'Qtde/Índice' : 'Qtde'],
+      [mostrarTotalItem, 'Total no Item'], [mostrarPrecos, 'R$ Unit.'], [mostrarPrecos, 'R$ Total'],
+    ),
     ...extraCols.map(c => c.header),
   ]
   const hRow = ws.addRow(headers)
@@ -97,7 +123,7 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
   hRow.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
     cell.fill = fill(C.headerBg)
     cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: C.headerFg } }
-    cell.alignment = { horizontal: c >= 5 && c <= cTotal ? 'right' : 'left', vertical: 'middle' }
+    cell.alignment = { horizontal: c >= 5 && c <= ultimaColPrincipal ? 'right' : 'left', vertical: 'middle' }
     cell.border = { top: bdr('medium', C.borderDk), bottom: bdr('medium', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
   })
 
@@ -107,9 +133,10 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
     const extraValues = extraCols.map(c => c.get(row))
     if (row.tipo === 'grupo') {
       const values = [
-        ...(mostrarTotalItem
-          ? [row.numero, '', sanitize(row.descricao) || '', '', '', '', '', '']
-          : [row.numero, '', sanitize(row.descricao) || '', '', '', '', '']),
+        ...linha(
+          [true, row.numero], [true, ''], [true, sanitize(row.descricao) || ''], [true, ''], [true, ''],
+          [mostrarTotalItem, ''], [mostrarPrecos, ''], [mostrarPrecos, ''],
+        ),
         ...extraValues,
       ]
       const r = ws.addRow(values)
@@ -117,18 +144,19 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
       r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
         cell.fill = fill(C.slate800)
         cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: C.white } }
-        cell.alignment = { horizontal: c >= 5 && c <= cTotal ? 'right' : 'left', vertical: 'middle' }
+        cell.alignment = { horizontal: c >= 5 && c <= ultimaColPrincipal ? 'right' : 'left', vertical: 'middle' }
         cell.border = { top: bdr('thin', C.borderDk), bottom: bdr('thin', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
       })
     } else if (row.tipo === 'item') {
       totalGeralExibido += row.custoTotal
       const qtde = row.quantidade > 0 ? row.quantidade : ''
-      const unit = opts.mostrarPrecos && row.custoUnitario > 0 ? row.custoUnitario : ''
-      const total = opts.mostrarPrecos && row.custoTotal > 0 ? row.custoTotal : ''
+      const unit = mostrarPrecos && row.custoUnitario > 0 ? row.custoUnitario : ''
+      const total = mostrarPrecos && row.custoTotal > 0 ? row.custoTotal : ''
       const values = [
-        ...(mostrarTotalItem
-          ? [row.numero, sanitize(row.codigo) || '', sanitize(row.descricao) || '', sanitize(row.unidade) || '', qtde, '', unit, total]
-          : [row.numero, sanitize(row.codigo) || '', sanitize(row.descricao) || '', sanitize(row.unidade) || '', qtde, unit, total]),
+        ...linha(
+          [true, row.numero], [true, sanitize(row.codigo) || ''], [true, sanitize(row.descricao) || ''], [true, sanitize(row.unidade) || ''], [true, qtde],
+          [mostrarTotalItem, ''], [mostrarPrecos, unit], [mostrarPrecos, total],
+        ),
         ...extraValues,
       ]
       const r = ws.addRow(values)
@@ -136,19 +164,21 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
       r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
         cell.fill = fill(C.slate50)
         cell.font = { name: 'Calibri', size: 9, bold: false, color: { argb: C.gray700 } }
-        cell.alignment = { horizontal: c >= 5 && c <= cTotal ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+        cell.alignment = { horizontal: c >= 5 && c <= ultimaColPrincipal ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
         cell.border = { top: bdr('thin', C.border), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
         if (c === 5 && typeof cell.value === 'number') cell.numFmt = '#,##0.0000'
         if ((c === cUnit || c === cTotal) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
       })
     } else {
       const indent = '    '.repeat(row.nivel)
-      const unit = opts.mostrarPrecos && row.custoUnit > 0 ? row.custoUnit : ''
-      const total = opts.mostrarPrecos && row.custoTotal > 0 ? row.custoTotal : ''
+      const unit = mostrarPrecos && row.custoUnit > 0 ? row.custoUnit : ''
+      const total = mostrarPrecos && row.custoTotal > 0 ? row.custoTotal : ''
       const values = [
-        ...(mostrarTotalItem
-          ? ['', sanitize(row.codigo) || '', sanitize(indent + row.descricao) || '', sanitize(row.unidade) || '', row.indice > 0 ? row.indice : '', row.quantidadeTotalItem > 0 ? row.quantidadeTotalItem : '', unit, total]
-          : ['', sanitize(row.codigo) || '', sanitize(indent + row.descricao) || '', sanitize(row.unidade) || '', row.indice > 0 ? row.indice : '', unit, total]),
+        ...linha(
+          [true, ''], [true, sanitize(row.codigo) || ''], [true, sanitize(indent + row.descricao) || ''], [true, sanitize(row.unidade) || ''],
+          [true, row.indice > 0 ? row.indice : ''],
+          [mostrarTotalItem, row.quantidadeTotalItem > 0 ? row.quantidadeTotalItem : ''], [mostrarPrecos, unit], [mostrarPrecos, total],
+        ),
         ...extraValues,
       ]
       const r = ws.addRow(values)
@@ -156,11 +186,11 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
       r.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
         cell.fill = fill(C.white)
         cell.font = { name: 'Calibri', size: 8, bold: false, color: { argb: C.insumoFg } }
-        cell.alignment = { horizontal: c >= 5 && c <= cTotal ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
+        cell.alignment = { horizontal: c >= 5 && c <= ultimaColPrincipal ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
         cell.border = { top: bdr('thin', C.insumoBdr), bottom: bdr('thin', C.insumoBdr), left: bdr('thin', C.border), right: bdr('thin', C.border) }
         if ((c === cUnit || c === cTotal) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
         if (c === 5 && typeof cell.value === 'number') cell.numFmt = '#,##0.0000'
-        if (mostrarTotalItem && c === 6 && typeof cell.value === 'number') cell.numFmt = '#,##0.0000'
+        if (c === cTotalItem && typeof cell.value === 'number') cell.numFmt = '#,##0.0000'
       })
     }
   }
@@ -170,9 +200,10 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
     : (opts.categorias.size > 0 || opts.classesAbc.size > 0) ? totalGeralExibido : data.totalGeral
 
   const totalValues = [
-    ...(mostrarTotalItem
-      ? ['', '', 'TOTAL', '', '', '', '', opts.mostrarPrecos ? totalFinal : '']
-      : ['', '', 'TOTAL', '', '', '', opts.mostrarPrecos ? totalFinal : '']),
+    ...linha(
+      [true, ''], [true, ''], [true, 'TOTAL'], [true, ''], [true, ''],
+      [mostrarTotalItem, ''], [mostrarPrecos, ''], [mostrarPrecos, totalFinal],
+    ),
     ...extraCols.map(() => ''),
   ]
   const tRow = ws.addRow(totalValues)
@@ -180,7 +211,7 @@ export async function exportPlanilhaAnaliticaXlsx(data: CadernoData, opts: Anali
   tRow.eachCell({ includeEmpty: true }, (cell: any, c: number) => {
     cell.fill = fill(C.slate800)
     cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: c === 3 ? C.headerFg : C.white } }
-    cell.alignment = { horizontal: c >= 5 && c <= cTotal ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
+    cell.alignment = { horizontal: c >= 5 && c <= ultimaColPrincipal ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
     cell.border = { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
     if (c === cTotal && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
   })

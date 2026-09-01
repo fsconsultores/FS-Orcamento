@@ -9,6 +9,13 @@ import { formatDate } from '@/lib/format-date'
 const ABC_BG: Record<AbcClasse, string> = { A: '#dcfce7', B: '#fef3c7', C: '#fee2e2' }
 const ABC_FG: Record<AbcClasse, string> = { A: '#15803d', B: '#b45309', C: '#b91c1c' }
 
+// Mantém uma célula fora da linha quando `incluir` é false — mesma ideia do
+// helper `linha()` da versão XLSX deste relatório, pra não empilhar
+// ternários por combinação de mostrarTotalItem × mostrarPrecos.
+function linha(...celulas: [boolean, string | number][]): (string | number)[] {
+  return celulas.filter(([incluir]) => incluir).map(([, valor]) => valor)
+}
+
 /**
  * Mesmo conteúdo de exportPlanilhaAnaliticaXlsx (mesmo modo/filtros/opções
  * de cotação, via buildAnaliticaRows — nenhuma lógica de linhas duplicada),
@@ -21,6 +28,7 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
 
   const rows = buildAnaliticaRows(data, opts)
   const mostrarTotalItem = opts.modo !== 'agrupada'
+  const mostrarPrecos = opts.mostrarPrecos
 
   const extraCols: { header: string; get: (row: PlanilhaAnaliticaRow) => string }[] = []
   if (opts.exibirFornecedor) extraCols.push({ header: 'Fornecedor', get: r => r.tipo === 'insumo' ? (r.fornecedor ?? '') : '' })
@@ -48,9 +56,10 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
   doc.text(subtitle, margin + 4, margin + 12.5)
 
   const headers = [
-    'Item', 'Código', 'Descrição', 'Und', 'Qtde',
-    ...(mostrarTotalItem ? ['Total no Item'] : []),
-    'R$ Unit.', 'R$ Total',
+    ...linha(
+      [true, 'Item'], [true, 'Código'], [true, 'Descrição'], [true, 'Und'], [true, mostrarTotalItem ? 'Qtde/Índice' : 'Qtde'],
+      [mostrarTotalItem, 'Total no Item'], [mostrarPrecos, 'R$ Unit.'], [mostrarPrecos, 'R$ Total'],
+    ),
     ...extraCols.map(c => c.header),
   ]
   const numCols = headers.length
@@ -69,23 +78,25 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
     if (row.tipo === 'item') {
       totalGeralExibido += row.custoTotal
       const qtde = row.quantidade > 0 ? fmtQtd(row.quantidade) : ''
-      const unit = opts.mostrarPrecos && row.custoUnitario > 0 ? fmt(row.custoUnitario) : ''
-      const total = opts.mostrarPrecos && row.custoTotal > 0 ? fmt(row.custoTotal) : ''
+      const unit = mostrarPrecos && row.custoUnitario > 0 ? fmt(row.custoUnitario) : ''
+      const total = mostrarPrecos && row.custoTotal > 0 ? fmt(row.custoTotal) : ''
       return [
-        row.numero, row.codigo, row.descricao, row.unidade, qtde,
-        ...(mostrarTotalItem ? [''] : []),
-        unit, total,
+        ...linha(
+          [true, row.numero], [true, row.codigo], [true, row.descricao], [true, row.unidade], [true, qtde],
+          [mostrarTotalItem, ''], [mostrarPrecos, unit], [mostrarPrecos, total],
+        ),
         ...extraValues,
       ]
     }
     const indent = '   '.repeat(row.nivel)
-    const unit = opts.mostrarPrecos && row.custoUnit > 0 ? fmt(row.custoUnit) : ''
-    const total = opts.mostrarPrecos && row.custoTotal > 0 ? fmt(row.custoTotal) : ''
+    const unit = mostrarPrecos && row.custoUnit > 0 ? fmt(row.custoUnit) : ''
+    const total = mostrarPrecos && row.custoTotal > 0 ? fmt(row.custoTotal) : ''
     return [
-      '', row.codigo, indent + row.descricao, row.unidade,
-      row.indice > 0 ? row.indice.toLocaleString('pt-BR', { maximumFractionDigits: 6 }) : '',
-      ...(mostrarTotalItem ? [row.quantidadeTotalItem > 0 ? fmtQtd(row.quantidadeTotalItem) : ''] : []),
-      unit, total,
+      ...linha(
+        [true, ''], [true, row.codigo], [true, indent + row.descricao], [true, row.unidade],
+        [true, row.indice > 0 ? row.indice.toLocaleString('pt-BR', { maximumFractionDigits: 6 }) : ''],
+        [mostrarTotalItem, row.quantidadeTotalItem > 0 ? fmtQtd(row.quantidadeTotalItem) : ''], [mostrarPrecos, unit], [mostrarPrecos, total],
+      ),
       ...extraValues,
     ]
   })
@@ -94,13 +105,13 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
     ? rows.filter((r): r is Extract<PlanilhaAnaliticaRow, { tipo: 'insumo' }> => r.tipo === 'insumo').reduce((s, r) => s + r.custoTotal, 0)
     : (opts.categorias.size > 0 || opts.classesAbc.size > 0) ? totalGeralExibido : data.totalGeral
 
-  const totalCol = mostrarTotalItem ? 6 : 5
-  const footRow = headers.map((_, i) => (i === 2 ? 'TOTAL' : i === totalCol ? (opts.mostrarPrecos ? fmt(totalFinal) : '') : ''))
+  const totalCol = mostrarPrecos ? numCols - extraCols.length - 1 : -1
+  const footRow = headers.map((_, i) => (i === 2 ? 'TOTAL' : i === totalCol ? fmt(totalFinal) : ''))
 
-  // Colunas fixas (Item/Código/Und/Qtde/[Total no Item]/R$ Unit./R$ Total/extras) —
+  // Colunas fixas (Item/Código/Und/Qtde/[Total no Item]/[R$ Unit./R$ Total]/extras) —
   // Descrição absorve o espaço restante, mesmo padrão de largura explícita
   // por coluna já usado nas outras seções de PDF deste projeto.
-  const larguraFixas = 14 + 20 + 12 + 18 + (mostrarTotalItem ? 22 : 0) + 26 + 26 + extraCols.length * 24
+  const larguraFixas = 14 + 20 + 12 + 18 + (mostrarTotalItem ? 22 : 0) + (mostrarPrecos ? 26 + 26 : 0) + extraCols.length * 24
   const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' }> = {
     0: { cellWidth: 14, halign: 'center' },
     1: { cellWidth: 20 },
@@ -110,8 +121,10 @@ export async function exportPlanilhaAnaliticaPdf(data: CadernoData, opts: Analit
   }
   let col = 5
   if (mostrarTotalItem) columnStyles[col++] = { cellWidth: 22, halign: 'right' }
-  columnStyles[col++] = { cellWidth: 26, halign: 'right' }
-  columnStyles[col++] = { cellWidth: 26, halign: 'right' }
+  if (mostrarPrecos) {
+    columnStyles[col++] = { cellWidth: 26, halign: 'right' }
+    columnStyles[col++] = { cellWidth: 26, halign: 'right' }
+  }
   for (let i = 0; i < extraCols.length; i++) columnStyles[col++] = { cellWidth: 24 }
 
   autoTable(doc, {

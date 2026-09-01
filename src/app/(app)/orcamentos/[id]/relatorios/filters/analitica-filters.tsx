@@ -77,6 +77,7 @@ export function AnaliticaFilters({ value, onChange }: Props) {
         <Checkbox checked={value.mostrarPrecos}
           onChange={() => onChange({ ...value, mostrarPrecos: !value.mostrarPrecos })} />
         Mostrar preços (unitário e total)
+        <span className="text-xs text-gray-400">— desligado, remove essas colunas do export</span>
       </label>
 
       {value.modo !== 'agrupada' && (
