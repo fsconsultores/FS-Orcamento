@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Layers3, Database, Coins, HelpCircle } from 'lucide-react';
+import { Plus, UploadCloud, Layers3, Database, Coins, HelpCircle } from 'lucide-react';
 import { SearchInput } from '@/components/search-input';
 import { BaseFilter } from '@/components/base-filter';
 import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
@@ -108,6 +108,9 @@ export function ComposicoesExplorer({ initialFilters, initialPage, initialData }
           <ExportComposicoesButton
             fetchComposicoes={() => exportComposicoesAction(filters)}
           />
+          <Link href="/composicoes/importar">
+            <Button variant="outline" icon={<UploadCloud size={15} />}>Importar</Button>
+          </Link>
           <Link href="/composicoes/nova">
             <Button icon={<Plus size={15} />}>Nova composição</Button>
           </Link>
