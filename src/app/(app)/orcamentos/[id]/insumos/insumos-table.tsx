@@ -804,6 +804,13 @@ export function OrcamentoInsumosTable({
             ))}
           </select>
         )}
+      </div>
+      {/* Ações em linha própria — separada dos filtros acima de propósito: com
+          tudo numa linha só, o filtro extra de Cotação (que Composições não
+          tem) empurra o wrap do flex-wrap pra um ponto diferente daquela aba
+          equivalente, fazendo os botões de ação começarem em posições
+          diferentes entre as duas telas irmãs. */}
+      <div className="flex items-center gap-3 flex-wrap">
         {selecionadas.size > 0 && (
           <button
             onClick={handleAplicarSugestoes}

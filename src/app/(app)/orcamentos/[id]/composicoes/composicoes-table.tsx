@@ -323,6 +323,13 @@ export function ComposicoesTable({
             ))}
           </select>
         )}
+      </div>
+      {/* Ações em linha própria — separada dos filtros acima de propósito: com
+          tudo numa linha só, o número de filtros (que difere de Insumos, ver
+          aba equivalente) empurra o wrap do flex-wrap pra um ponto diferente
+          em cada aba, fazendo os botões de ação começarem em posições
+          diferentes entre as duas telas irmãs. */}
+      <div className="flex items-center gap-3 flex-wrap">
         <ExportComposicaoModeloButton />
         <ExportComposicoesButton fetchComposicoes={() => exportComposicoesAction(orcamentoId)} />
         <button
