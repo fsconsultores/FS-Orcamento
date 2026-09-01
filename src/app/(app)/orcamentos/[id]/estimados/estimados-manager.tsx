@@ -6,7 +6,9 @@ import { atualizarItensEstimadosAction, type AlteracaoEstimado } from './estimad
 import { formatCurrency } from '@/lib/costs'
 import { HighlightMatch } from '@/components/ui/highlight-match'
 import { useToast } from '@/components/ui/toast'
-import { SUGESTAO_ESTIMADO_RE } from '@/lib/orcamento/estimado-sugestao'
+import { SUGESTAO_ESTIMADO_RE, pareceEstimado } from '@/lib/orcamento/estimado-sugestao'
+
+type AcaoEmMassa = 'marcar-todos' | 'desmarcar-todos' | 'marcar-sugeridos' | 'restaurar'
 
 interface Linha {
   node: CadernoNode
@@ -134,6 +136,34 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     })
   }
 
+  // Opera só sobre `linhasVisiveis` (respeita a busca) — permite escopar a
+  // ação digitando um filtro antes (ex.: buscar "elétrica" e desmarcar só
+  // essas), e sem busca ativa "visíveis" já é a árvore inteira. Só mexe no
+  // estado LOCAL/não salvo — "Restaurar" sempre pode desfazer, e nada é
+  // persistido até clicar em "Salvar", então não precisa de confirmação.
+  function aplicarAcaoEmMassa(acao: AcaoEmMassa) {
+    setEstado(prev => {
+      const next = new Map(prev)
+      for (const { node } of linhasVisiveis) {
+        if (acao === 'marcar-todos') {
+          const atual = next.get(node.id)
+          if (atual) next.set(node.id, { ...atual, estimado: true })
+        } else if (acao === 'desmarcar-todos') {
+          const atual = next.get(node.id)
+          if (atual) next.set(node.id, { ...atual, estimado: false })
+        } else if (acao === 'marcar-sugeridos') {
+          const atual = next.get(node.id)
+          if (atual) next.set(node.id, { ...atual, estimado: pareceEstimado(node.descricao) })
+        } else if (acao === 'restaurar') {
+          const inicial = estadoInicial.get(node.id)
+          if (inicial) next.set(node.id, inicial)
+        }
+      }
+      return next
+    })
+    toast.show(`Ação aplicada a ${linhasVisiveis.length} item(ns) — clique em "Salvar" para confirmar.`)
+  }
+
   async function salvar() {
     setSalvando(true)
     const alteracoes: AlteracaoEstimado[] = []
@@ -184,6 +214,18 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
           onChange={e => setQuery(e.target.value)}
           className="flex-1 min-w-[300px] max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
         />
+        <select
+          value=""
+          onChange={(e) => { if (e.target.value) aplicarAcaoEmMassa(e.target.value as AcaoEmMassa); e.target.value = '' }}
+          title="Aplica só aos itens visíveis abaixo (respeita a busca) — nada é salvo até clicar em Salvar"
+          className="rounded-md border border-gray-300 px-2.5 py-2 text-sm text-gray-600 outline-none focus:border-blue-500"
+        >
+          <option value="">Ações em massa…</option>
+          <option value="marcar-todos">Marcar todos os visíveis</option>
+          <option value="desmarcar-todos">Desmarcar todos os visíveis</option>
+          <option value="marcar-sugeridos">Marcar apenas sugeridos</option>
+          <option value="restaurar">Restaurar (desfazer alterações não salvas)</option>
+        </select>
         <button
           onClick={salvar}
           disabled={!houveMudanca || salvando}
