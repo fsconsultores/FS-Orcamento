@@ -4,7 +4,6 @@ import { PageHeader } from '@/components/ui/toolbar'
 import {
   getOrcamentosResumo,
   getPlanilhasResumo,
-  getVersoesResumo,
   getEstruturaItens,
   getAtividadesRecentes,
   getBasesExternasResumo,
@@ -60,11 +59,10 @@ export default async function DashboardPage() {
   const sb = supabase as any
   const { data: { user } } = await sb.auth.getUser()
 
-  const [orcamentos, planilhas, versoes, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes, insumosAvulsos, historicoPrecos] =
+  const [orcamentos, planilhas, estruturaItens, atividadesRaw, basesExternas, basePropria, resumoSistema, favoritosRecentes, insumosAvulsos, historicoPrecos] =
     await Promise.all([
       getOrcamentosResumo(sb),
       getPlanilhasResumo(sb),
-      getVersoesResumo(sb),
       getEstruturaItens(sb),
       user ? getAtividadesRecentes(sb, user.id) : Promise.resolve([]),
       getBasesExternasResumo(sb),
@@ -142,7 +140,7 @@ export default async function DashboardPage() {
 
   const atividadeAgrupada = agruparAtividades(atividadesRaw, 8)
 
-  const alertas = gerarAlertas({ orcamentos, planilhas: planilhasValidas, versoes, bases, resumoSistema })
+  const alertas = gerarAlertas({ orcamentos, planilhas: planilhasValidas, bases, resumoSistema })
 
   const totalServicos = (resumoSistema?.total_servicos ?? 0) + (resumoSistema?.total_mao_de_obra ?? 0)
 

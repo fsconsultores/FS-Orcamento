@@ -1,4 +1,4 @@
-import type { OrcamentoResumo, PlanilhaResumo, VersaoResumo, BaseResumo, ResumoSistema } from './queries'
+import type { OrcamentoResumo, PlanilhaResumo, BaseResumo, ResumoSistema } from './queries'
 
 export interface Alerta {
   key: string
@@ -13,16 +13,15 @@ const BASE_DESATUALIZADA_DIAS = 180
 /**
  * Alertas inteligentes — função pura, SEM I/O próprio: reaproveita os dados
  * que as outras seções da dashboard já buscaram (orçamentos, planilhas,
- * versões, bases, resumo do sistema). Nenhum alerta dispara uma query nova.
+ * bases, resumo do sistema). Nenhum alerta dispara uma query nova.
  */
 export function gerarAlertas(input: {
   orcamentos: OrcamentoResumo[]
   planilhas: PlanilhaResumo[]
-  versoes: VersaoResumo[]
   bases: BaseResumo[]
   resumoSistema: ResumoSistema | null
 }): Alerta[] {
-  const { orcamentos, planilhas, versoes, bases, resumoSistema } = input
+  const { orcamentos, planilhas, bases, resumoSistema } = input
   const alertas: Alerta[] = []
 
   const planilhasPorOrcamento = new Map<string, PlanilhaResumo[]>()
@@ -30,23 +29,6 @@ export function gerarAlertas(input: {
     const arr = planilhasPorOrcamento.get(p.orcamento_id) ?? []
     arr.push(p)
     planilhasPorOrcamento.set(p.orcamento_id, arr)
-  }
-
-  // Fora do modelo 'bdi', bdi_global=0 é o comportamento CORRETO ("Sem taxa"/
-  // "Taxa de Administração" já forçam isso) — não é "esquecido de configurar".
-  const orcamentosSemBdi = orcamentos.filter(o =>
-    o.modelo_acrescimo === 'bdi' && (planilhasPorOrcamento.get(o.id) ?? []).some(p => !p.bdi_global)
-  )
-  if (orcamentosSemBdi.length > 0) {
-    alertas.push({
-      key: 'sem-bdi',
-      titulo: `${orcamentosSemBdi.length} ${orcamentosSemBdi.length === 1 ? 'projeto sem BDI' : 'projetos sem BDI'}`,
-      descricao: orcamentosSemBdi.length === 1
-        ? orcamentosSemBdi[0].nome_obra
-        : 'Revise a configuração de BDI desses orçamentos.',
-      variant: 'warning',
-      href: orcamentosSemBdi.length === 1 ? `/orcamentos/${orcamentosSemBdi[0].id}/configuracoes` : '/orcamentos',
-    })
   }
 
   const orcamentosDesatualizados = orcamentos.filter(o =>
@@ -59,25 +41,6 @@ export function gerarAlertas(input: {
       descricao: 'Recalcule a planilha para refletir as últimas alterações.',
       variant: 'error',
       href: orcamentosDesatualizados.length === 1 ? `/orcamentos/${orcamentosDesatualizados[0].id}/planilha` : '/orcamentos',
-    })
-  }
-
-  // Uma revisão com numero_revisao > 1 já tem sua própria salvaguarda: a
-  // revisão anterior continua existindo intacta para sempre (ver criarRevisao
-  // em duplicate.ts) — não precisa de um snapshot manual pra isso. Sem esse
-  // filtro, o alerta dispararia pra toda família com 2+ revisões, já que uma
-  // revisão nova nunca herda os snapshots da anterior.
-  const idsComVersao = new Set(versoes.map(v => v.orcamento_id))
-  const orcamentosSemVersao = orcamentos.filter(o => o.numero_revisao === 1 && !idsComVersao.has(o.id))
-  if (orcamentosSemVersao.length > 0) {
-    alertas.push({
-      key: 'sem-versao',
-      titulo: `${orcamentosSemVersao.length} ${orcamentosSemVersao.length === 1 ? 'orçamento sem versão salva' : 'orçamentos sem versão salva'}`,
-      descricao: orcamentosSemVersao.length === 1
-        ? orcamentosSemVersao[0].nome_obra
-        : 'Salve uma versão para poder restaurar este ponto depois.',
-      variant: 'warning',
-      href: orcamentosSemVersao.length === 1 ? `/orcamentos/${orcamentosSemVersao[0].id}/versoes` : '/orcamentos?semVersao=1',
     })
   }
 

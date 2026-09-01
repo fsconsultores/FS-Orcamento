@@ -30,12 +30,6 @@ export interface PlanilhaResumo {
   ultima_calculo_em: string | null
 }
 
-export interface VersaoResumo {
-  id: string
-  orcamento_id: string
-  criado_em: string
-}
-
 export interface EstruturaItemResumo {
   orcamento_id: string
   codigo: string | null
@@ -134,15 +128,6 @@ export async function getPlanilhasResumo(sb: SB): Promise<PlanilhaResumo[]> {
   const { data } = await sb
     .from('orcamento_planilhas')
     .select('id, orcamento_id, total_custo, total_com_bdi, bdi_global, invalidado_em, ultima_calculo_em')
-  return data ?? []
-}
-
-/** Só id/orcamento_id/criado_em — nunca a coluna `snapshot` (jsonb pesada).
- * Alimenta o alerta "planilha sem versão salva". */
-export async function getVersoesResumo(sb: SB): Promise<VersaoResumo[]> {
-  const { data } = await sb
-    .from('orcamento_versoes')
-    .select('id, orcamento_id, criado_em')
   return data ?? []
 }
 
