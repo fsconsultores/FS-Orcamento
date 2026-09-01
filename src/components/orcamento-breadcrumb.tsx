@@ -20,11 +20,16 @@ const SEGMENT_LABELS: Record<string, string> = {
   planilha: 'Planilha',
   insumos: 'Insumos',
   composicoes: 'Composições',
+  'curva-abc': 'Curva ABC',
+  estimados: 'Estimados',
   relatorios: 'Relatórios',
+  caderno: 'Caderno',
   importar: 'Importar',
+  versoes: 'Revisões',
   configuracoes: 'Configurações',
   logs: 'Logs',
   editar: 'Editar',
+  levantamentos: 'Levantamentos',
 }
 
 export function OrcamentoBreadcrumb({ orcamentoId, orcamentoNome, badge, actions }: Props) {
