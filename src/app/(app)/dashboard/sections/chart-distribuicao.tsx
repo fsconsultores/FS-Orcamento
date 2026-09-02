@@ -12,7 +12,7 @@ export interface DistribuicaoItem {
   valor: number
 }
 
-const COR_BARRA = '#52276E' // primary-700 — magnitude única, um só hue (ver skill dataviz)
+const COR_BARRA = '#51286E' // primary-700 — magnitude única, um só hue (ver skill dataviz)
 
 function TooltipContent({ active, payload }: any) {
   if (!active || !payload?.length) return null

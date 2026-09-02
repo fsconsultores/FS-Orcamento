@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { useActiveProject } from '@/lib/active-project-store'
 import { Tooltip } from '@/components/ui/tooltip'
-import { FsIcon } from '@/components/logo'
 
 interface NavItemDef {
   href: string
@@ -52,7 +51,7 @@ function SubNavLink({ href, active, children }: { href: string; active: boolean;
 function GroupLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
   if (collapsed) return <div className="mt-4 first:mt-0 h-px bg-white/10 mx-2" />
   return (
-    <p className="mt-4 first:mt-0 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+    <p className="font-secondary mt-4 first:mt-0 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
       {children}
     </p>
   )
@@ -70,17 +69,18 @@ export function Nav({ open = true, onToggle }: { open?: boolean; onToggle?: () =
       className="fixed left-0 top-0 z-40 flex h-full flex-col bg-primary-950 transition-[width] duration-200"
       style={{ width: collapsed ? 64 : 288 }}
     >
-      {/* Logo */}
+      {/* Logo — fundo do menu é escuro (bg-primary-950), então usa a versão
+          branca da marca (logofs-white/-icon-white.png, derivadas de
+          logofs.png preservando o alpha) direto sobre o escuro, sem caixa
+          branca por trás. */}
       <div className={`flex items-center justify-between gap-2 border-b border-white/10 px-3 py-3 ${collapsed ? 'flex-col' : ''}`}>
         {collapsed ? (
-          <Link href="/dashboard" className="flex h-9 w-9 items-center justify-center rounded-lg bg-white">
-            <FsIcon size={20} />
+          <Link href="/dashboard" className="flex h-9 w-9 items-center justify-center">
+            <Image src="/logofs-icon-white.png" alt="fsconsultores" width={591} height={312} className="h-6 w-auto object-contain" priority />
           </Link>
         ) : (
-          <Link href="/dashboard" className="min-w-0 flex-1">
-            <div className="rounded-lg bg-white px-3 py-2">
-              <Image src="/logofs.jpg" alt="fsconsultores" width={200} height={62} className="h-10 w-full object-contain object-center" priority />
-            </div>
+          <Link href="/dashboard" className="min-w-0 flex-1 py-1">
+            <Image src="/logofs-white.png" alt="fsconsultores" width={2156} height={617} className="h-8 w-auto object-contain" priority />
           </Link>
         )}
         {onToggle && (
@@ -109,13 +109,13 @@ export function Nav({ open = true, onToggle }: { open?: boolean; onToggle?: () =
             href={`/orcamentos/${activeProject.id}` as any}
             className="block border-b border-white/10 px-3 py-3 transition-colors hover:bg-white/5"
           >
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-primary-300">
+            <div className="font-secondary flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-primary-300">
               <Building2 size={11} /> Projeto ativo
             </div>
             <p className="mt-1 truncate text-sm font-semibold text-white" title={activeProject.nome_obra}>
               {activeProject.nome_obra}
             </p>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+            <div className="font-secondary mt-1 flex items-center gap-1.5 text-xs text-slate-400">
               {activeProject.codigo && (
                 <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-300">{activeProject.codigo}</span>
               )}

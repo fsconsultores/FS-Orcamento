@@ -9,7 +9,7 @@ import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 
 // Mesmo hue único já usado em ChartDistribuicao (dashboard) pra magnitude/série
 // única — reaproveitado aqui pelo mesmo motivo (ver skill dataviz).
-const COR_LINHA = '#52276E'
+const COR_LINHA = '#51286E'
 
 export interface HistoricoPreco {
   id: string

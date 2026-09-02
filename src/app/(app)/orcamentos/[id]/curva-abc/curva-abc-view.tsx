@@ -363,7 +363,7 @@ export function CurvaAbcView({
           <AbcChart items={items} />
           <div className="flex gap-4 mt-2 justify-center">
             <span className="flex items-center gap-1.5 text-xs text-gray-500">
-              <span className="inline-block w-6 h-0.5 rounded" style={{ backgroundColor: '#344DA1' }} />
+              <span className="inline-block w-6 h-0.5 rounded" style={{ backgroundColor: '#354DA1' }} />
               % acumulado
             </span>
             <span className="flex items-center gap-1.5 text-xs text-emerald-600">

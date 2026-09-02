@@ -4,6 +4,16 @@
  */
 import { brandPrimary, brandSecondary } from '@/design-system/tokens'
 
+// brandSecondary.amber (#FAA61A) e .silver (#BCBEC0) são tons vivos/claros
+// da marca — corretos como preenchimento/acento, mas sem contraste
+// suficiente pra texto pequeno sobre fundo claro (ex.: #FAA61A sobre branco
+// fica ~2:1, bem abaixo do mínimo de leitura). Pros papéis de "texto",
+// mantém-se um tom escurecido equivalente (mesmo usado antes de o manual de
+// marca ser aplicado) — o hex exato da marca continua disponível via
+// `accentAmber`/`bannerSubtitle`/`gridLight` pra preenchimento/acento.
+const AMBER_TEXT = '#b45309'
+const MUTED_TEXT = '#94a3b8'
+
 /** Identidade de marca para o Caderno de Orçamento (capa, divisórias, KPIs). */
 export const CADERNO_BRAND = {
   primary: brandPrimary.purple,
@@ -26,11 +36,11 @@ export const PDF_COLORS = {
   totalFg: '#ffffff',
   totalSubFg: '#c7d2f0',
   textPrimary: brandSecondary.charcoal,
-  textMuted: brandSecondary.silver,
+  textMuted: MUTED_TEXT,
   accentCyan: brandSecondary.cyan,
   accentAmber: brandSecondary.amber,
   a: { bg: '#ecfdf5', fg: '#047857', sub: '#34d399' },
-  b: { bg: '#fffbeb', fg: brandSecondary.amber, sub: '#fbbf24' },
+  b: { bg: '#fffbeb', fg: AMBER_TEXT, sub: '#fbbf24' },
   c: { bg: '#fff1f2', fg: '#be123c', sub: '#fb7185' },
   zoneA: '#f0fdf4',
   zoneB: '#fffbeb',
@@ -40,7 +50,7 @@ export const PDF_COLORS = {
   axis: '#d1d5db',
   line: brandPrimary.blue,
   green: '#16a34a',
-  amber: brandSecondary.amber,
+  amber: AMBER_TEXT,
   rose: '#dc2626',
   textGray: brandSecondary.charcoal,
   tableGroupFill: '#f1f5f9',
