@@ -759,20 +759,6 @@ export function OrcamentoInsumosTable({
             </button>
           ))}
         </div>
-        {sugeridasVisiveis.length > 0 && (
-          <button
-            onClick={() => setSomenteSugestao(v => !v)}
-            title="Insumos avulsos sem preço com uma cotação já registrada em outra obra para o mesmo código"
-            className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-              somenteSugestao
-                ? 'bg-amber-500 border-amber-500 text-white'
-                : 'bg-white border-amber-300 text-amber-700 hover:border-amber-400'
-            }`}
-          >
-            <Sparkles size={12} />
-            Com sugestão ({sugeridasVisiveis.length})
-          </button>
-        )}
         <select
           value={filtroCotacao}
           onChange={e => setFiltroCotacao(e.target.value)}
@@ -790,6 +776,25 @@ export function OrcamentoInsumosTable({
             </optgroup>
           )}
         </select>
+        {/* Elementos condicionais (só existem quando há dado pra mostrar)
+            ficam sempre DEPOIS dos controles estáveis acima — nunca antes.
+            Um botão condicional antes de um controle fixo faz esse controle
+            "pular" de posição toda vez que a condição muda (ex.: sugestões
+            aparecendo/sumindo empurrava o próprio filtro de Cotação hoje). */}
+        {sugeridasVisiveis.length > 0 && (
+          <button
+            onClick={() => setSomenteSugestao(v => !v)}
+            title="Insumos avulsos sem preço com uma cotação já registrada em outra obra para o mesmo código"
+            className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              somenteSugestao
+                ? 'bg-amber-500 border-amber-500 text-white'
+                : 'bg-white border-amber-300 text-amber-700 hover:border-amber-400'
+            }`}
+          >
+            <Sparkles size={12} />
+            Com sugestão ({sugeridasVisiveis.length})
+          </button>
+        )}
         {basesPresentesAvulsos.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap" title="Remove os insumos avulsos que vieram de uma importação específica — sem afetar avulsos de outras bases nem insumos embutidos em composições">
             <span className="text-xs text-gray-400">Remover base importada:</span>
@@ -812,16 +817,6 @@ export function OrcamentoInsumosTable({
           equivalente, fazendo os botões de ação começarem em posições
           diferentes entre as duas telas irmãs. */}
       <div className="flex items-center gap-3 flex-wrap">
-        {selecionadas.size > 0 && (
-          <button
-            onClick={handleAplicarSugestoes}
-            disabled={aplicandoSugestoes}
-            className="flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
-          >
-            <Sparkles size={14} />
-            {aplicandoSugestoes ? 'Aplicando…' : `Aplicar ${selecionadas.size} sugestão(ões)`}
-          </button>
-        )}
         <ExportInsumoModeloButton />
         <button onClick={handleExport} disabled={insumos.length === 0}
           className="flex items-center gap-1.5 rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
@@ -853,6 +848,20 @@ export function OrcamentoInsumosTable({
           </svg>
           {excluindoNaoUtilizados ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
         </button>
+        {/* Condicional (só existe com sugestões selecionadas) sempre por
+            último — não pode ficar antes dos botões fixos acima, senão eles
+            "pulam" de posição toda vez que o usuário marca/desmarca uma
+            sugestão, bem no meio da revisão. */}
+        {selecionadas.size > 0 && (
+          <button
+            onClick={handleAplicarSugestoes}
+            disabled={aplicandoSugestoes}
+            className="flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            <Sparkles size={14} />
+            {aplicandoSugestoes ? 'Aplicando…' : `Aplicar ${selecionadas.size} sugestão(ões)`}
+          </button>
+        )}
       </div>
 
       {usoStatus === 'erro' && (
