@@ -46,10 +46,20 @@ type AbcClasse = 'A' | 'B' | 'C'
 // Idem (Fase 11 "S7") — este objeto vivia dentro do .map() de linha, sendo
 // recriado por linha visível (até ~50 com virtualização) em TODA
 // renderização, não só quando a classificação ABC muda.
+//
+// Cores A/C estavam TROCADAS aqui (A vermelho, C verde) — o mapeamento
+// canônico do app é A=verde/B=âmbar/C=vermelho (ver AbcBadge em
+// src/components/ui/badge.tsx, e a mesma classificação usada em Curva ABC/
+// Caderno PDF). Com a planilha invertida, o item de MAIOR prioridade (A,
+// ~80% do custo) aparecia em vermelho — lido como "o pior", o oposto do que
+// as outras telas do mesmo orçamento mostram pro mesmo item. Mantido como
+// classe local (não o componente AbcBadge compartilhado) de propósito: essa
+// tabela é densa, o badge compartilhado é maior/com borda, pesado demais
+// pra uma célula deste tamanho.
 const ABC_CLASSE_CLS: Record<AbcClasse, string> = {
-  A: 'bg-red-100 text-red-700 font-bold',
+  A: 'bg-green-100 text-green-700 font-bold',
   B: 'bg-amber-100 text-amber-700 font-bold',
-  C: 'bg-green-100 text-green-700 font-bold',
+  C: 'bg-red-100 text-red-700 font-bold',
 }
 
 const LABEL_MODELO_ACRESCIMO: Record<ModeloAcrescimo, string> = {
