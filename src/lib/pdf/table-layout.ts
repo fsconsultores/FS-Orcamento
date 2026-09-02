@@ -112,22 +112,27 @@ export function planilhaPrecosColumnStyles(_contentW: number, temBdi: boolean) {
   }
 
   if (temBdi) {
+    // Variante com BDI tem 3 colunas a mais (BDI%, Preço de Venda Unitário/Total)
+    // que a variante sem BDI — sem enxugar as demais, elas tomavam ~63mm extras
+    // da largura fixa e empurravam Descrição pro minCellWidth (32mm), forçando
+    // a descrição de todo item a quebrar em várias linhas empilhadas (bug real,
+    // comparado visualmente: mesmo orçamento com/sem BDI configurado).
     return {
-      0: { cellWidth: item, halign: 'center' as const, minCellWidth: item, overflow: 'hidden' as const, cellPadding: 1 },
-      1: { cellWidth: codigo, halign: 'center' as const, minCellWidth: codigo, overflow: 'hidden' as const, cellPadding: 1 },
-      2: descricaoBase,
-      3: { cellWidth: 10, halign: 'center' as const, minCellWidth: 10, overflow: 'hidden' as const, cellPadding: 1 },
-      4: { cellWidth: 14, halign: 'center' as const, minCellWidth: 14, overflow: 'hidden' as const, cellPadding: 1 },
-      5: { cellWidth: 24, ...money },
-      6: { cellWidth: 22, ...money },
-      7: { cellWidth: 24, ...money },
-      8: { cellWidth: 24, ...money },
-      9: { cellWidth: 26, ...money },
-      10: { cellWidth: 13, halign: 'center' as const, minCellWidth: 13, overflow: 'hidden' as const, cellPadding: 1 },
-      11: { cellWidth: 24, ...money },
-      12: { cellWidth: 26, ...money },
-      13: { cellWidth: 11, halign: 'center' as const, minCellWidth: 11, overflow: 'hidden' as const, cellPadding: 1 },
-      14: { cellWidth: 9, halign: 'center' as const, minCellWidth: 9, overflow: 'hidden' as const, cellPadding: 1 },
+      0: { cellWidth: 12, halign: 'center' as const, minCellWidth: 12, overflow: 'hidden' as const, cellPadding: 1 },
+      1: { cellWidth: 14, halign: 'center' as const, minCellWidth: 14, overflow: 'hidden' as const, cellPadding: 1 },
+      2: { ...descricaoBase, minCellWidth: 42 },
+      3: { cellWidth: 9, halign: 'center' as const, minCellWidth: 9, overflow: 'hidden' as const, cellPadding: 1 },
+      4: { cellWidth: 12, halign: 'center' as const, minCellWidth: 12, overflow: 'hidden' as const, cellPadding: 1 },
+      5: { cellWidth: 19, ...money },
+      6: { cellWidth: 17, ...money },
+      7: { cellWidth: 19, ...money },
+      8: { cellWidth: 19, ...money },
+      9: { cellWidth: 21, ...money },
+      10: { cellWidth: 10, halign: 'center' as const, minCellWidth: 10, overflow: 'hidden' as const, cellPadding: 1 },
+      11: { cellWidth: 19, ...money },
+      12: { cellWidth: 21, ...money },
+      13: { cellWidth: 10, halign: 'center' as const, minCellWidth: 10, overflow: 'hidden' as const, cellPadding: 1 },
+      14: { cellWidth: 8, halign: 'center' as const, minCellWidth: 8, overflow: 'hidden' as const, cellPadding: 1 },
     }
   }
 
