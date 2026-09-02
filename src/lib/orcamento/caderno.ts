@@ -195,6 +195,7 @@ export interface CadernoData {
     area_total: number | null
     area_coberta: number | null
     area_equivalente: number | null
+    numero_revisao: number | null
   }
   arvore: CadernoNode[]
   /** Igual a `arvore`, mas sem remover os itens marcados como estimados — usada
@@ -303,7 +304,7 @@ export async function getCadernoData(
 
   const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico')
+      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico, numero_revisao')
       .eq('id', orcamentoId)
       .single(),
     estruturaQuery,
@@ -1063,6 +1064,7 @@ export async function getCadernoData(
       area_total: orc?.area_total ?? null,
       area_coberta: orc?.area_coberta ?? null,
       area_equivalente: orc?.area_equivalente ?? null,
+      numero_revisao: orc?.numero_revisao ?? null,
     },
     arvore,
     arvoreCompleta,

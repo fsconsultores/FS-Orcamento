@@ -5,25 +5,52 @@ import { formatDate } from '@/lib/format-date'
 import type { CadernoData, CadernoNode, AbcClasse } from '@/lib/orcamento/caderno'
 import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import {
-  PDF_COLORS,
   drawAbcChart,
   drawAbcKpiCards,
-  abcTableHead,
   abcTableBody,
   abcTableFoot,
-  abcTableColumnStyles,
   abcRowFillColor,
   abcRowTextColor,
 } from '@/lib/pdf/abc-section'
 import {
-  KPI_STYLE_NEUTRAL,
-  drawDonutChart,
-  drawDonutLegend,
-  drawKpiCard,
-  type DonutSegment,
-} from '@/lib/pdf/charts'
+  PDF_COLORS,
+  CADERNO_BRAND,
+  CADERNO_FONT,
+  drawCadernoCoverPage,
+  drawBrandCornerBars,
+  drawResumoGeralDashboardPage,
+  drawResumoGeralDetailTables,
+  splitResumoGeralDados,
+  filterServicosEstimadosVisiveis,
+  drawCustoM2SectionContent,
+  drawListaInsumosGrupoTable,
+  globalTableStyles,
+  globalTableStylesNoZebra,
+  planilhaPrecosTableStyles,
+  abcTableColumnStylesLandscape,
+  abcTableHeadCompact,
+  pdfContentWidth,
+  pdfTableLayout,
+  PDF_PAGE_MARGIN,
+  PDF_PRECOS_HEAD_SUBROW_FONT,
+  planilhaAnaliticaCadernoColumnStyles,
+  planilhaPrecosColumnStyles,
+  formatRevisaoLabel,
+  createLandscapeA4Pdf,
+  addLandscapeA4Page,
+  drawStandardHeader,
+  standardHeaderAutoTableHooks,
+  standardHeaderTableTop,
+  type StandardHeaderData,
+  resolveDestacarEstimados,
+  isCadernoNodeEstimado,
+  isInsumoRowEstimado,
+  textoPareceEstimado,
+  applyEstimadoCellHighlight,
+  willDrawEstimadoHighlight,
+} from '@/lib/pdf'
 
-const GROUP_FILL = '#f1f5f9'
+const GROUP_FILL = PDF_COLORS.tableGroupFill
 
 // Classe ABC por item — mesmo mapeamento canônico da Curva ABC (ver
 // src/components/ui/badge.tsx): A = verde (maior prioridade de acompanhamento,
@@ -32,480 +59,123 @@ const GROUP_FILL = '#f1f5f9'
 const ABC_BG: Record<AbcClasse, string> = { A: '#dcfce7', B: '#fef3c7', C: '#fee2e2' }
 const ABC_FG: Record<AbcClasse, string> = { A: '#15803d', B: '#b45309', C: '#b91c1c' }
 
-// ─── Cabeçalho de documento (logo + cliente + obra + título + REV + data) ────
-
-function drawDocumentHeader(
-  doc: jsPDF,
-  data: CadernoData,
-  margin: number,
-  contentW: number,
-  titulo: string,
-) {
-  const HEADER_H = 24
-  const LEFT_W   = 62
-  const RIGHT_W  = 52
-  const CTR_W    = contentW - LEFT_W - RIGHT_W
-  const lx = margin
-  const cx = margin + LEFT_W
-  const rx = cx + CTR_W
-  const ty = margin
-
-  const { nome_obra, cliente } = data.orcamento
-  const dateStr = formatDate(new Date())
-
-  // Fundo único
-  doc.setFillColor(BRAND_PRIMARY)
-  doc.rect(lx, ty, contentW, HEADER_H, 'F')
-
-  // Divisórias internas (linha fina branca)
-  doc.setDrawColor('#ffffff')
-  doc.setLineWidth(0.15)
-  doc.line(cx, ty + 2, cx, ty + HEADER_H - 2)
-  doc.line(rx, ty + 2, rx, ty + HEADER_H - 2)
-
-  // Borda externa
-  doc.setDrawColor('#0f172a')
-  doc.setLineWidth(0.3)
-  doc.rect(lx, ty, contentW, HEADER_H)
-
-  // Logo
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(8)
-  doc.setTextColor('#ffffff')
-  doc.text('FS CONSULTORES', lx + 2, ty + 8)
-
-  // Esquerda: cliente / obra
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
-  doc.setTextColor('#cbd5e1')
-  doc.text(doc.splitTextToSize(`Cliente: ${cliente || '—'}`, LEFT_W - 4)[0], lx + 2, ty + 15)
-  doc.text(doc.splitTextToSize(`Obra: ${nome_obra || '—'}`, LEFT_W - 4)[0], lx + 2, ty + 20)
-
-  // Centro: título
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor('#ffffff')
-  doc.text(titulo, cx + CTR_W / 2, ty + HEADER_H / 2 + 2, { align: 'center' })
-
-  // Direita: REV / Data
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
-  doc.setTextColor('#ffffff')
-  doc.text('REV 00', rx + RIGHT_W - 2, ty + 10, { align: 'right' })
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  doc.setTextColor('#94a3b8')
-  doc.text(`Data: ${dateStr}`, rx + RIGHT_W - 2, ty + 17, { align: 'right' })
+function buildStandardHeaderData(data: CadernoData): StandardHeaderData {
+  return {
+    cliente: data.orcamento.cliente,
+    nomeObra: data.orcamento.nome_obra,
+    revisao: formatRevisaoLabel(data.orcamento.numero_revisao),
+    data: formatDate(new Date()),
+  }
 }
 
 // ─── Helpers de layout ────────────────────────────────────────────────────────
 
-// Identidade FS Consultores (design system 2026 — mesmos hex de tailwind.config.ts:
-// primary.700 e secondary.500) usada na capa E em todo o resto do Caderno (títulos de
-// seção, cabeçalhos de tabela, KPIs) — pedido explícito pra bater com a capa. Isso é
-// uma exceção só do Caderno: os outros exports em PDF (Planilha Sintética/Analítica,
-// Curva ABC avulsa) continuam usando PDF_COLORS.bannerBg/totalBg (neutro — ver
-// comentário em lib/pdf/abc-section.ts), então aqui a gente usa constantes locais em
-// vez de mudar PDF_COLORS, que é compartilhado com aqueles outros exports.
-const BRAND_PRIMARY = '#52276E'
-const BRAND_SECONDARY = '#344DA1'
-const CADERNO_KPI_PRIMARY = { bg: BRAND_SECONDARY, fg: '#ffffff', subFg: '#c7d2f0' }
-
-// Barras verticais nos cantos, ecoando o ícone do logo — só decoração de marca,
-// sem informação nenhuma (por isso não depende de nenhum dado do orçamento).
-function drawBrandCornerBars(doc: jsPDF, pageW: number, pageH: number, color: string) {
-  const alturas = [7, 10, 13, 16, 19]
-  const barW = 3.2
-  const gap = 1.6
-  doc.setFillColor(color)
-
-  let x = pageW - (alturas.length * barW + (alturas.length - 1) * gap)
-  for (const h of alturas) {
-    doc.rect(x, 0, barW, h, 'F')
-    x += barW + gap
-  }
-
-  x = 0
-  for (const h of [...alturas].reverse()) {
-    doc.rect(x, pageH - h, barW, h, 'F')
-    x += barW + gap
-  }
-}
-
-async function addCoverPage(doc: jsPDF, data: CadernoData, pageW: number, pageH: number) {
-  doc.setFillColor('#ffffff')
-  doc.rect(0, 0, pageW, pageH, 'F')
-
-  drawBrandCornerBars(doc, pageW, pageH, BRAND_SECONDARY)
-
-  // Logo real da FS Consultores (public/logofs.png, o mesmo arquivo já usado na
-  // exportação em Excel — ver use-planilha-export.ts). Se o fetch falhar, a capa
-  // segue sem logo em vez de travar a exportação do Caderno inteiro.
-  try {
-    const resp = await fetch('/logofs.png')
-    if (resp.ok) {
-      const buf = await resp.arrayBuffer()
-      const logoW = 90
-      const logoH = logoW * (617 / 2156) // proporção real do arquivo (2156×617px)
-      doc.addImage(new Uint8Array(buf), 'PNG', (pageW - logoW) / 2, 28, logoW, logoH)
-    }
-  } catch { /* logo opcional — nunca bloqueia a exportação */ }
-
-  const { nome_obra, codigo, cliente } = data.orcamento
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(26)
-  doc.setTextColor(BRAND_PRIMARY)
-  doc.text(nome_obra || '—', pageW / 2, pageH / 2 - 4, { align: 'center' })
-
-  doc.setFontSize(14)
-  doc.setTextColor(BRAND_SECONDARY)
-  doc.text('CADERNO DE ORÇAMENTO', pageW / 2, pageH / 2 + 7, { align: 'center' })
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  doc.setTextColor('#6b7280')
-  const linha2 = [codigo ? `Cód. ${codigo}` : null, cliente].filter(Boolean).join('   •   ')
-  if (linha2) doc.text(linha2, pageW / 2, pageH / 2 + 15, { align: 'center' })
-
-  doc.setFontSize(9)
-  doc.text(`Gerado em ${formatDate(new Date())}`, pageW / 2, pageH - 14, { align: 'center' })
-}
-
 function addDivider(doc: jsPDF, pageW: number, pageH: number, numero: string, titulo: string, subtitle?: string) {
-  // Divisória de seção sempre em retrato (A4), mesmo padrão da capa — ver
-  // exportCadernoPdf: só capa/divisórias ficam em retrato, o conteúdo
-  // (tabelas largas) volta pra paisagem logo em seguida.
-  doc.addPage('a4', 'portrait')
+  addLandscapeA4Page(doc)
   // Mesmo tratamento da capa — fundo branco, texto colorido (nunca o
   // inverso: fundo cheio de cor com texto branco) — pra ser realmente
   // "parecido com a capa", não só usar os mesmos hex em outro arranjo.
   doc.setFillColor('#ffffff')
   doc.rect(0, 0, pageW, pageH, 'F')
-  drawBrandCornerBars(doc, pageW, pageH, BRAND_SECONDARY)
+  drawBrandCornerBars(doc, pageW, pageH, CADERNO_BRAND.secondary)
 
-  doc.setTextColor(BRAND_SECONDARY)
+  doc.setTextColor(CADERNO_BRAND.secondary)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
+  doc.setFontSize(CADERNO_FONT.dividerNum)
   doc.text(numero, pageW / 2, pageH / 2 - 14, { align: 'center' })
 
-  doc.setTextColor(BRAND_PRIMARY)
-  doc.setFontSize(22)
+  doc.setTextColor(CADERNO_BRAND.primary)
+  doc.setFontSize(CADERNO_FONT.dividerTitle)
   doc.text(titulo, pageW / 2, pageH / 2 - 2, { align: 'center' })
 
   if (subtitle) {
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(11)
+    doc.setFontSize(CADERNO_FONT.dividerSub)
     doc.setTextColor('#6b7280')
     doc.text(subtitle, pageW / 2, pageH / 2 + 10, { align: 'center' })
   }
 }
 
-function addSectionBanner(doc: jsPDF, margin: number, contentW: number, numero: string, title: string, subtitle: string) {
-  doc.setFillColor(BRAND_PRIMARY)
-  doc.rect(margin, margin, contentW, 16, 'F')
-  doc.setTextColor(PDF_COLORS.bannerFg)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text(`${numero}  ${title}`, margin + 4, margin + 7)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(subtitle, margin + 4, margin + 12.5)
-}
-
 // ─── Seção: Resumo Geral do Orçamento ────────────────────────────────────────
 
-// Faixa cheia de destaque (rótulo à esquerda, valor à direita, cor sólida) —
-// mesma linguagem visual das faixas de "Custo Total"/"Custo/m²" da seção 4.0,
-// reaproveitada aqui pro número mais importante da página (C).
-function drawHeroBar(doc: jsPDF, x: number, y: number, w: number, h: number, label: string, value: string, bg: string) {
-  doc.setFillColor(bg)
-  doc.rect(x, y, w, h, 'F')
-  doc.setTextColor('#ffffff')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(13)
-  doc.text(label, x + 4, y + h / 2 + 2)
-  doc.setFontSize(15)
-  doc.text(value, x + w - 4, y + h / 2 + 2, { align: 'right' })
-}
-
-// Título de subseção — barra fina colorida, mesmo tratamento em toda a
-// página (hero bar / KPIs / donut / tabelas), pra reforçar que é tudo uma
-// composição só, não blocos desencontrados.
-function drawSubsectionLabel(doc: jsPDF, x: number, y: number, w: number, title: string, value?: string) {
-  doc.setFillColor(BRAND_SECONDARY)
-  doc.rect(x, y, w, 8, 'F')
-  doc.setTextColor('#ffffff')
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.text(title, x + 3, y + 5.5)
-  if (value) doc.text(value, x + w - 3, y + 5.5, { align: 'right' })
-}
-
 async function drawResumoGeralSection(
-  doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string,
+  doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number,
   incluirServicosComInsumoEstimado: boolean, servicosComInsumoEstimadoOcultos: Set<string>
 ) {
-  const { autoTable } = await import('jspdf-autotable')
-
-  doc.addPage('a4', 'landscape')
-  addSectionBanner(doc, margin, contentW, numero, 'RESUMO GERAL DO ORÇAMENTO', subtitle)
-
-  const A = data.totalGeralComBdi
-  const B = data.totalServicosEstimados
-  const C = A + B
   const { area_total, area_coberta, area_equivalente } = data.orcamento
+  const headerData = buildStandardHeaderData(data)
+  const sectionTitle = 'RESUMO GERAL DO ORÇAMENTO'
 
-  // Todo o conteúdo de altura FIXA (hero + KPIs + donut) é desenhado ANTES de
-  // qualquer autoTable — nunca depois. Layout antigo desenhava os cards/donut
-  // numa coluna à direita usando uma coordenada Y calculada no início da
-  // função, mas as tabelas (A)/(B) rodavam DEPOIS e podiam estourar pra uma
-  // 2ª página em orçamentos com muitas categorias (comum em obra real) — o
-  // cursor de página do jsPDF, após a tabela, já não era mais o da página
-  // onde os cards deveriam aparecer, e eles acabavam desenhados soltos numa
-  // página seguinte, deixando a 1ª página com a metade direita em branco.
-  // Ordem daqui pra baixo é estritamente sequencial (hero → KPIs → donut →
-  // tabela A → tabela B), cada bloco usando a largura CHEIA da página —
-  // nunca mais miscigena coordenada fixa com conteúdo de altura variável.
-  let y = margin + 16 + 8
-
-  // ── Faixa de destaque: Total Geral (C) ────────────────────────────────────
-  drawHeroBar(doc, margin, y, contentW, 14, 'TOTAL GERAL DO ORÇAMENTO  (A + B)', fmt(C), BRAND_PRIMARY)
-  y += 14 + 5
-
-  // ── KPIs em linha única, largura cheia ────────────────────────────────────
-  const cardGap = 3
-  const cardCount = 5
-  const cardW = (contentW - cardGap * (cardCount - 1)) / cardCount
-  const cardH = 18
-
-  drawKpiCard(doc, margin, y, cardW, cardH, 'TOTAL ORÇADO (A)', fmt(A), undefined, CADERNO_KPI_PRIMARY)
-  drawKpiCard(doc, margin + (cardW + cardGap), y, cardW, cardH, 'SERVIÇOS ESTIMADOS (B)', fmt(B), undefined, CADERNO_KPI_PRIMARY)
-  drawKpiCard(doc, margin + (cardW + cardGap) * 2, y, cardW, cardH, 'CUSTO/M² (ÁREA TOTAL)',
-    area_total ? fmt(C / area_total) : '—',
-    area_total ? `Área: ${fmtQtd(area_total)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-  drawKpiCard(doc, margin + (cardW + cardGap) * 3, y, cardW, cardH, 'CUSTO/M² (ÁREAS COBERTAS)',
-    area_coberta ? fmt(C / area_coberta) : '—',
-    area_coberta ? `Área: ${fmtQtd(area_coberta)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-  drawKpiCard(doc, margin + (cardW + cardGap) * 4, y, cardW, cardH, 'CUSTO/M² (ÁREA EQUIVALENTE)',
-    area_equivalente ? fmt(C / area_equivalente) : '—',
-    area_equivalente ? `Área: ${fmtQtd(area_equivalente)} m²` : 'Área não informada', KPI_STYLE_NEUTRAL)
-  y += cardH + 8
-
-  // ── Distribuição dos custos (gráfico de rosca), largura cheia ────────────
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.setTextColor('#374151')
-  doc.text('DISTRIBUIÇÃO DOS CUSTOS (A)', margin, y)
-
-  const segments: DonutSegment[] = data.distribuicaoCustos.map(d => ({
-    label: d.numero ? `${d.numero} ${d.label}` : d.label,
-    value: d.value,
-    color: d.color,
-  }))
-
-  const outerR = 26
-  const donutCx = margin + outerR + 2
-  const donutCy = y + 6 + outerR
-  drawDonutChart(doc, segments, donutCx, donutCy, outerR)
-
-  // Legenda ganha a largura inteira que sobra ao lado do gráfico — antes
-  // cabia em ~90mm e truncava rótulos ("04 EQUIPAMENTOS E CONSU…"); agora
-  // tem a página toda pra se espalhar em mais colunas.
-  const legendX = donutCx + outerR + 8
-  const legendW = margin + contentW - legendX
-  const lineH = 4.2
-  const maxRowsPerCol = Math.max(1, Math.floor((outerR * 2) / lineH))
-  const numCols = Math.max(1, Math.ceil(segments.length / maxRowsPerCol))
-  const colW = legendW / numCols
-  drawDonutLegend(doc, segments, legendX, donutCy - outerR + lineH, lineH, 6.5, colW, maxRowsPerCol)
-
-  y = donutCy + outerR + 10
-
-  // ── (A) Detalhamento por categoria — tabela de largura cheia ──────────────
-  // Largura cheia (em vez dos 70mm de antes) é o que de fato resolve a
-  // "quebra de linha desnecessária": a maioria das descrições de categoria
-  // passa a caber numa linha só. Sem coluna reservada ao lado, a tabela pode
-  // estourar pra quantas páginas precisar (comum com muitas categorias) sem
-  // arrastar nenhum outro elemento junto — autoTable já lida com isso
-  // sozinho (repete cabeçalho, showFoot só na última página).
-  drawSubsectionLabel(doc, margin, y, contentW, '(A) DETALHAMENTO POR CATEGORIA', fmt(A))
-  y += 8
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: margin, right: margin, bottom: margin },
-    head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-    body: data.arvore.map(n => [n.descricao, fmt(n.totalComBdi), fmtPct(n.percentualComBdi)]),
-    foot: [['TOTAL GERAL', fmt(A), '100,00%']],
-    showFoot: 'lastPage',
-    styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
-    footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
-    columnStyles: {
-      0: { cellWidth: contentW - 90 },
-      1: { cellWidth: 55, halign: 'right' },
-      2: { cellWidth: 35, halign: 'right' },
-    },
-  })
-
-  // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
-  y = doc.lastAutoTable.finalY + 6
-
-  // ── (B) Serviços Estimados — mesma largura cheia ──────────────────────────
-  // Filtra só a LISTAGEM — o total (B) acima sempre reflete o valor real,
-  // completo, independente do que fica visível aqui. Só linhas que vieram de
-  // data.servicosComInsumoEstimado (serviço com insumo de preço estimado,
-  // ver ServicoComInsumoEstimado) podem ser ocultadas — itens marcados
-  // diretamente na aba Estimados (sem insumo estimado associado) e os
-  // manuais (orcamento_servicos_estimados) não têm essa opção, sempre
-  // aparecem. `s.id` sozinho NÃO diferencia os dois casos — caderno.ts grava
-  // `id: node.id` tanto pro serviço com insumo quanto pro item marcado
-  // direto, então checar só a presença de `id` também escondia os itens
-  // marcados direto sempre que "Incluir Serviços com Preços Estimados"
-  // estava desmarcado (bug real, corrigido: exige o id estar no conjunto de
-  // servicosComInsumoEstimado). Escolha feita na hora de gerar o relatório
-  // (Relatórios > Caderno > "Configurar..."), nunca salva no orçamento.
-  const idsComInsumoEstimado = new Set(data.servicosComInsumoEstimado.map(s => s.id))
-  const servicosVisiveis = data.servicosEstimados.filter(s => {
-    if (!s.id || !idsComInsumoEstimado.has(s.id)) return true
-    if (!incluirServicosComInsumoEstimado) return false
-    return !servicosComInsumoEstimadoOcultos.has(s.id)
-  })
-
-  drawSubsectionLabel(doc, margin, y, contentW, '(B) SERVIÇOS ESTIMADOS', fmt(B))
-  y += 8
-
-  if (servicosVisiveis.length > 0) {
-    autoTable(doc, {
-      startY: y,
-      margin: { left: margin, right: margin, bottom: margin },
-      head: [['Descrição', 'Valor Geral (R$)', '% / Total']],
-      // Número do PRÓPRIO item + descrição do PRÓPRIO item (nunca a do
-      // insumo que motivou a marcação nem só a do pai — ver ServicoEstimado
-      // em caderno.ts) na 1ª linha da célula; nome do pai imediato numa 2ª
-      // linha, como contexto. A mesma descrição pode se repetir em mais de
-      // um lugar da árvore (ex.: "Armação" em "Fundação" E em "Estrutura")
-      // — número + descrição + pai juntos são o que de fato desambigua qual
-      // ocorrência é essa. Manuais (orcamento_servicos_estimados) não têm
-      // número nem pai — mostram só a descrição, 1 linha.
-      body: servicosVisiveis.map(s => [
-        [s.numero ? `${s.numero} — ${s.descricao}` : s.descricao, s.itemPaiDescricao].filter(Boolean).join('\n'),
-        fmt(s.valor), fmtPct(B > 0 ? (s.valor / B) * 100 : 0),
-      ]),
-      foot: [['TOTAL', fmt(B), '100,00%']],
-      showFoot: 'lastPage',
-      styles: { fontSize: 7.5, cellPadding: 1.5, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
-      footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
-      columnStyles: {
-        0: { cellWidth: contentW - 90 },
-        1: { cellWidth: 55, halign: 'right' },
-        2: { cellWidth: 35, halign: 'right' },
-      },
-    })
-  } else {
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
-    doc.setTextColor(PDF_COLORS.textGray)
-    doc.text(
-      data.servicosEstimados.length === 0
-        ? 'Nenhum serviço estimado cadastrado.'
-        : 'Nenhum serviço estimado selecionado para exibição nesta exportação.',
-      margin + 3, y + 5
-    )
+  const tabelasInput = {
+    arvore: data.arvore,
+    servicosEstimados: data.servicosEstimados,
+    servicosComInsumoEstimado: data.servicosComInsumoEstimado,
+    totalGeralComBdi: data.totalGeralComBdi,
+    totalServicosEstimados: data.totalServicosEstimados,
   }
+
+  const split = splitResumoGeralDados(tabelasInput)
+  const servicosEstimadosVisiveis = filterServicosEstimadosVisiveis(
+    split.servicosEstimados,
+    data.servicosComInsumoEstimado,
+    incluirServicosComInsumoEstimado,
+    servicosComInsumoEstimadoOcultos,
+  )
+
+  addLandscapeA4Page(doc)
+  const dashboardY = drawStandardHeader(doc, headerData, sectionTitle)
+  drawResumoGeralDashboardPage(doc, margin, contentW, dashboardY, {
+    totalOrcadoA: split.totalOrcadoA,
+    totalServicosEstimadosB: split.totalServicosEstimadosB,
+    areaTotal: area_total,
+    areaCoberta: area_coberta,
+    areaEquivalente: area_equivalente,
+    distribuicaoCustos: data.distribuicaoCustos,
+  })
+
+  addLandscapeA4Page(doc)
+  const tablesY = drawStandardHeader(doc, headerData, sectionTitle)
+
+  await drawResumoGeralDetailTables(
+    doc,
+    margin,
+    contentW,
+    pageH,
+    tablesY,
+    headerData,
+    sectionTitle,
+    {
+      ...tabelasInput,
+      servicosEstimadosVisiveis,
+    },
+    {
+      incluirServicosComInsumoEstimado,
+      servicosComInsumoEstimadoOcultos,
+    },
+  )
 }
 
 // ─── Seção: Custo / m² ────────────────────────────────────────────────────────
 
-async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
-  const { autoTable } = await import('jspdf-autotable')
+async function drawCustoM2Section(doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number) {
+  addLandscapeA4Page(doc)
 
-  doc.addPage('a4', 'landscape')
-  addSectionBanner(doc, margin, contentW, numero, 'CUSTO / M²', subtitle)
+  const headerData = buildStandardHeaderData(data)
+  const sectionTitle = 'CUSTO / M²'
+  const redrawHeader = () => drawStandardHeader(doc, headerData, sectionTitle)
 
-  const { nome_obra, cliente, local, area_total, area_coberta, area_equivalente } = data.orcamento
   const A = data.totalGeralComBdi
   const B = data.totalServicosEstimados
-  const C = A + B
+  const { local, area_total, area_coberta, area_equivalente } = data.orcamento
 
-  // ── Identificação (Cliente / Obra / Local) ────────────────────────────────
-  let y = margin + 16 + 8
-  const infoLines: [string, string][] = [
-    ['CLIENTE', cliente || '—'],
-    ['OBRA', nome_obra || '—'],
-  ]
-  if (local) infoLines.push(['LOCAL', local])
-  doc.setFontSize(9)
-  for (const [label, value] of infoLines) {
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor('#374151')
-    doc.text(`${label}:`, margin, y)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor('#1f2937')
-    doc.text(value, margin + 22, y)
-    y += 6
-  }
-
-  // ── Tabela de áreas ─────────────────────────────────────────────────────────
-  // Com pavimentos cadastrados (Configurações), uma linha por pavimento +
-  // uma linha de soma "ÁREA TOTAL:" (colSpan nas 2 primeiras colunas, igual
-  // ao modelo de referência). Sem pavimentos, mantém o comportamento de
-  // sempre: uma única linha "ÁREA TOTAL:" com os campos únicos do orçamento
-  // (que já são a mesma coisa que a soma, quando há pavimentos — ver
-  // getCadernoData).
-  const temPavimentos = data.pavimentos.length > 0
-  const linhaTotal = [
-    'ÁREA TOTAL:',
-    'M²',
-    area_total != null ? fmtQtd(area_total) : '—',
-    area_equivalente != null ? fmtQtd(area_equivalente) : '—',
-    area_coberta != null ? fmtQtd(area_coberta) : '—',
-  ]
-
-  y += 4
-  autoTable(doc, {
-    startY: y,
-    margin: { left: margin, right: margin },
-    head: [['PAVIMENTO', 'UN', 'ÁREA TOTAL', 'ÁREA EQUIVALENTE', 'ÁREAS COBERTAS']],
-    body: temPavimentos
-      ? data.pavimentos.map(p => [p.descricao, p.unidade, fmtQtd(p.area_total), fmtQtd(p.area_equivalente), fmtQtd(p.area_coberta)])
-      : [linhaTotal],
-    foot: temPavimentos ? [[{ content: 'ÁREA TOTAL:', colSpan: 2 }, ...linhaTotal.slice(2)]] as RowInput[] : undefined,
-    showFoot: temPavimentos ? 'lastPage' : undefined,
-    styles: { fontSize: 9, cellPadding: 2.5, valign: 'middle', halign: 'right', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
-    bodyStyles: temPavimentos
-      ? { fillColor: '#ffffff', textColor: '#1f2937', fontStyle: 'normal' }
-      : { fillColor: GROUP_FILL, textColor: BRAND_PRIMARY, fontStyle: 'bold' },
-    footStyles: { fillColor: GROUP_FILL, textColor: BRAND_PRIMARY, fontStyle: 'bold' },
-    columnStyles: {
-      0: { halign: 'left' },
-      1: { halign: 'center' },
-    },
-  })
-
-  // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
-  y = doc.lastAutoTable.finalY + 6
-
-  // ── Faixas: custo total e custo/m² ────────────────────────────────────────
-  const rowH = 11
-  function row(label: string, value: string, bg: string) {
-    doc.setFillColor(bg)
-    doc.rect(margin, y, contentW, rowH, 'F')
-    doc.setTextColor('#ffffff')
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.text(label, margin + 4, y + rowH / 2 + 1.5)
-    doc.text(value, margin + contentW - 4, y + rowH / 2 + 1.5, { align: 'right' })
-    y += rowH + 2
-  }
-
-  row('CUSTO TOTAL DO ORÇAMENTO', fmt(C), BRAND_PRIMARY)
-  row('CUSTO / M² (ÁREA TOTAL)', area_total ? fmt(C / area_total) : '—', BRAND_SECONDARY)
-  row('CUSTO / M² (ÁREA EQUIVALENTE)', area_equivalente ? fmt(C / area_equivalente) : '—', BRAND_SECONDARY)
-  row('CUSTO / M² (ÁREAS COBERTAS)', area_coberta ? fmt(C / area_coberta) : '—', BRAND_SECONDARY)
+  drawCustoM2SectionContent(doc, margin, contentW, pageH, redrawHeader(), {
+    local,
+    areaTotal: area_total,
+    areaCoberta: area_coberta,
+    areaEquivalente: area_equivalente,
+    pavimentos: data.pavimentos,
+    custoTotal: A + B,
+  }, redrawHeader)
 }
 
 // ─── Seção: Planilha de Preços Unitários ─────────────────────────────────────
@@ -544,13 +214,17 @@ function totalComBdiEfetivo(node: CadernoNode): number {
   return node.filhos.reduce((s, f) => s + totalComBdiEfetivo(f), 0)
 }
 
-async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string) {
+async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, destacarEstimados: boolean) {
   const { autoTable } = await import('jspdf-autotable')
 
-  const HEADER_H = 24
-  const tableTop = margin + HEADER_H + 4
+  const pageW = doc.internal.pageSize.getWidth()
+  const tableLayout = pdfTableLayout(pageW)
+  const headerData = buildStandardHeaderData(data)
+  const sectionTitle = 'PLANILHA DE PREÇOS UNITÁRIOS'
+  const tableTop = standardHeaderTableTop()
+  const headerHooks = standardHeaderAutoTableHooks(doc, headerData, sectionTitle, { skipFirstTablePage: true })
 
-  doc.addPage('a4', 'landscape')
+  addLandscapeA4Page(doc)
 
   // arvoreCompleta (não arvore): itens estimados ficam visíveis aqui, só
   // destacados em amarelo — não somem da planilha por estarem sem preço
@@ -575,16 +249,15 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
   const pct = (v: number) => fmtPct(totalParaPct > 0 ? (v / totalParaPct) * 100 : 0)
 
   const body: RowInput[] = flat.map(({ node, depth }) => {
-    const indent = '   '.repeat(depth)
     if (!temBdi) {
       const totalEfetivo = totalComBdiEfetivo(node)
       if (node.tipo === 'grupo') {
-        return [node.numero, node.codigo ?? '', indent + node.descricao, '', '', '', '', '', fmt(totalEfetivo), pct(totalEfetivo), '']
+        return [node.numero, node.codigo ?? '', node.descricao, '', '', '', '', '', fmt(totalEfetivo), pct(totalEfetivo), '']
       }
       return [
         node.numero,
         node.codigo ?? '',
-        indent + node.descricao,
+        node.descricao,
         node.unidade ?? '',
         fmtQtd(node.quantidade ?? 0),
         fmt(node.custoMat),
@@ -605,7 +278,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     const totalComBdiRow = totalComBdiEfetivo(node)
     if (node.tipo === 'grupo') {
       return [
-        node.numero, node.codigo ?? '', indent + node.descricao, '', '',
+        node.numero, node.codigo ?? '', node.descricao, '', '',
         '', '', '',
         '', fmt(node.total),
         fmtPct(node.bdiPercentual),
@@ -617,7 +290,7 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     return [
       node.numero,
       node.codigo ?? '',
-      indent + node.descricao,
+      node.descricao,
       node.unidade ?? '',
       fmtQtd(node.quantidade ?? 0),
       fmt(node.custoMat),
@@ -677,63 +350,54 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       ]]
     : [['', '', 'TOTAL GERAL', '', '', '', '', '', fmt(totalGeralCompleto), fmtPct(100), '']]
 
-  const columnStylesComBdi = {
-    0: { cellWidth: 12, halign: 'center' as const },
-    1: { cellWidth: 16 },
-    2: { cellWidth: 62 },
-    3: { cellWidth: 10, halign: 'center' as const },
-    4: { cellWidth: 14, halign: 'right' as const },
-    5: { cellWidth: 18, halign: 'right' as const },
-    6: { cellWidth: 16, halign: 'right' as const },
-    7: { cellWidth: 18, halign: 'right' as const },
-    8: { cellWidth: 19, halign: 'right' as const },
-    9: { cellWidth: 20, halign: 'right' as const },
-    10: { cellWidth: 13, halign: 'right' as const },
-    11: { cellWidth: 19, halign: 'right' as const },
-    12: { cellWidth: 20, halign: 'right' as const },
-    13: { cellWidth: 11, halign: 'right' as const },
-    14: { cellWidth: 9, halign: 'center' as const },
-  }
-  const columnStylesSemBdi = {
-    0: { cellWidth: 13, halign: 'center' as const },
-    1: { cellWidth: 18 },
-    2: { cellWidth: 82 },
-    3: { cellWidth: 11, halign: 'center' as const },
-    4: { cellWidth: 16, halign: 'right' as const },
-    5: { cellWidth: 21, halign: 'right' as const },
-    6: { cellWidth: 19, halign: 'right' as const },
-    7: { cellWidth: 21, halign: 'right' as const },
-    8: { cellWidth: 24, halign: 'right' as const },
-    9: { cellWidth: 26, halign: 'right' as const },
-    10: { cellWidth: 13, halign: 'right' as const },
-    11: { cellWidth: 10, halign: 'center' as const },
-  }
+  const columnStylesComBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, true)
+  const columnStylesSemBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, false)
   const abcColIndex = temBdi ? 14 : 11
+
+  drawStandardHeader(doc, headerData, sectionTitle)
 
   autoTable(doc, {
     startY: tableTop,
-    willDrawPage: () => { drawDocumentHeader(doc, data, margin, contentW, 'PLANILHA DE PREÇOS UNITÁRIOS') },
-    margin: { left: margin, right: margin, bottom: margin, top: tableTop },
+    didDrawPage: headerHooks.didDrawPage,
+    margin: headerHooks.margin,
+    tableWidth: tableLayout.tableWidth,
     head,
     body,
     foot,
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
-    styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 6.5 },
-    footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
-    columnStyles: temBdi ? columnStylesComBdi : columnStylesSemBdi,
+    ...planilhaPrecosTableStyles,
+    columnStyles: (temBdi ? columnStylesComBdi : columnStylesSemBdi) as unknown as Record<number, import('jspdf-autotable').Styles>,
     didParseCell: (cellData) => {
-      if (cellData.section !== 'body') return
-      const { node, estimado } = flat[cellData.row.index]
-      // Mesmo destaque em âmbar usado na Planilha Analítica pra insumo
-      // estimado — aqui sinaliza que o item (ou o grupo inteiro) ainda não
-      // tem preço fechado, mesmo aparecendo somado na planilha.
-      if (estimado) {
-        cellData.cell.styles.fillColor = '#fef3c7'
-        cellData.cell.styles.textColor = '#92400e'
-        if (node.tipo === 'grupo') cellData.cell.styles.fontStyle = 'bold'
+      if (cellData.section === 'head' && cellData.row.index === 1) {
+        cellData.cell.styles.fontSize = PDF_PRECOS_HEAD_SUBROW_FONT
+        cellData.cell.styles.cellPadding = 1
         return
+      }
+      if (cellData.section === 'body' || cellData.section === 'foot') {
+        const moneyCols = temBdi
+          ? new Set([5, 6, 7, 8, 9, 11, 12])
+          : new Set([5, 6, 7, 8, 9])
+        if (moneyCols.has(cellData.column.index)) {
+          cellData.cell.styles.overflow = 'hidden'
+          cellData.cell.styles.fontSize = 6.5
+          cellData.cell.styles.cellPadding = 1
+        }
+      }
+      if (cellData.section !== 'body') return
+      const { node, estimado, depth } = flat[cellData.row.index]
+      const isEstimado = isCadernoNodeEstimado(estimado, node.descricao)
+
+      if (applyEstimadoCellHighlight(cellData, destacarEstimados, isEstimado)) return
+
+      if (cellData.column.index === 2) {
+        cellData.cell.styles.halign = 'left'
+        cellData.cell.styles.cellPadding = {
+          top: 2,
+          bottom: 2,
+          left: 2 + depth * 3,
+          right: 2,
+        }
       }
       if (node.tipo === 'grupo') {
         cellData.cell.styles.fillColor = GROUP_FILL
@@ -746,23 +410,32 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
         cellData.cell.styles.fontStyle = 'bold'
       }
     },
+    willDrawCell: (cellData) => {
+      if (cellData.section !== 'body') return
+      const { node, estimado } = flat[cellData.row.index]
+      willDrawEstimadoHighlight(cellData, destacarEstimados, isCadernoNodeEstimado(estimado, node.descricao))
+    },
   })
 }
 
 // ─── Seção: Curva ABC ─────────────────────────────────────────────────────────
 
-async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, title: string, margin: number, contentW: number, subtitle: string) {
+async function drawAbcSection(doc: jsPDF, items: AbcItem[], title: string, margin: number, contentW: number, headerData: StandardHeaderData) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage('a4', 'landscape')
-  addSectionBanner(doc, margin, contentW, numero, title, subtitle)
+  const pageW = doc.internal.pageSize.getWidth()
+  const tableLayout = pdfTableLayout(pageW)
+  const headerHooks = standardHeaderAutoTableHooks(doc, headerData, title, { skipFirstTablePage: true })
 
-  const cardY = margin + 16 + 4
-  const cardH = drawAbcKpiCards(doc, items, margin, cardY, contentW, CADERNO_KPI_PRIMARY)
+  addLandscapeA4Page(doc)
+  const contentY = drawStandardHeader(doc, headerData, title)
+
+  const cardY = contentY
+  const cardH = drawAbcKpiCards(doc, items, margin, cardY, contentW, CADERNO_BRAND.kpiPrimary)
 
   const chartTitleY = cardY + cardH + 6
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
+  doc.setFontSize(CADERNO_FONT.chartTitle)
   doc.setTextColor('#374151')
   doc.text('Curva ABC Acumulada', margin, chartTitleY)
 
@@ -773,15 +446,15 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
   const tableStartY = chartY + chartH + 6
   autoTable(doc, {
     startY: tableStartY,
-    margin: { left: margin, right: margin, bottom: margin },
-    head: abcTableHead(),
+    tableWidth: tableLayout.tableWidth,
+    margin: headerHooks.margin,
+    didDrawPage: headerHooks.didDrawPage,
+    head: abcTableHeadCompact(),
     body: abcTableBody(items),
     foot: abcTableFoot(items),
     showFoot: 'lastPage',
-    styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
-    footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', lineWidth: 0.1 },
-    columnStyles: abcTableColumnStyles,
+    ...globalTableStyles,
+    columnStyles: abcTableColumnStylesLandscape(tableLayout.tableWidth),
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const classe = (cellData.row.raw as string[])[9]
@@ -797,19 +470,25 @@ async function drawAbcSection(doc: jsPDF, items: AbcItem[], numero: string, titl
 
 // ─── Seção: Planilha Analítica ────────────────────────────────────────────────
 
-async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, subtitle: string, numero: string, destacarEstimados: boolean) {
+async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number, destacarEstimados: boolean) {
   const { autoTable } = await import('jspdf-autotable')
 
-  doc.addPage('a4', 'landscape')
-  addSectionBanner(doc, margin, contentW, numero, 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS', subtitle)
+  const pageW = doc.internal.pageSize.getWidth()
+  const tableLayout = pdfTableLayout(pageW)
+  const headerData = buildStandardHeaderData(data)
+  const sectionTitle = 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS'
+  const headerHooks = standardHeaderAutoTableHooks(doc, headerData, sectionTitle, { skipFirstTablePage: true })
+
+  addLandscapeA4Page(doc)
+  const contentY = drawStandardHeader(doc, headerData, sectionTitle)
 
   const rows = data.planilhaAnalitica
 
   if (rows.length === 0) {
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
+    doc.setFontSize(CADERNO_FONT.bodySm)
     doc.setTextColor(PDF_COLORS.textGray)
-    doc.text('Nenhum item com composição detalhada neste orçamento.', margin, margin + 16 + 10)
+    doc.text('Nenhum item com composição detalhada neste orçamento.', margin, contentY + 4)
     return
   }
 
@@ -818,7 +497,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
       return [{
         content: `${row.numero}   ${row.descricao}`,
         colSpan: 8,
-        styles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'left' },
+        styles: { fillColor: CADERNO_BRAND.primary, textColor: '#ffffff', fontStyle: 'bold', halign: 'left' },
       }]
     }
     if (row.tipo === 'item') {
@@ -837,35 +516,29 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
   })
 
   autoTable(doc, {
-    startY: margin + 16 + 4,
-    margin: { left: margin, right: margin, bottom: margin },
+    startY: contentY,
+    tableWidth: tableLayout.tableWidth,
+    margin: headerHooks.margin,
+    didDrawPage: headerHooks.didDrawPage,
     head: [['Item', 'Código', 'Descrição', 'Und', 'Índice', 'R$ Unit.', 'R$ Total', 'ABC']],
     body,
     rowPageBreak: 'avoid',
-    styles: { fontSize: 6.5, cellPadding: 1, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-    headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center', fontSize: 7 },
-    columnStyles: {
-      0: { cellWidth: 14, halign: 'center' },
-      1: { cellWidth: 20 },
-      2: { cellWidth: 121 },
-      3: { cellWidth: 12, halign: 'center' },
-      4: { cellWidth: 20, halign: 'right' },
-      5: { cellWidth: 35, halign: 'right' },
-      6: { cellWidth: 35, halign: 'right' },
-      7: { cellWidth: 10, halign: 'center' },
-    },
+    ...globalTableStylesNoZebra,
+    columnStyles: planilhaAnaliticaCadernoColumnStyles(tableLayout.tableWidth),
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const row = rows[cellData.row.index]
-      if (row.tipo === 'insumo') {
-        if (destacarEstimados && row.estimado) {
-          cellData.cell.styles.fillColor = '#fef3c7'
-          cellData.cell.styles.textColor = '#92400e'
-          cellData.cell.styles.fontStyle = 'bold'
-        }
-        return
-      }
-      if (row.tipo !== 'item') return
+      if (!row || row.tipo === 'grupo') return
+
+      const descricao = row.tipo === 'insumo' || row.tipo === 'item' ? row.descricao : ''
+      const isEstimado = row.tipo === 'insumo'
+        ? isInsumoRowEstimado(row.estimado, descricao)
+        : textoPareceEstimado(descricao)
+
+      if (applyEstimadoCellHighlight(cellData, destacarEstimados, isEstimado)) return
+
+      if (row.tipo === 'insumo') return
+
       cellData.cell.styles.fillColor = '#e2e8f0'
       cellData.cell.styles.fontStyle = 'bold'
       if (cellData.column.index === 7 && row.classeAbc) {
@@ -873,65 +546,54 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
         cellData.cell.styles.textColor = ABC_FG[row.classeAbc]
       }
     },
+    willDrawCell: (cellData) => {
+      if (cellData.section !== 'body') return
+      const row = rows[cellData.row.index]
+      if (!row || row.tipo === 'grupo') return
+      const descricao = row.tipo === 'insumo' || row.tipo === 'item' ? row.descricao : ''
+      const isEstimado = row.tipo === 'insumo'
+        ? isInsumoRowEstimado(row.estimado, descricao)
+        : textoPareceEstimado(descricao)
+      willDrawEstimadoHighlight(cellData, destacarEstimados, isEstimado)
+    },
   })
 }
 
 // ─── Seção: Lista de Insumos ──────────────────────────────────────────────────
 
-async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number, subtitle: string, numero: string) {
-  const { autoTable } = await import('jspdf-autotable')
+async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: number, contentW: number, pageH: number) {
+  const pageW = doc.internal.pageSize.getWidth()
+  const headerData = buildStandardHeaderData(data)
+  const sectionTitle = 'LISTA DE INSUMOS'
+  const headerHooks = standardHeaderAutoTableHooks(doc, headerData, sectionTitle, { skipFirstTablePage: true })
 
-  doc.addPage('a4', 'landscape')
-  addSectionBanner(doc, margin, contentW, numero, 'LISTA DE INSUMOS', subtitle)
-
-  let y = margin + 16 + 6
+  addLandscapeA4Page(doc)
+  let y = drawStandardHeader(doc, headerData, sectionTitle)
 
   for (const grupo of data.listaInsumos) {
     const headerH = 8
-    if (y + headerH + 10 > pageH - margin && y > margin + 30) {
-      doc.addPage()
-      y = margin
+    if (y + headerH + 14 > pageH - margin) {
+      addLandscapeA4Page(doc)
+      y = drawStandardHeader(doc, headerData, sectionTitle)
     }
 
-    doc.setFillColor(BRAND_SECONDARY)
+    doc.setFillColor(CADERNO_BRAND.secondary)
     doc.rect(margin, y, contentW, headerH, 'F')
     doc.setTextColor('#ffffff')
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
+    doc.setFontSize(CADERNO_FONT.bodySm)
     doc.text(`${grupo.label.toUpperCase()} (${grupo.items.length} itens)`, margin + 2, y + 5.5)
 
     y += headerH
 
-    const totalGrupo = grupo.items.reduce((s, i) => s + i.total, 0)
-
-    autoTable(doc, {
-      startY: y,
-      margin: { left: margin, right: margin, bottom: margin },
-      head: [['Grupo', 'Código', 'Descrição', 'Und', 'Quantidade', 'Preço (R$)', 'Total (R$)']],
-      body: grupo.items.map(i => [i.grupo, i.codigo, i.descricao, i.unidade, fmtQtd(i.quantidade), fmt(i.custo), fmt(i.total)]),
-      foot: [['', '', '', '', '', 'TOTAL DO GRUPO', fmt(totalGrupo)]],
-      showFoot: 'lastPage',
-      styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle', overflow: 'linebreak', lineColor: '#cbd5e1', lineWidth: 0.1 },
-      headStyles: { fillColor: BRAND_PRIMARY, textColor: '#ffffff', fontStyle: 'bold', halign: 'center' },
-      footStyles: { fillColor: '#f1f5f9', textColor: '#1e293b', fontStyle: 'bold', halign: 'right', lineWidth: 0.1 },
-      columnStyles: {
-        0: { cellWidth: 28 },
-        1: { cellWidth: 24 },
-        2: { cellWidth: 119 },
-        3: { cellWidth: 14, halign: 'center' },
-        4: { cellWidth: 28, halign: 'right' },
-        5: { cellWidth: 28, halign: 'right' },
-        6: { cellWidth: 30, halign: 'right' },
-      },
-    })
-
-    // @ts-expect-error lastAutoTable é injetado em runtime pelo plugin jspdf-autotable
-    y = doc.lastAutoTable.finalY + 4
+    y = await drawListaInsumosGrupoTable(doc, pageW, y, grupo.items, {
+      headerHooks,
+    }) + 4
   }
 
   if (data.listaInsumos.length === 0) {
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
+    doc.setFontSize(CADERNO_FONT.bodySm)
     doc.setTextColor(PDF_COLORS.textGray)
     doc.text('Nenhum insumo cadastrado neste orçamento.', margin, y + 4)
   }
@@ -949,27 +611,13 @@ export interface ExportCadernoOptions {
 }
 
 export async function exportCadernoPdf(data: CadernoData, options: ExportCadernoOptions = {}) {
-  const { jsPDF } = await import('jspdf')
-
-  // Capa e divisórias de seção ficam em retrato (A4) — pedido explícito pra
-  // parecerem "folhas de rosto", não planilha. O conteúdo de cada seção
-  // (tabelas largas, KPI cards + gráfico lado a lado) continua em paisagem,
-  // que é o espaço que esse conteúdo sempre precisou. doc.addPage(formato,
-  // orientação) troca a orientação por página; sem argumentos ela herda a
-  // última usada — por isso todo addPage() dentro das seções abaixo é
-  // explícito ('a4','landscape'), nunca "pelado".
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const doc = await createLandscapeA4Pdf()
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
-  const margin = 10
-  const landscapeW = pageH
-  const landscapeH = pageW
-  const contentW = landscapeW - margin * 2
-
-  const subtitle = [
-    [data.orcamento.codigo, data.orcamento.nome_obra].filter(Boolean).join(' - '),
-    `Gerado em ${formatDate(new Date())}`,
-  ].filter(Boolean).join('   •   ')
+  const margin = PDF_PAGE_MARGIN
+  const contentW = pdfContentWidth(pageW)
+  const headerData = buildStandardHeaderData(data)
+  const destacarEstimados = resolveDestacarEstimados(options.destacarNaAnalitica)
 
   const SEM_DADOS = 'Seção sem dados disponíveis no software'
 
@@ -978,7 +626,12 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   }
 
   // Capa
-  await addCoverPage(doc, data, pageW, pageH)
+  await drawCadernoCoverPage(doc, {
+    nomeObra: data.orcamento.nome_obra,
+    codigo: data.orcamento.codigo,
+    cliente: data.orcamento.cliente,
+    numeroRevisao: data.orcamento.numero_revisao,
+  }, pageW, pageH)
 
   // 1.0 Carta de Apresentação (placeholder)
   divider('1.0', 'CARTA DE APRESENTAÇÃO', SEM_DADOS)
@@ -991,34 +644,34 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   // estimado na cotação (ver detectarEstimados em getCadernoData).
   divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
   await drawResumoGeralSection(
-    doc, data, margin, contentW, subtitle, '3.0',
+    doc, data, margin, contentW, pageH,
     options.incluirServicosComInsumoEstimado ?? true,
     new Set(options.servicosComInsumoEstimadoOcultos ?? []),
   )
 
   // 4.0 Custo / m²
   divider('4.0', 'CUSTO / M²', 'Áreas e Indicadores de Custo')
-  await drawCustoM2Section(doc, data, margin, contentW, subtitle, '4.0')
+  await drawCustoM2Section(doc, data, margin, contentW, pageH)
 
   // 5.0 Planilha de Preços Unitários
   divider('5.0', 'PLANILHA DE PREÇOS UNITÁRIOS', 'Planilha de Orçamento')
-  await drawPlanilhaPrecosSection(doc, data, margin, contentW, subtitle, '5.0')
+  await drawPlanilhaPrecosSection(doc, data, margin, contentW, destacarEstimados)
 
   // 6.0 Curva ABC Insumos
   divider('6.0', 'CURVA ABC INSUMOS')
-  await drawAbcSection(doc, data.abcInsumos, '6.0', 'CURVA ABC INSUMOS', margin, contentW, subtitle)
+  await drawAbcSection(doc, data.abcInsumos, 'CURVA ABC INSUMOS', margin, contentW, headerData)
 
   // 7.0 Curva ABC de Serviços
   divider('7.0', 'CURVA ABC DE SERVIÇOS')
-  await drawAbcSection(doc, data.abcServicos, '7.0', 'CURVA ABC DE SERVIÇOS', margin, contentW, subtitle)
+  await drawAbcSection(doc, data.abcServicos, 'CURVA ABC DE SERVIÇOS', margin, contentW, headerData)
 
   // 8.0 Planilha Analítica de Preços Unitários
   divider('8.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
-  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, subtitle, '8.0', options.destacarNaAnalitica ?? true)
+  await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, pageH, destacarEstimados)
 
   // 9.0 Lista de Insumos
   divider('9.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')
-  await drawListaInsumosSection(doc, data, margin, contentW, landscapeH, subtitle, '9.0')
+  await drawListaInsumosSection(doc, data, margin, contentW, pageH)
 
   // 10.0 Anexos (placeholder)
   divider('10.0', 'ANEXOS', SEM_DADOS)
@@ -1027,16 +680,13 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   divider('11.0', 'COTAÇÕES', SEM_DADOS)
 
   // ── Rodapé com numeração de página (a partir da capa) ───────────────────────
-  // Página mistura retrato (capa/divisórias) e paisagem (conteúdo), então o
-  // tamanho tem que ser lido por página (setPage + pageSize), nunca um
-  // pageW/pageH fixo do topo da função.
   const pageCount = doc.getNumberOfPages()
   for (let p = 2; p <= pageCount; p++) {
     doc.setPage(p)
     const pw = doc.internal.pageSize.getWidth()
     const ph = doc.internal.pageSize.getHeight()
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(8)
+    doc.setFontSize(CADERNO_FONT.pageFooter)
     doc.setTextColor(PDF_COLORS.textGray)
     doc.text(`Página ${p - 1} de ${pageCount - 1}`, pw - margin, ph - 4, { align: 'right' })
   }

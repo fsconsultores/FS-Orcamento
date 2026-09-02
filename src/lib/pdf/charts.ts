@@ -1,97 +1,94 @@
+/**
+ * Gráfico Top 5 — barras horizontais nativas (doc.rect), sem autoTable.
+ */
 import type { jsPDF } from 'jspdf'
-import { PDF_COLORS } from './abc-section'
+import { fmt, fmtPct } from '@/lib/curva-abc'
+import type { DistribuicaoCustoItem } from '@/lib/orcamento/caderno'
+import { CADERNO_BRAND } from './theme'
+import { CADERNO_FONT } from './typography'
+import { filterRealCategoriesForTop5 } from './filters'
 
-export interface DonutSegment {
-  label: string
-  value: number
-  color: string
-}
+/**
+ * Categorias à esquerda; barra proporcional; valor financeiro + percentual destacado à direita.
+ */
+export function drawTop5HorizontalBarChart(
+  doc: jsPDF,
+  distribuicao: DistribuicaoCustoItem[],
+  margin: number,
+  contentW: number,
+  startY: number,
+): number {
+  const top5 = filterRealCategoriesForTop5(distribuicao)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
 
-// ─── Gráfico de rosca (vetorial) ─────────────────────────────────────────────
-
-export function drawDonutChart(doc: jsPDF, segments: DonutSegment[], cx: number, cy: number, outerR: number, innerRRatio = 0.55) {
-  const total = segments.reduce((s, seg) => s + seg.value, 0)
-  if (total <= 0) {
-    doc.setDrawColor(PDF_COLORS.axis)
-    doc.setLineWidth(0.2)
-    doc.circle(cx, cy, outerR, 'S')
-    doc.setFontSize(8)
-    doc.setTextColor(PDF_COLORS.textGray)
-    doc.text('Sem dados', cx, cy, { align: 'center' })
-    return
-  }
-
-  const innerR = outerR * innerRRatio
-  const step = Math.PI / 60 // ~3°
-  let angle = -Math.PI / 2
-
-  for (const seg of segments) {
-    const sweep = (seg.value / total) * 2 * Math.PI
-    if (sweep <= 0) continue
-    doc.setFillColor(seg.color)
-    const segSteps = Math.max(1, Math.ceil(sweep / step))
-    const segStep = sweep / segSteps
-    for (let i = 0; i < segSteps; i++) {
-      const a1 = angle + i * segStep
-      const a2 = angle + (i + 1) * segStep
-      const x1 = cx + Math.cos(a1) * outerR
-      const y1 = cy + Math.sin(a1) * outerR
-      const x2 = cx + Math.cos(a2) * outerR
-      const y2 = cy + Math.sin(a2) * outerR
-      doc.triangle(cx, cy, x1, y1, x2, y2, 'F')
-    }
-    angle += sweep
-  }
-
-  doc.setFillColor('#ffffff')
-  doc.circle(cx, cy, innerR, 'F')
-}
-
-export function drawDonutLegend(doc: jsPDF, segments: DonutSegment[], x: number, y: number, lineH: number, fontSize: number, colW: number, maxRows: number) {
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(fontSize)
-  const labelOffset = fontSize * 0.9
-  const maxTextW = colW - labelOffset - 2
-  segments.forEach((seg, i) => {
-    const col = Math.floor(i / maxRows)
-    const row = i % maxRows
-    const lx = x + col * colW
-    const ly = y + row * lineH
-    doc.setFillColor(seg.color)
-    doc.rect(lx, ly - fontSize * 0.32, fontSize * 0.5, fontSize * 0.5, 'F')
-    doc.setTextColor('#374151')
-    let label = seg.label
-    while (doc.getTextWidth(label) > maxTextW && label.length > 3) {
-      label = label.slice(0, -2) + '…'
-    }
-    doc.text(label, lx + labelOffset, ly)
-  })
-}
-
-// ─── KPI card genérico ────────────────────────────────────────────────────────
-
-export interface KpiCardStyle {
-  bg: string
-  fg: string
-  subFg: string
-}
-
-export const KPI_STYLE_PRIMARY: KpiCardStyle = { bg: PDF_COLORS.totalBg, fg: PDF_COLORS.totalFg, subFg: PDF_COLORS.totalSubFg }
-export const KPI_STYLE_NEUTRAL: KpiCardStyle = { bg: '#f1f5f9', fg: '#1e293b', subFg: '#64748b' }
-
-export function drawKpiCard(doc: jsPDF, x: number, y: number, w: number, h: number, label: string, value: string, sub: string | undefined, style: KpiCardStyle) {
-  doc.setFillColor(style.bg)
-  doc.roundedRect(x, y, w, h, 1.5, 1.5, 'F')
-  doc.setTextColor(style.fg)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
-  doc.text(label, x + 3, y + 5)
-  doc.setFontSize(11)
-  doc.text(value, x + 3, y + (sub ? h - 5.5 : h - 3))
-  if (sub) {
+  doc.setFontSize(CADERNO_FONT.chartTitle)
+  doc.setTextColor('#374151')
+  doc.text('PRINCIPAIS ITENS DO ORÇAMENTO', margin, startY)
+
+  let y = startY + 9
+
+  if (top5.length === 0) {
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(6.5)
-    doc.setTextColor(style.subFg)
-    doc.text(sub, x + 3, y + h - 1.5)
+    doc.setFontSize(CADERNO_FONT.bodySm)
+    doc.setTextColor('#64748b')
+    doc.text('Nenhuma categoria com valor registrado.', margin, y + 2)
+    return y + 14
   }
+
+  // Área de rótulo ampla — evita truncar nomes longos (ex.: "04 — EQUIPAMENTOS E CONSUMO").
+  const labelW = contentW * 0.38
+  const pctW = 24
+  const valueW = 52
+  const gap = 4
+  const barMaxW = Math.max(20, contentW - labelW - valueW - pctW - gap * 2)
+  const barH = 5.5
+  const labelLineH = 3.8
+  const minRowH = 15
+  const maxPct = top5[0]?.percentual ?? 100
+
+  let rowY = y
+
+  top5.forEach(item => {
+    const label = item.numero ? `${item.numero} — ${item.label}` : item.label
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(CADERNO_FONT.bodySm)
+    doc.setTextColor('#374151')
+    const labelLines = doc.splitTextToSize(label, labelW - 2)
+    const rowH = Math.max(minRowH, labelLines.length * labelLineH + 6)
+    const rowTop = rowY
+    const textY = rowTop + rowH / 2 + 1.2
+    const barY = rowTop + (rowH - barH) / 2
+    const barX = margin + labelW
+
+    doc.text(labelLines, margin, rowTop + 3.5)
+
+    doc.setFillColor('#e2e8f0')
+    doc.rect(barX, barY, barMaxW, barH, 'F')
+
+    const fillW = maxPct > 0 ? Math.max(2, barMaxW * (item.percentual / maxPct)) : 0
+    if (fillW > 0) {
+      doc.setFillColor(CADERNO_BRAND.primary)
+      doc.rect(barX, barY, fillW, barH, 'F')
+    }
+
+    const valueRight = margin + contentW - pctW - 2
+    const pctRight = margin + contentW
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(CADERNO_FONT.bodySm)
+    doc.setTextColor('#64748b')
+    doc.text(fmt(item.value), valueRight, textY, { align: 'right' })
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(CADERNO_FONT.bodySm + 1.5)
+    doc.setTextColor(CADERNO_BRAND.primary)
+    doc.text(fmtPct(item.percentual), pctRight, textY, { align: 'right' })
+
+    rowY += rowH
+  })
+
+  return rowY + 6
 }
