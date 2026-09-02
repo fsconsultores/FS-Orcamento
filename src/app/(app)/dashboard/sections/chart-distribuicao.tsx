@@ -43,7 +43,11 @@ export function ChartDistribuicao({ items }: { items: DistribuicaoItem[] }) {
 
   return (
     <ResponsiveContainer width="100%" height={altura}>
-      <BarChart data={items} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 4 }} barCategoryGap={10}>
+      {/* right:100 (não 56) — a barra mais longa some do lado direito, e o
+          rótulo da MAIOR barra (o valor mais comprido, ex. "R$ 24.035.493,28")
+          é o único que fica sem espaço nenhum sobrando; com 56px ele saía
+          cortado ("...493,2", faltando os 2 últimos dígitos). */}
+      <BarChart data={items} layout="vertical" margin={{ top: 4, right: 100, bottom: 4, left: 4 }} barCategoryGap={10}>
         <XAxis type="number" hide />
         <YAxis
           type="category"

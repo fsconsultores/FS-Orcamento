@@ -68,12 +68,31 @@ export function ChartInsumosCategoria({ items }: { items: CategoriaPorProjeto[] 
   const alturaBarra = 34
   const altura = Math.max(items.length * alturaBarra + 16, 120)
 
+  // A maior obra pode ser ordens de grandeza maior que as outras (visto em
+  // produção: uma a milhões, outras a poucas centenas de reais) — numa
+  // escala absoluta linear compartilhada, as menores viram traços
+  // invisíveis mesmo tendo dado real. E como é uma barra EMPILHADA (3
+  // categorias por obra), simplesmente limitar o teto do eixo faz a lib
+  // cortar os segmentos empilhados DEPOIS do teto — perdendo cor/informação
+  // da obra maior (parece "100% materiais" quando na verdade tem serviços
+  // também). Comparação de valor absoluto entre obras já é o gráfico
+  // "Distribuição do valor dos orçamentos" logo acima; aqui o que importa é
+  // a MISTURA de categoria — então cada barra é normalizada pro seu próprio
+  // total (sempre soma 100%), o que resolve o problema de escala E é mais
+  // direto pra comparar composição entre obras de tamanhos bem diferentes.
+  const itemsNormalizados = items.map(item => ({
+    ...item,
+    materiaisPct: item.total > 0 ? (item.materiais / item.total) * 100 : 0,
+    equipamentosPct: item.total > 0 ? (item.equipamentos / item.total) * 100 : 0,
+    servicosPct: item.total > 0 ? (item.servicos / item.total) * 100 : 0,
+  }))
+
   return (
     <div>
       <Legenda />
       <ResponsiveContainer width="100%" height={altura}>
-        <BarChart data={items} layout="vertical" margin={{ top: 4, right: 12, bottom: 4, left: 4 }} barCategoryGap={10}>
-          <XAxis type="number" hide />
+        <BarChart data={itemsNormalizados} layout="vertical" margin={{ top: 4, right: 12, bottom: 4, left: 4 }} barCategoryGap={10}>
+          <XAxis type="number" hide domain={[0, 100]} />
           <YAxis
             type="category"
             dataKey="orcamentoNome"
@@ -87,7 +106,7 @@ export function ChartInsumosCategoria({ items }: { items: CategoriaPorProjeto[] 
           {SERIES.map((s, i) => (
             <Bar
               key={s.key}
-              dataKey={s.key}
+              dataKey={`${s.key}Pct`}
               stackId="categoria"
               fill={s.cor}
               stroke="#ffffff"

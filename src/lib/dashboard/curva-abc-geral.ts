@@ -101,7 +101,14 @@ export function computeInsumosPorCategoria(
     else acc.servicos += custo // mao_de_obra + servicos
     acc.total += custo
   }
+  // Obras com insumo avulso cadastrado mas todos a R$ 0,00 (ainda não
+  // precificados) entram no Map acima só por terem pelo menos 1 linha, mas
+  // renderizavam como uma barra vazia/invisível no dashboard — sem nada pra
+  // comparar, não têm o que fazer nesse widget. Ordenado por total (maior
+  // primeiro) — antes vinha na ordem de inserção do Map (não intencional).
   return [...porProjeto.values()]
+    .filter(p => p.total > 0)
+    .sort((a, b) => b.total - a.total)
 }
 
 export interface VariacaoPreco {

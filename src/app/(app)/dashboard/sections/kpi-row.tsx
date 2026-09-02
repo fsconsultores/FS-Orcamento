@@ -34,6 +34,7 @@ export function KpiRow({
       />
       <StatCard
         size="lg"
+        accent
         icon={<Wallet size={16} />}
         label="Valor total orçado"
         value={fmt(valorComBdi)}

@@ -49,10 +49,27 @@ export function ChartVariacaoPreco({ items }: { items: VariacaoPreco[] }) {
   const alturaBarra = 34
   const altura = Math.max(items.length * alturaBarra + 16, 120)
 
+  // Um preço corrigido de um valor perto de zero (placeholder) pro preço real
+  // produz uma % astronômica (visto em produção: +32.879.900%) que, numa
+  // escala linear, deixa a barra dela sozinha ocupando o gráfico inteiro e
+  // reduz TODAS as outras — inclusive a 2ª maior variação real — a um traço
+  // invisível. O rótulo de texto continua mostrando o valor verdadeiro (não
+  // mexe no dataKey nem no formatter); só o TETO VISUAL da barra é limitado
+  // à 2ª maior magnitude de cada lado (com folga de 15%), então o único
+  // outlier extremo aparece "estourando" o eixo (correto, é isso mesmo que
+  // ele faz) mas o resto do ranking volta a ser comparável entre si.
+  const positivos = items.filter(i => i.variacaoPct >= 0).map(i => i.variacaoPct).sort((a, b) => b - a)
+  const negativos = items.filter(i => i.variacaoPct < 0).map(i => Math.abs(i.variacaoPct)).sort((a, b) => b - a)
+  const tetoPositivo = (positivos.length > 1 ? positivos[1] : (positivos[0] ?? 0)) * 1.15
+  const tetoNegativo = (negativos.length > 1 ? negativos[1] : (negativos[0] ?? 0)) * 1.15
+
   return (
     <ResponsiveContainer width="100%" height={altura}>
       <BarChart data={items} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 4 }} barCategoryGap={10}>
-        <XAxis type="number" hide />
+        {/* allowDataOverflow: sem isso o Recharts IGNORA silenciosamente o teto
+            do domain de cima e expande de volta pro valor real do outlier —
+            gotcha conhecido da lib, é o motivo do domain sozinho não bastar. */}
+        <XAxis type="number" hide domain={[negativos.length > 0 ? -tetoNegativo : 0, tetoPositivo]} allowDataOverflow />
         <YAxis
           type="category"
           dataKey="codigo"

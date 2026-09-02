@@ -10,22 +10,25 @@ export function StatRow({ children }: { children: ReactNode }) {
 
 /** Card de KPI — `size="sm"` (default) é o usado em telas de listagem (ex: Bases de
  * Dados); `size="lg"` é a variante de abertura, mais peso visual, usada nos KPIs do
- * topo da dashboard. `href` torna o card inteiro clicável. */
-export function StatCard({ label, value, icon, hint, href, size = 'sm' }: {
+ * topo da dashboard. `href` torna o card inteiro clicável. `accent` (só em `size="lg"`)
+ * dá destaque a UM card entre os 4 — reservado pro número mais importante da tela
+ * (ex.: Valor total orçado), nunca mais de um por linha, senão perde o efeito. */
+export function StatCard({ label, value, icon, hint, href, size = 'sm', accent = false }: {
   label: string
   value: ReactNode
   icon?: ReactNode
   hint?: ReactNode
   href?: string
   size?: 'sm' | 'lg'
+  accent?: boolean
 }) {
   const hoverCls = href ? 'transition-shadow hover:shadow-md' : ''
 
   const content = size === 'lg' ? (
-    <div className={`min-w-0 rounded-xl border border-gray-200 bg-white p-5 shadow-sm ${hoverCls}`}>
+    <div className={`min-w-0 rounded-xl border bg-white p-5 shadow-sm ${accent ? 'border-primary-200 border-l-4 border-l-primary-600' : 'border-gray-200'} ${hoverCls}`}>
       <div className="mb-3 flex items-center gap-2.5">
         {icon && (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${accent ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-700'}`}>
             {icon}
           </span>
         )}
@@ -36,7 +39,7 @@ export function StatCard({ label, value, icon, hint, href, size = 'sm' }: {
           crescer e estoura a caixa em telas pequenas — text-3xl só cabe folgado em
           telas largas, por isso encolhe progressivamente abaixo do breakpoint sm. */}
       <p
-        className="truncate text-xl font-bold leading-none text-gray-900 tabular-nums sm:text-2xl lg:text-3xl"
+        className={`truncate text-xl font-bold leading-none tabular-nums sm:text-2xl lg:text-3xl ${accent ? 'text-primary-800' : 'text-gray-900'}`}
         title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
       >
         {value}
