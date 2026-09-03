@@ -250,23 +250,29 @@ export function OrcamentosGrid({ initialOrcamentos, favoritosAtivo = false, mode
     setPendingIds(prev => new Set([...prev, tempId]));
 
     try {
-      const result = await duplicateOrcamento(orc.id, codigo);
-      const realRow = resultToRow(result, orc.tabela_itens_orcamento.length, currentUserId ?? '');
+      const response = await duplicateOrcamento(orc.id, codigo);
+      if (!response.ok) {
+        // Código já em uso — erro esperado, classificado no servidor (ver
+        // actions.ts: mensagem de exceção de Server Action some em produção,
+        // por isso vem como valor normal de retorno, não como catch aqui).
+        setOrcamentos(prev => prev.filter(o => o.id !== tempId));
+        setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
+        setDuplicateModal({ orc, codigo, error: response.error });
+        return;
+      }
+      const realRow = resultToRow(response.data, orc.tabela_itens_orcamento.length, currentUserId ?? '');
       addToCache(realRow.id, realRow.created_at as string);
       setOrcamentos(prev => prev.map(o => o.id === tempId ? realRow : o));
       setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
       toast.show('Orçamento duplicado.');
       startTransition(() => router.refresh());
     } catch (err: unknown) {
+      // Erro inesperado (não classificado) — mensagem real pode vir apagada
+      // em produção; toast genérico é o melhor que dá pra mostrar aqui.
       setOrcamentos(prev => prev.filter(o => o.id !== tempId));
       setPendingIds(prev => { const s = new Set(prev); s.delete(tempId); return s; });
       const msg = err instanceof Error ? err.message : String(err);
-      const isUnique = msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('duplicate key');
-      if (isUnique) {
-        setDuplicateModal({ orc, codigo, error: 'Este código já está em uso. Escolha outro.' });
-      } else {
-        toast.show(`Erro ao duplicar: ${msg}`, 'error');
-      }
+      toast.show(`Erro ao duplicar: ${msg}`, 'error');
     }
   }
 

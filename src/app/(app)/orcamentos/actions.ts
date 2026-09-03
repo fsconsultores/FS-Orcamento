@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/supabase/auth'
 import { registrarHistorico } from '@/lib/log'
-import { duplicarOrcamento, criarOrcamentoAPartirDeModelo, type DadosNovoOrcamentoDeModelo } from '@/lib/orcamento/duplicate'
+import { duplicarOrcamento, criarOrcamentoAPartirDeModelo, type DadosNovoOrcamentoDeModelo, type DuplicateResult } from '@/lib/orcamento/duplicate'
 import { removerFavoritosDaEntidade } from '@/lib/favoritos'
 
 
@@ -32,11 +32,31 @@ export async function deleteOrcamento(orcamentoId: string): Promise<void> {
   }).catch(console.error)
 }
 
-export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string) {
+export type DuplicateOrcamentoResult =
+  | { ok: true; data: DuplicateResult }
+  | { ok: false; error: string }
+
+export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string): Promise<DuplicateOrcamentoResult> {
   const supabase = await createClient()
   const sb = supabase as any
   const user = await requireUser(supabase)
-  const result = await duplicarOrcamento(sb, user.id, orcamentoId, novoCodigo)
+
+  let result: DuplicateResult
+  try {
+    result = await duplicarOrcamento(sb, user.id, orcamentoId, novoCodigo)
+  } catch (e) {
+    // Next.js apaga a mensagem de qualquer exceção que escape de uma Server
+    // Action em build de produção ("omitted in production builds to avoid
+    // leaking sensitive details") — o cliente nunca veria texto suficiente
+    // pra distinguir "código já em uso" de qualquer outro erro. A mensagem
+    // completa só existe aqui, do lado do servidor; devolvida como valor
+    // normal (não relançada) é a única forma dela sobreviver até o cliente.
+    const msg = e instanceof Error ? e.message : String(e)
+    const isCodigoDuplicado = msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('duplicate key')
+    if (isCodigoDuplicado) return { ok: false, error: 'Este código já está em uso. Escolha outro.' }
+    throw e
+  }
+
   revalidatePath('/orcamentos')
   registrarHistorico(supabase, {
     orcamentoId: result.id,
@@ -46,7 +66,7 @@ export async function duplicateOrcamento(orcamentoId: string, novoCodigo: string
     mensagem: `Orçamento "${result.nome_obra}" criado como cópia`,
     detalhes: { orcamento_origem: orcamentoId, codigo: novoCodigo },
   }).catch(console.error)
-  return result
+  return { ok: true, data: result }
 }
 
 export type ModeloInfo = { id: string; nome_obra: string; codigo: string; bdi_global: number }
