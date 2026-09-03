@@ -6,9 +6,26 @@
 
 import { aplicarModeloAcrescimo, salvarTaxaAdministracaoItens, type ModeloAcrescimo, type TaxaAdministracaoItem } from './modelo-acrescimo'
 import { persistirTotaisPlanilha } from './motor-calculo'
+import { fetchAllPaginatedParallel } from './paginate'
 
 function chunk<T>(arr: T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, (i + 1) * size))
+}
+
+/**
+ * Insere `rows` em lotes e lança se qualquer lote falhar — as funções de
+ * clonagem abaixo dependiam de `console.error` + seguir em frente, o que
+ * deixava a cópia parcialmente corrompida sem que o chamador percebesse
+ * (nenhuma exceção subia para acionar a limpeza em duplicarOrcamento /
+ * criarOrcamentoAPartirDeModelo). Ver auditoria de arquitetura — item
+ * "duplicate.ts sem rollback em falha parcial".
+ */
+async function insertChunked(sb: any, table: string, rows: any[], size = 500): Promise<void> {
+  if (!rows.length) return
+  const resultados = await Promise.all(chunk(rows, size).map(l => sb.from(table).insert(l)))
+  for (const { error } of resultados) {
+    if (error) throw new Error(`Erro ao clonar ${table}: ${error.message}`)
+  }
 }
 
 async function gerarNomeCopia(sb: any, userId: string, nomeOrig: string): Promise<string> {
@@ -66,7 +83,7 @@ async function clonarPlanilhas(sb: any, fromId: string, toId: string, userId: st
     })))
     .select('id')
 
-  if (error) { console.error('[dup] planilhas:', error); return map }
+  if (error) throw new Error(`Erro ao clonar planilhas: ${error.message}`)
   planilhas.forEach((p: any, i: number) => { if (inserted?.[i]) map[p.id] = inserted[i].id })
   return map
 }
@@ -77,14 +94,17 @@ async function clonarEstrutura(
   toId: string,
   planilhaIdMap: Record<string, string>
 ): Promise<void> {
-  const { data: rows } = await sb
-    .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao, estimado, estimado_motivo, valor_estimado')
-    .eq('orcamento_id', fromId)
-    .order('nivel')
-    .order('ordem')
+  const rows = await fetchAllPaginatedParallel<any>((from, to) =>
+    sb
+      .from('orcamento_estrutura')
+      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao, estimado, estimado_motivo, valor_estimado', { count: 'exact' })
+      .eq('orcamento_id', fromId)
+      .order('nivel')
+      .order('ordem')
+      .range(from, to)
+  )
 
-  if (!rows?.length) return
+  if (!rows.length) return
 
   const idMap: Record<string, string> = {}
   const maxNivel = Math.max(...rows.map((r: any) => r.nivel))
@@ -118,18 +138,21 @@ async function clonarEstrutura(
       )
       .select('id')
 
-    if (error) { console.error('[dup] estrutura nivel', nivel, error); continue }
+    if (error) throw new Error(`Erro ao clonar estrutura (nível ${nivel}): ${error.message}`)
     nivelRows.forEach((r: any, i: number) => { if (inserted?.[i]) idMap[r.id] = inserted[i].id })
   }
 }
 
 async function clonarItens(sb: any, fromId: string, toId: string): Promise<void> {
-  const { data: itens } = await sb
-    .from('tabela_itens_orcamento')
-    .select('composicao_id, orcamento_composicao_id, quantidade, bdi_especifico')
-    .eq('orcamento_id', fromId)
+  const itens = await fetchAllPaginatedParallel<any>((from, to) =>
+    sb
+      .from('tabela_itens_orcamento')
+      .select('composicao_id, orcamento_composicao_id, quantidade, bdi_especifico', { count: 'exact' })
+      .eq('orcamento_id', fromId)
+      .range(from, to)
+  )
 
-  if (!itens?.length) return
+  if (!itens.length) return
 
   const rows = itens.map((i: any) => {
     const row: any = { orcamento_id: toId, quantidade: i.quantidade, bdi_especifico: i.bdi_especifico }
@@ -138,39 +161,45 @@ async function clonarItens(sb: any, fromId: string, toId: string): Promise<void>
     return row
   })
 
-  const erros = await Promise.all(chunk(rows, 500).map(l => sb.from('tabela_itens_orcamento').insert(l)))
-  erros.forEach(({ error }: any) => { if (error) console.error('[dup] itens:', error) })
+  await insertChunked(sb, 'tabela_itens_orcamento', rows)
 }
 
 async function clonarComposicoes(sb: any, fromId: string, toId: string): Promise<Record<string, string>> {
-  const { data: comps } = await sb
-    .from('orcamento_composicoes')
-    .select('id, codigo, codigo_original, descricao, unidade, base, custo_unitario, calculado_em')
-    .eq('orcamento_id', fromId)
+  const comps = await fetchAllPaginatedParallel<any>((from, to) =>
+    sb
+      .from('orcamento_composicoes')
+      .select('id, codigo, codigo_original, descricao, unidade, base, custo_unitario, calculado_em', { count: 'exact' })
+      .eq('orcamento_id', fromId)
+      .range(from, to)
+  )
 
   const map: Record<string, string> = {}
-  if (!comps?.length) return map
+  if (!comps.length) return map
 
   // Clona para um projeto novo com o código original (sem prefixo por projeto
   // — mecanismo removido, codigo_original só é mantido como metadado).
   // custo_unitario/calculado_em vêm junto para não invalidar o cache do motor
   // de cálculo (senão toda composição fica "suja" e força recálculo completo
   // no próximo ciclo, mesmo com insumos idênticos aos da origem).
-  const { data: inserted, error } = await sb
-    .from('orcamento_composicoes')
-    .insert(comps.map((c: any) => ({
-      orcamento_id: toId,
-      codigo: c.codigo_original ?? c.codigo,
-      descricao: c.descricao,
-      unidade: c.unidade,
-      base: c.base,
-      custo_unitario: c.custo_unitario,
-      calculado_em: c.calculado_em,
-    })))
-    .select('id')
-
-  if (error) { console.error('[dup] composicoes:', error); return map }
-  comps.forEach((c: any, i: number) => { if (inserted?.[i]) map[c.id] = inserted[i].id })
+  // Em lotes de 500 (mesmo tamanho usado em versoes.ts/restaurarComposicoes)
+  // — orçamentos reais já chegaram a ter 10k+ composições, um único insert
+  // sem chunking arrisca estourar o tamanho de request do PostgREST.
+  for (const lote of chunk(comps, 500)) {
+    const { data: inserted, error } = await sb
+      .from('orcamento_composicoes')
+      .insert(lote.map((c: any) => ({
+        orcamento_id: toId,
+        codigo: c.codigo_original ?? c.codigo,
+        descricao: c.descricao,
+        unidade: c.unidade,
+        base: c.base,
+        custo_unitario: c.custo_unitario,
+        calculado_em: c.calculado_em,
+      })))
+      .select('id')
+    if (error) throw new Error(`Erro ao clonar composições: ${error.message}`)
+    lote.forEach((c: any, i: number) => { map[c.id] = inserted[i].id })
+  }
   return map
 }
 
@@ -180,13 +209,15 @@ async function clonarInsumos(
   toId: string,
   compIdMap: Record<string, string>
 ): Promise<void> {
-  const { data: insumos, error } = await sb
-    .from('orcamento_insumos')
-    .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id, estimado, estimado_motivo')
-    .eq('orcamento_id', fromId)
+  const insumos = await fetchAllPaginatedParallel<any>((from, to) =>
+    sb
+      .from('orcamento_insumos')
+      .select('codigo, codigo_original, descricao, unidade, custo, indice, grupo, base, data_ref, composicao_id, estimado, estimado_motivo', { count: 'exact' })
+      .eq('orcamento_id', fromId)
+      .range(from, to)
+  )
 
-  if (error) console.error('[dup] insumos fetch:', error)
-  if (!insumos?.length) return
+  if (!insumos.length) return
 
   // Mesmo raciocínio de clonarComposicoes: código original, sem prefixo.
   const rows = insumos.map((i: any) => ({
@@ -204,8 +235,7 @@ async function clonarInsumos(
     estimado_motivo: i.estimado_motivo ?? null,
   }))
 
-  const erros = await Promise.all(chunk(rows, 500).map(l => sb.from('orcamento_insumos').insert(l)))
-  erros.forEach(({ error: e }: any) => { if (e) console.error('[dup] insumos insert:', e) })
+  await insertChunked(sb, 'orcamento_insumos', rows)
 }
 
 /**
@@ -229,7 +259,7 @@ async function clonarLevantamentos(sb: any, fromId: string, toId: string): Promi
     .insert(levantamentos.map((l: any) => ({ orcamento_id: toId, nome: l.nome, ordem: l.ordem })))
     .select('id')
 
-  if (error) { console.error('[dup] levantamentos:', error); return }
+  if (error) throw new Error(`Erro ao clonar levantamentos: ${error.message}`)
   const idMap: Record<string, string> = {}
   levantamentos.forEach((l: any, i: number) => { if (inserted?.[i]) idMap[l.id] = inserted[i].id })
 
@@ -244,7 +274,7 @@ async function clonarLevantamentos(sb: any, fromId: string, toId: string): Promi
     .map((it: any) => ({ levantamento_id: idMap[it.levantamento_id], descricao: it.descricao, ordem: it.ordem }))
 
   const { error: itensErr } = await sb.from('orcamento_levantamento_itens').insert(rows)
-  if (itensErr) console.error('[dup] levantamento_itens:', itensErr)
+  if (itensErr) throw new Error(`Erro ao clonar itens de levantamento: ${itensErr.message}`)
 }
 
 async function clonarTaxaAdministracaoItens(sb: any, fromId: string, toId: string): Promise<void> {
@@ -258,7 +288,7 @@ async function clonarTaxaAdministracaoItens(sb: any, fromId: string, toId: strin
   const { error } = await sb
     .from('orcamento_taxa_administracao_itens')
     .insert(itens.map((it: any) => ({ orcamento_id: toId, descricao: it.descricao, percentual: it.percentual, ordem: it.ordem })))
-  if (error) console.error('[dup] taxa_administracao_itens:', error)
+  if (error) throw new Error(`Erro ao clonar taxa de administração: ${error.message}`)
 }
 
 async function clonarServicosEstimados(sb: any, fromId: string, toId: string): Promise<void> {
@@ -272,7 +302,7 @@ async function clonarServicosEstimados(sb: any, fromId: string, toId: string): P
   const { error } = await sb
     .from('orcamento_servicos_estimados')
     .insert(servicos.map((s: any) => ({ orcamento_id: toId, descricao: s.descricao, valor: s.valor, ordem: s.ordem })))
-  if (error) console.error('[dup] servicos_estimados:', error)
+  if (error) throw new Error(`Erro ao clonar serviços estimados: ${error.message}`)
 }
 
 async function clonarPavimentos(sb: any, fromId: string, toId: string): Promise<void> {
@@ -289,7 +319,7 @@ async function clonarPavimentos(sb: any, fromId: string, toId: string): Promise<
       orcamento_id: toId, descricao: p.descricao, unidade: p.unidade,
       area_total: p.area_total, area_equivalente: p.area_equivalente, area_coberta: p.area_coberta, ordem: p.ordem,
     })))
-  if (error) console.error('[dup] pavimentos:', error)
+  if (error) throw new Error(`Erro ao clonar pavimentos: ${error.message}`)
 }
 
 export type DuplicateResult = {
@@ -334,6 +364,23 @@ async function clonarConteudo(sb: any, fromId: string, toId: string, userId: str
   await clonarInsumos(sb, fromId, toId, compIdMap)
 }
 
+/**
+ * Não há transação de banco cobrindo o pipeline de clonagem (cada tabela é um
+ * round-trip HTTP separado via PostgREST) — uma falha no meio do caminho não
+ * pode deixar `novoId` pela metade na listagem de orçamentos: apaga tudo
+ * (cascade cuida de planilhas/estrutura/composições/insumos já inseridos) e
+ * relança o erro original. Usado pelos 3 pontos de entrada que criam um
+ * orçamento novo a partir de outro (duplicar, criar de modelo, criar revisão).
+ */
+async function comLimpezaEmFalha<T>(sb: any, novoId: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    await sb.from('tabela_orcamentos').delete().eq('id', novoId)
+    throw e
+  }
+}
+
 export async function duplicarOrcamento(
   sb: any,
   userId: string,
@@ -349,7 +396,7 @@ export async function duplicarOrcamento(
   if (errOrig || !orig) throw new Error(`Orçamento não encontrado: ${errOrig?.message ?? ''}`)
 
   const { id: novoId, nome_obra: nomeNovo } = await criarNovoOrcamento(sb, userId, orig, novoCodigo)
-  await clonarConteudo(sb, orcamentoId, novoId, userId)
+  await comLimpezaEmFalha(sb, novoId, () => clonarConteudo(sb, orcamentoId, novoId, userId))
 
   return {
     id: novoId,
@@ -412,18 +459,20 @@ export async function criarOrcamentoAPartirDeModelo(
   if (error) throw new Error(`Erro ao criar orçamento: ${error.message}`)
 
   const novoId = data.id
-  await clonarConteudo(sb, modeloId, novoId, userId)
+  await comLimpezaEmFalha(sb, novoId, async () => {
+    await clonarConteudo(sb, modeloId, novoId, userId)
 
-  // Conteúdo clonado traz bdi_global/bdi_especifico e possíveis subgrupos de
-  // Taxa de Administração do MODELO — sem os passos abaixo, as escolhas do
-  // formulário de criação não seriam respeitadas pelo conteúdo recém-copiado.
-  await salvarTaxaAdministracaoItens(sb, novoId, dados.taxa_administracao_itens)
-  await aplicarModeloAcrescimo(sb, novoId, dados.modelo_acrescimo, dados.bdi_global)
+    // Conteúdo clonado traz bdi_global/bdi_especifico e possíveis subgrupos de
+    // Taxa de Administração do MODELO — sem os passos abaixo, as escolhas do
+    // formulário de criação não seriam respeitadas pelo conteúdo recém-copiado.
+    await salvarTaxaAdministracaoItens(sb, novoId, dados.taxa_administracao_itens)
+    await aplicarModeloAcrescimo(sb, novoId, dados.modelo_acrescimo, dados.bdi_global)
 
-  const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
-  if (planilhasNovas?.length) {
-    await persistirTotaisPlanilha(sb, novoId, planilhasNovas.map((p: { id: string }) => p.id))
-  }
+    const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
+    if (planilhasNovas?.length) {
+      await persistirTotaisPlanilha(sb, novoId, planilhasNovas.map((p: { id: string }) => p.id))
+    }
+  })
 
   return {
     id: novoId,
@@ -507,21 +556,14 @@ export async function criarRevisao(
   if (novoErr) throw new Error(`Erro ao criar revisão: ${novoErr.message}`)
   const novoId = novo.id as string
 
-  try {
+  await comLimpezaEmFalha(sb, novoId, async () => {
     await clonarConteudo(sb, orcamentoOrigemId, novoId, userId)
 
     const { data: planilhasNovas } = await sb.from('orcamento_planilhas').select('id').eq('orcamento_id', novoId)
     if (planilhasNovas?.length) {
       await persistirTotaisPlanilha(sb, novoId, planilhasNovas.map((p: { id: string }) => p.id))
     }
-  } catch (e) {
-    // Sem transação de banco cobrindo os passos acima — uma falha no meio do
-    // clone não pode deixar uma revisão pela metade na lista: apaga o que foi
-    // criado (cascade cuida de planilhas/estrutura/composições/insumos já
-    // inseridos). Mesma rede de segurança de criarOrcamentoDeVersao.
-    await sb.from('tabela_orcamentos').delete().eq('id', novoId)
-    throw e
-  }
+  })
 
   return { id: novoId, nome_obra: orig.nome_obra, numero_revisao: proximoNumero, grupo_id: grupoId }
 }

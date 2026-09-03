@@ -153,7 +153,31 @@ export async function restaurarVersao(orcamentoId: string, versaoId: string): Pr
 
   // Configurações, planilhas, composições, insumos, estrutura e serviços
   // estimados — mesma rotina usada por "Criar novo orçamento desta versão".
-  await aplicarSnapshot(sb, orcamentoId, snapshot)
+  // Sem transação de banco cobrindo os passos internos de aplicarSnapshot
+  // (cada tabela é um DELETE+INSERT via round-trip HTTP separado): se falhar
+  // no meio do caminho, o orçamento fica com uma mistura de tabelas já
+  // trocadas e tabelas ainda antigas. Em vez de deixar isso para o usuário
+  // notar e restaurar manualmente o backup automático acima, tenta
+  // reaplicar esse mesmo backup (`snapshotAtual`) na hora, devolvendo o
+  // orçamento ao estado de antes da tentativa — e só então relança o erro
+  // original, para a mensagem continuar clara sobre o que de fato falhou.
+  try {
+    await aplicarSnapshot(sb, orcamentoId, snapshot)
+  } catch (e) {
+    try {
+      await aplicarSnapshot(sb, orcamentoId, snapshotAtual)
+    } catch (e2) {
+      throw new Error(
+        `Falha ao restaurar (${e instanceof Error ? e.message : String(e)}) e também falha ao recuperar o estado anterior ` +
+        `(${e2 instanceof Error ? e2.message : String(e2)}). O orçamento pode estar incompleto — restaure manualmente a ` +
+        `versão de segurança "Antes de restaurar \"${versaoRow.mensagem}\"" na lista de versões.`
+      )
+    }
+    throw new Error(
+      `Não foi possível restaurar a versão "${versaoRow.mensagem}" (${e instanceof Error ? e.message : String(e)}). ` +
+      `O orçamento foi devolvido automaticamente ao estado anterior à tentativa — nenhuma alteração foi perdida.`
+    )
+  }
 
   await registrarHistorico(supabase, { orcamentoId, tipo: 'sucesso', acao: 'versao_restaurada', entidade: 'versao', mensagem: `Orçamento restaurado para a versão "${versaoRow.mensagem}"`, detalhes: { versaoId } })
 
