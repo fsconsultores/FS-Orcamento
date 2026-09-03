@@ -72,7 +72,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # Só as suítes de correção funcional (setup de login roda como
+      # dependência automática do projeto "chromium", ver playwright.config.ts).
+      # benchmark.spec.ts e memory-leak.spec.ts ficam de fora de propósito —
+      # são ferramentas de medição de performance, não gates de correção
+      # (o próprio projeto já documenta que não são "assert de pass/fail de
+      # negócio"), e memory-leak sozinho já leva ~4min. Continuam disponíveis
+      # sob demanda via `npm run benchmark` / `npx playwright test tests/e2e/memory-leak.spec.ts`.
+      - run: npx playwright test tests/e2e/orcamento-flow.spec.ts tests/e2e/versionamento-flow.spec.ts
         env:
           CI: true
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

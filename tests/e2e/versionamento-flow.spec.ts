@@ -20,6 +20,18 @@ function modalOverlay(page: Page) {
   return page.locator('.fixed.inset-0.z-50');
 }
 
+// Histórico de versões (antigo "Versões", captura de snapshot manual +
+// Restaurar) virou uma seção secundária desde que Revisões passou a ser o
+// fluxo principal da aba (27-28/ago) — fica recolhida atrás de um accordion
+// ("Histórico de snapshots (legado)") toda vez que a página carrega de novo,
+// então precisa reabrir a cada `page.goto(.../versoes)`. Idempotente.
+async function abrirHistoricoSnapshots(page: Page) {
+  const criarSnapshotBtn = page.getByRole('button', { name: 'Criar snapshot' });
+  if (await criarSnapshotBtn.isVisible().catch(() => false)) return;
+  await page.getByRole('button', { name: /Histórico de snapshots/ }).click();
+  await expect(criarSnapshotBtn).toBeVisible();
+}
+
 // NOTA (achado da auditoria Fase 4, confirmado na prática ao rodar esta
 // suíte pela 1ª vez): a UI migrou do formulário inline "Novo Insumo"
 // (componente `novo-insumo-form.tsx`, HOJE MORTO — não é mais importado em
@@ -78,12 +90,12 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
   test('2 - Criar versão', async ({ page }) => {
     expect(orcamentoId, 'Precisa do orçamento criado no passo 1').toBeTruthy();
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
-    await expect(page.getByRole('heading', { name: 'Versões' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Revisões' })).toBeVisible();
 
-    // Com 0 versões, a tela mostra o botão do cabeçalho E o botão do
-    // EmptyState, ambos com o mesmo texto "Criar versão" — usa o do
-    // cabeçalho (.first(), sempre presente independente de haver versões).
-    await page.getByRole('button', { name: 'Criar versão' }).first().click();
+    // O fluxo principal da tela agora é Revisões — o "Criar versão"
+    // (snapshot manual) que este teste cobre fica atrás do accordion legado.
+    await abrirHistoricoSnapshots(page);
+    await page.getByRole('button', { name: 'Criar snapshot' }).click();
     const overlay = modalOverlay(page);
     await expect(overlay).toBeVisible();
     await overlay.locator('textarea').fill(MENSAGEM_V1);
@@ -113,6 +125,7 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
   test('4 - Restaurar versão', async ({ page }) => {
     expect(orcamentoId).toBeTruthy();
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
+    await abrirHistoricoSnapshots(page);
 
     const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1, hasNotText: 'Antes de restaurar' });
     await expect(item).toBeVisible({ timeout: 20_000 });
@@ -136,6 +149,11 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
     // única na página — "backup automático" sozinho é ambíguo (aparece tanto
     // no filtro "Backup automático" quanto no badge do item).
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
+    await abrirHistoricoSnapshots(page);
+    // O filtro de origem abre em "Manuais" por padrão (esconde backups
+    // automáticos de propósito, ver comentário em versoes-view.tsx) — precisa
+    // trocar pra "Todas" pra enxergar o item pre_restore criado pelo restore acima.
+    await page.getByRole('button', { name: 'Todas' }).click();
     await expect(page.getByText(`Antes de restaurar "${MENSAGEM_V1}"`)).toBeVisible({ timeout: 20_000 });
   });
 
@@ -144,6 +162,7 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
   test('5 - Criar orçamento a partir de uma versão', async ({ page }) => {
     expect(orcamentoId).toBeTruthy();
     await page.goto(`/orcamentos/${orcamentoId}/versoes`);
+    await abrirHistoricoSnapshots(page);
 
     const item = page.locator('div.relative.flex.gap-3').filter({ hasText: MENSAGEM_V1, hasNotText: 'Antes de restaurar' });
     await expect(item).toBeVisible({ timeout: 20_000 });
@@ -172,6 +191,7 @@ test.describe.serial('Versionamento e duplicação de orçamento', () => {
 
     // Ganha sua própria primeira versão (criarVersao interno do fluxo).
     await page.goto(`/orcamentos/${orcamentoDeVersaoId}/versoes`);
+    await abrirHistoricoSnapshots(page);
     await expect(page.getByText('Primeira versão do orçamento derivado')).toBeVisible({ timeout: 20_000 });
 
     // O orçamento de ORIGEM não foi alterado por esse fluxo.

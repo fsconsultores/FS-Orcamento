@@ -34,10 +34,21 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    // Em CI, o servidor sobe sempre frio (reuseExistingServer força isso) —
+    // `next dev`/Turbopack compila cada rota/action sob demanda na primeira
+    // vez que é exercitada, e qualquer uma pega esse imposto de compilação
+    // como se fosse lentidão real (já documentado nas auditorias de
+    // performance deste projeto: medir sempre contra produção, nunca dev).
+    // Pior que lentidão: uma Server Action pouco exercitada (ex.: o branch de
+    // erro de "duplicar com código já em uso") pode devolver 500 se for
+    // atingida bem no meio da compilação. `next build && next start` paga o
+    // custo de build uma vez só, no início, e depois toda rota já está pronta.
+    // Localmente mantém `next dev` — reaproveitar um servidor já rodando
+    // (`reuseExistingServer`) é o fluxo normal de iteração.
+    command: process.env.CI ? 'npm run build && npm run start' : 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: process.env.CI ? 240_000 : 120_000,
     stdout: 'ignore',
     stderr: 'pipe',
   },

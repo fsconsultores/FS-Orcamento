@@ -258,10 +258,17 @@ test.describe.serial('Fluxo completo de orçamento', () => {
     // Aguarda a composição aparecer na lista
     await expect(page.getByText(COMP_CODE)).toBeVisible({ timeout: 5_000 });
 
-    // Aciona download e verifica o arquivo
+    // "Exportar XLSX" só ABRE um modal de escolha de formato (Sintética/
+    // Analítica, ver ExportComposicoesButton) — o download real só dispara
+    // ao clicar em "Exportar" dentro dele. Formato "Analítica" já vem
+    // selecionado por padrão, não precisa escolher.
+    await page.getByRole('button', { name: 'Exportar XLSX' }).click();
+    const overlay = page.locator('.fixed.inset-0.z-50');
+    await expect(overlay).toBeVisible();
+
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Exportar XLSX' }).click(),
+      overlay.getByRole('button', { name: 'Exportar', exact: true }).click(),
     ]);
 
     expect(download.suggestedFilename()).toMatch(/composicoes.*\.xlsx$/i);
