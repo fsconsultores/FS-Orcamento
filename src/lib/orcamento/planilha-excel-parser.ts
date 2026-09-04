@@ -50,7 +50,15 @@ export function parseBrNumber(s: unknown): number {
 }
 
 export function normNum(n: string): string {
-  return n.split('.').map(s => parseInt(s, 10).toString()).join('.')
+  // filter(Boolean) descarta segmentos vazios — planilhas reais costumam
+  // escrever o item de nível 1 (capítulo) como "1." em vez de "1" (ver
+  // planilha "Topo de Minas"). Sem o filtro, "1.".split('.') vira ["1",""],
+  // e parseInt("") é NaN — o capítulo normalizava pra "1.NaN" em vez de "1",
+  // caindo num nível (getLevel) diferente do de seus próprios filhos ("1.1"
+  // normaliza certo pra "1.1") e quebrando toda a árvore pai/filho na
+  // importação: capítulo e filhos ficavam "órfãos" (parent_id nulo) porque
+  // as chaves de normalização nunca batiam entre si.
+  return n.split('.').filter(Boolean).map(s => parseInt(s, 10).toString()).join('.')
 }
 
 export function getLevel(norm: string): number {

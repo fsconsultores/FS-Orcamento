@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { registrarHistorico } from '@/lib/log'
 import { persistirTotaisPlanilha } from '@/lib/orcamento/motor-calculo'
+import { normNum } from '@/lib/orcamento/planilha-excel-parser'
 
 export interface EstruturaRow {
   numero: string
@@ -20,11 +21,6 @@ export interface EstruturaRow {
 export interface ImportResult {
   ok: number
   erros: string[]
-}
-
-// Normaliza o número do item removendo zeros à esquerda de cada segmento
-function normNum(n: string): string {
-  return n.split('.').map(s => parseInt(s, 10).toString()).join('.')
 }
 
 // Retorna o número pai (remove último segmento)
