@@ -53,15 +53,20 @@ export default function NovaComposicaoPage() {
 
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { data: comp, error: compErr } = await supabase
+      const sb = createClient() as any;
+
+      // Obtém ou cria a base própria do usuário (mesmo padrão de insumos/novo/page.tsx)
+      const { data: baseId, error: baseErr } = await sb.rpc('get_or_create_propria_base');
+      if (baseErr) throw baseErr;
+
+      const { data: comp, error: compErr } = await sb
         .from('tabela_composicoes')
-        .insert({ codigo: form.codigo.trim(), descricao: form.descricao.trim(), unidade: form.unidade.trim() })
+        .insert({ codigo: form.codigo.trim(), descricao: form.descricao.trim(), unidade: form.unidade.trim(), base_id: baseId })
         .select('id')
         .single();
       if (compErr) throw compErr;
 
-      const { error: itensErr } = await supabase.from('tabela_itens_composicao').insert(
+      const { error: itensErr } = await sb.from('tabela_itens_composicao').insert(
         itensValidos.map((item) => ({
           composicao_id: comp.id,
           insumo_id: item.insumo_id,

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   Home, FolderKanban, Database, ScrollText, FileSpreadsheet, Package, Layers3, UploadCloud,
-  ChevronLeft, ChevronRight, Building2,
+  ChevronLeft, ChevronRight, Building2, LibraryBig,
 } from 'lucide-react'
 import { useActiveProject } from '@/lib/active-project-store'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -152,6 +152,7 @@ export function Nav({ open = true, onToggle }: { open?: boolean; onToggle?: () =
         )}
 
         <GroupLabel collapsed={collapsed}>Dados</GroupLabel>
+        <NavItem item={{ href: '/biblioteca', label: 'Minha Biblioteca', icon: LibraryBig, active: pathname.startsWith('/biblioteca') }} collapsed={collapsed} />
         <NavItem item={{ href: '/bases', label: 'Bases de Dados', icon: Database, active: emBasesDeDados }} collapsed={collapsed} />
 
         {emBasesDeDados && !collapsed && (
