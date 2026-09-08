@@ -446,6 +446,10 @@ export function ComposicoesTable({
                   </td>
                   <td className="px-2 py-3">
                     <div className="flex items-center justify-end gap-0.5">
+                    {/* Só composições criadas direto no orçamento (base===null) — uma importada
+                        de uma base (SINAPI etc.) já existe na base de origem; promover aqui
+                        duplicaria a composição na Biblioteca em vez de reaproveitar a original. */}
+                    {c.base === null && (
                     <button
                       onClick={(e) => handleAdicionarBiblioteca(c, e)}
                       disabled={promovendoBiblioteca === c.id}
@@ -454,6 +458,7 @@ export function ComposicoesTable({
                     >
                       <LibraryBig size={16} className={promovendoBiblioteca === c.id ? 'animate-pulse' : ''} />
                     </button>
+                    )}
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmarExcluir(c) }}
                       title="Excluir composição"

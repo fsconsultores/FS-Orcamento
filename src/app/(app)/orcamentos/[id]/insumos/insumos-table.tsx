@@ -1062,7 +1062,10 @@ export function OrcamentoInsumosTable({
                               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
-                        {insumo.composicao_id === null && (
+                        {/* Só avulsos criados direto no orçamento (base===null) — itens importados de
+                            uma base (SINAPI etc.) já existem na base de origem; promovê-los aqui
+                            duplicaria o item na Biblioteca em vez de reaproveitar o original. */}
+                        {insumo.composicao_id === null && insumo.base === null && (
                           <button onClick={() => handleAdicionarBiblioteca(insumo)}
                             disabled={promovendoBiblioteca === insumo.id}
                             title="Adicionar à minha Biblioteca"

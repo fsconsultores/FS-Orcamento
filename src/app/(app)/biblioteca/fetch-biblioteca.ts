@@ -10,6 +10,18 @@ import { BIBLIOTECA_PAGE_SIZE, type BibliotecaData, type BibliotecaFilters, type
  * usados por TODAS as bases (inclusive SINAPI, dezenas de milhares de linhas) —
  * arriscado degradar uma rota já testada só pra acrescentar contagem
  * cross-orçamento e filtro de categoria, que só fazem sentido aqui.
+ *
+ * Mostra só itens GENUINAMENTE criados (manual ou promovido de um orçamento
+ * via "Adicionar à Biblioteca") — nunca itens que entraram na base própria
+ * por um assistente de importação (CSV genérico, SINAPI, composições em
+ * lote), mesmo que o usuário tenha rotulado a importação como "PROPRIA" em
+ * `base_origem`. `base_origem` é sempre gravado (não-nulo) por TODOS os 3
+ * assistentes de importação (ver insumos/importar, insumos/importar/sinapi,
+ * composicoes/importar) e nunca gravado pelos fluxos manuais (insumos/novo,
+ * composicoes/nova, promover.ts) — `base_origem IS NULL` é portanto o sinal
+ * confiável de "não veio de importação", pedido explicitamente pelo usuário
+ * pra evitar duplicar itens já existentes numa base global dentro da
+ * Biblioteca pessoal.
  */
 export async function fetchBiblioteca(filters: BibliotecaFilters, page: number): Promise<BibliotecaData> {
   const supabase = await createClient();
@@ -19,8 +31,8 @@ export async function fetchBiblioteca(filters: BibliotecaFilters, page: number):
   if (baseErr) throw new Error(baseErr.message);
 
   const [{ count: totalInsumos }, { count: totalComposicoes }] = await Promise.all([
-    sb.from('tabela_insumos').select('id', { count: 'exact', head: true }).eq('base_id', baseId),
-    sb.from('vw_custo_composicao').select('id', { count: 'exact', head: true }).eq('base_id', baseId),
+    sb.from('tabela_insumos').select('id', { count: 'exact', head: true }).eq('base_id', baseId).is('base_origem', null),
+    sb.from('vw_custo_composicao').select('id', { count: 'exact', head: true }).eq('base_id', baseId).is('base_origem', null),
   ]);
 
   const { tab, q, categoria } = filters;
@@ -39,7 +51,7 @@ export async function fetchBiblioteca(filters: BibliotecaFilters, page: number):
       // aplicado) e paginar em memória depois de classificar.
       let query = sb.from('tabela_insumos')
         .select('id, codigo, descricao, unidade, grupo, preco_base, data_referencia', { count: 'exact' })
-        .eq('base_id', baseId);
+        .eq('base_id', baseId).is('base_origem', null);
       if (q) query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
       const todos = await fetchAllPaginatedParallel<Omit<BibliotecaInsumoRow, 'usadoEm'>>(
         (f, t) => query.order('codigo').range(f, t)
@@ -52,7 +64,7 @@ export async function fetchBiblioteca(filters: BibliotecaFilters, page: number):
     } else {
       let query = sb.from('tabela_insumos')
         .select('id, codigo, descricao, unidade, grupo, preco_base, data_referencia', { count: 'exact' })
-        .eq('base_id', baseId);
+        .eq('base_id', baseId).is('base_origem', null);
       if (q) query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
       const { data, count, error } = await query.order('codigo').range(from, to);
       if (error) throw new Error(error.message);
@@ -63,7 +75,7 @@ export async function fetchBiblioteca(filters: BibliotecaFilters, page: number):
   } else {
     let query = sb.from('vw_custo_composicao')
       .select('id, codigo, descricao, unidade, custo_unitario, incompleta', { count: 'exact' })
-      .eq('base_id', baseId);
+      .eq('base_id', baseId).is('base_origem', null);
     if (q) query = query.or(`codigo.ilike.%${q}%,descricao.ilike.%${q}%`);
     const { data, count, error } = await query.order('codigo').range(from, to);
     if (error) throw new Error(error.message);

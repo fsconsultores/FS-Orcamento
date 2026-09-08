@@ -76,12 +76,13 @@ export async function promoverInsumoAvulso(
 
   const { data: origem, error: fetchErr } = await sb
     .from('orcamento_insumos')
-    .select('codigo, descricao, unidade, custo, grupo, cotacao_observacoes')
+    .select('codigo, descricao, unidade, custo, grupo, cotacao_observacoes, base')
     .eq('id', insumoId)
     .eq('orcamento_id', orcamentoId)
     .is('composicao_id', null)
     .single()
   if (fetchErr || !origem) throw new Error('Insumo avulso não encontrado neste orçamento.')
+  if (origem.base !== null) throw new Error('Este insumo veio de uma importação — já existe na base de origem, não precisa ser adicionado à Biblioteca.')
 
   const baseId = await basePropriaId(sb)
   return upsertInsumoNaBibliotecaPorCodigo(sb, baseId, {
@@ -111,11 +112,12 @@ export async function promoverComposicao(
 
   const { data: origem, error: fetchErr } = await sb
     .from('orcamento_composicoes')
-    .select('codigo, descricao, unidade')
+    .select('codigo, descricao, unidade, base')
     .eq('id', composicaoId)
     .eq('orcamento_id', orcamentoId)
     .single()
   if (fetchErr || !origem) throw new Error('Composição não encontrada neste orçamento.')
+  if (origem.base !== null) throw new Error('Esta composição veio de uma importação — já existe na base de origem, não precisa ser adicionada à Biblioteca.')
 
   const { data: itens, error: itensErr } = await sb
     .from('orcamento_insumos')

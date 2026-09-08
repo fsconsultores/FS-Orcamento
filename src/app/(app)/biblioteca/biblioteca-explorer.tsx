@@ -113,7 +113,9 @@ export function BibliotecaExplorer({ initialFilters, initialPage, initialData }:
           <LibraryBig size={22} className="text-primary-700" /> Minha Biblioteca
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Insumos e composições que você já usou — reaproveite direto em qualquer orçamento.
+          Insumos e composições criados por você (ou adicionados a partir de um orçamento) —
+          reaproveite direto em qualquer orçamento. Itens importados de uma base (SINAPI etc.)
+          não aparecem aqui, já ficam na base de origem.
         </p>
       </div>
 
