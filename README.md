@@ -119,9 +119,6 @@ orcamento_estrutura              (planilha orçamentária hierárquica)
   codigo, descricao, unidade, quantidade, custo_unitario,
   bdi_especifico, tipo (grupo|item), ordem
 
-orcamento_versoes                (snapshot imutável do orçamento — "commits")
-  id, orcamento_id, descricao, dados (JSONB por tabela), user_id, created_at
-
 historico_alteracoes             (auditoria unificada — substitui tabela_logs/orcamento_logs)
   id, orcamento_id (nullable p/ eventos globais), user_id, usuario_email,
   entidade, tipo, acao, mensagem, valor_anterior, valor_novo, detalhes, created_at
@@ -157,7 +154,7 @@ Edição de preço de insumo a partir de qualquer tela do orçamento (Planilha A
 ## Módulos da aplicação
 
 ### Dashboard (`/dashboard`)
-Widgets independentes (Server Components, cada um com `<Suspense>` próprio, em `src/app/(app)/dashboard/widgets/`): quantidade de projetos, últimos projetos acessados, valor total (soma de `orcamento_planilhas.total_com_bdi` — totais reais persistidos), últimos commits de versão, Curva ABC resumida do orçamento mais recentemente acessado, atividades recentes do usuário (`historico_alteracoes`).
+Widgets independentes (Server Components, cada um com `<Suspense>` próprio, em `src/app/(app)/dashboard/widgets/`): quantidade de projetos, últimos projetos acessados, valor total (soma de `orcamento_planilhas.total_com_bdi` — totais reais persistidos), Curva ABC resumida do orçamento mais recentemente acessado, atividades recentes do usuário (`historico_alteracoes`).
 
 ### Orçamentos (`/orcamentos`)
 CRUD completo de orçamentos, com suporte a **múltiplas planilhas** por orçamento (todas compartilham as mesmas composições/insumos). Cada orçamento agrupa:
@@ -169,7 +166,7 @@ CRUD completo de orçamentos, com suporte a **múltiplas planilhas** por orçame
 | `/composicoes` | Composições analíticas vinculadas ao orçamento — adicionar/remover insumos, editar índice e preço unitário (propaga para todo o projeto). Exportação/importação de modelo XLSX. |
 | `/curva-abc` | Análise ABC por **Serviços** e por **Insumos**, em abas por categoria (Geral/Materiais/Mão de Obra/Equipamentos/Serviços). |
 | `/relatorios` | Exportação de relatórios: **Caderno de Orçamento** (PDF completo, 11 seções — ver abaixo), Planilha de Orçamento, Planilha Analítica, Planilha Analítica Decomposta, Curva ABC (Serviços/Insumos) — todos em XLSX ou PDF. Abre direto na tela de geração; o histórico dos relatórios já gerados fica em `/relatorios/historico`. |
-| `/versoes` | Versionamento (commits): snapshot imutável do estado completo do orçamento, com restauração. Nunca expira/apaga automaticamente. |
+| `/versoes` | Revisões: cada revisão é uma cópia completa e independente do orçamento (mesma família via `grupo_id`), com comparação de preços entre revisões. |
 | `/importar` | Importação de insumos e composições a partir de arquivos XLSX/CSV (SINAPI, SUDECAP, DNIT/SICRO, formato simples). |
 | `/configuracoes` | BDI, numeração hierárquica da planilha, áreas (para custo/m²), categorias do gráfico de distribuição de custos. |
 | `/logs` | Histórico de alterações do orçamento (cálculos, importações, edições de preço, exclusões) com restauração de itens apagados. |
@@ -449,7 +446,6 @@ FS-Orcamento/
 │       │   ├── composicoes.ts          # Queries de composições
 │       │   ├── motor-calculo.ts        # Motor de cálculo (delta/força), consistência, órfãos
 │       │   ├── planilhas.ts            # CRUD de orcamento_planilhas
-│       │   ├── versoes.ts              # Snapshot/restauração de versões
 │       │   ├── caderno.ts              # Agregação de dados p/ Caderno de Orçamento
 │       │   ├── categorias-grafico.ts   # Categorias do gráfico de distribuição de custos
 │       │   ├── duplicate.ts            # Duplicação de orçamento

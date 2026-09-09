@@ -26,7 +26,6 @@ export interface OrcamentosFilters {
   q: string;
   favoritos: boolean;
   modelos: boolean;
-  semVersao: boolean;
 }
 
 export interface OrcamentosData {
@@ -35,5 +34,5 @@ export interface OrcamentosData {
 }
 
 export function defaultOrcamentosFilters(): OrcamentosFilters {
-  return { q: '', favoritos: false, modelos: false, semVersao: false };
+  return { q: '', favoritos: false, modelos: false };
 }

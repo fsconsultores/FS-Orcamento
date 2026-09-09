@@ -4,7 +4,6 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { SearchInput } from '@/components/search-input';
 import { FavoritosFilterToggle } from '@/components/favoritos-filter-toggle';
 import { ModelosFilterToggle } from '@/components/modelos-filter-toggle';
-import { FilterBanner } from '@/components/ui/filter-banner';
 import { OrcamentosGrid } from './orcamentos-list';
 import { searchOrcamentosAction } from './search-action';
 import type { OrcamentosData, OrcamentosFilters } from './types';
@@ -16,7 +15,6 @@ function filtersFromSearch(search: string): OrcamentosFilters {
     q: p.get('q') ?? '',
     favoritos: !modelos && p.get('favoritos') === '1',
     modelos,
-    semVersao: p.get('semVersao') === '1',
   };
 }
 
@@ -25,7 +23,6 @@ function buildUrl(filters: OrcamentosFilters): string {
   if (filters.q) params.set('q', filters.q);
   if (filters.modelos) params.set('modelos', '1');
   else if (filters.favoritos) params.set('favoritos', '1');
-  if (filters.semVersao) params.set('semVersao', '1');
   const qs = params.toString();
   return `/orcamentos${qs ? `?${qs}` : ''}`;
 }
@@ -65,16 +62,8 @@ export function OrcamentosExplorer({ initialFilters, initialData, currentUserId 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const clearSemVersao = () => handleFilterChange({ semVersao: false });
-
   return (
     <div className="space-y-6">
-      {filters.semVersao && (
-        <FilterBanner
-          label={`Mostrando ${data.orcamentos.length.toLocaleString('pt-BR')} ${data.orcamentos.length === 1 ? 'orçamento sem versão salva' : 'orçamentos sem versão salva'}`}
-          onClear={clearSemVersao}
-        />
-      )}
       <OrcamentosGrid
         initialOrcamentos={data.orcamentos}
         totaisMap={data.totaisMap}

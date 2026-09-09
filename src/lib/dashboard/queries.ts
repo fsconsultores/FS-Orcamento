@@ -15,8 +15,7 @@ export interface OrcamentoResumo {
   created_at: string
   modelo_acrescimo: ModeloAcrescimo
   /** >1 quando esta é a revisão mais recente de uma família com outras
-   * revisões anteriores — usado pelo alerta "sem versão salva" (as revisões
-   * anteriores já são a própria salvaguarda, não precisam de snapshot). */
+   * revisões anteriores. */
   numero_revisao: number
 }
 

@@ -6,16 +6,15 @@ import type { OrcamentosFilters } from './types';
 export default async function OrcamentosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; favoritos?: string; semVersao?: string; modelos?: string }>;
+  searchParams: Promise<{ q?: string; favoritos?: string; modelos?: string }>;
 }) {
-  const { q, favoritos, semVersao, modelos } = await searchParams;
+  const { q, favoritos, modelos } = await searchParams;
   const modelosAtivo = modelos === '1';
 
   const filters: OrcamentosFilters = {
     q: q ?? '',
     favoritos: !modelosAtivo && favoritos === '1',
     modelos: modelosAtivo,
-    semVersao: semVersao === '1',
   };
 
   // Orçamentos agora são visíveis e editáveis por todo o domínio (RLS

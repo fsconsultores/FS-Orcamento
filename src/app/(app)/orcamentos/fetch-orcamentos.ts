@@ -10,7 +10,7 @@ import type { OrcamentosData, OrcamentosFilters, OrcRow } from './types';
  * conversa de 2026-08-24 sobre o bug sistêmico do router do Next).
  */
 export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<OrcamentosData> {
-  const { q, favoritos: favoritosAtivo, modelos: modelosAtivo, semVersao: semVersaoAtivo } = filters;
+  const { q, favoritos: favoritosAtivo, modelos: modelosAtivo } = filters;
   const sb = (await createClient()) as any;
 
   const favoritoIds = favoritosAtivo ? await getFavoritoIds('orcamento') : null;
@@ -29,22 +29,14 @@ export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<Orcam
   }
   if (favoritoIds) orcQuery = orcQuery.in('id', favoritoIds);
 
-  const [rawOrc, rawTot, rawVersoes] = semFavoritos
-    ? [{ data: [] }, { data: [] }, { data: [] }]
+  const [rawOrc, rawTot] = semFavoritos
+    ? [{ data: [] }, { data: [] }]
     : await Promise.all([
         orcQuery,
         sb.from('vw_total_orcamento').select('orcamento_id, total_com_bdi'),
-        semVersaoAtivo ? sb.from('orcamento_versoes').select('orcamento_id') : Promise.resolve({ data: [] }),
       ]);
 
-  const idsComVersao = new Set(
-    ((rawVersoes?.data ?? []) as { orcamento_id: string }[]).map((v) => v.orcamento_id)
-  );
-  const orcamentosFiltrados = (
-    semVersaoAtivo
-      ? ((rawOrc?.data ?? []) as OrcRow[]).filter((o) => !idsComVersao.has(o.id))
-      : (rawOrc?.data ?? [])
-  ) as OrcRow[];
+  const orcamentosFiltrados = (rawOrc?.data ?? []) as OrcRow[];
 
   // Uma família de revisões (mesmo grupo_id) aparece só uma vez na lista —
   // a linha da revisão mais recente, com um contador de quantas existem.

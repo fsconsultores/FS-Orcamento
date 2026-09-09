@@ -13,11 +13,8 @@ const ACOES_RELEVANTES = new Set([
   'importar_insumos',
   'importar_composicoes',
   'importar_planilha',
-  'versao_criada',
-  'versao_restaurada',
   'duplicar_orcamento',
   'criar_orcamento',
-  'criar_orcamento_de_versao',
 ])
 
 /** Rótulo plural usado quando >1 evento do mesmo tipo é agrupado — ex: "15 preços de insumo atualizados". */
@@ -28,11 +25,8 @@ const LABEL_PLURAL: Partial<Record<string, string>> = {
   importar_insumos: 'importações de insumos',
   importar_composicoes: 'importações de composições',
   importar_planilha: 'planilhas importadas',
-  versao_criada: 'versões criadas',
-  versao_restaurada: 'versões restauradas',
   duplicar_orcamento: 'orçamentos duplicados',
   criar_orcamento: 'orçamentos criados',
-  criar_orcamento_de_versao: 'orçamentos criados a partir de versão',
 }
 
 export interface AtividadeAgrupada {

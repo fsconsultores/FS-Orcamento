@@ -1,4 +1,4 @@
-import { Activity, CircleDollarSign, UploadCloud, GitCommitHorizontal, RotateCcw, Copy, PlusCircle, GitBranchPlus } from 'lucide-react'
+import { Activity, CircleDollarSign, UploadCloud, Copy, PlusCircle } from 'lucide-react'
 import { Timeline, TimelineItem, type TimelineTone } from '@/components/ui/timeline'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatRelative } from '@/lib/dashboard/format-relative'
@@ -11,11 +11,8 @@ const ICONE_POR_ACAO: Record<string, typeof Activity> = {
   importar_insumos: UploadCloud,
   importar_composicoes: UploadCloud,
   importar_planilha: UploadCloud,
-  versao_criada: GitCommitHorizontal,
-  versao_restaurada: RotateCcw,
   duplicar_orcamento: Copy,
   criar_orcamento: PlusCircle,
-  criar_orcamento_de_versao: GitBranchPlus,
 }
 
 const TOM_POR_ACAO: Record<string, TimelineTone> = {
@@ -25,11 +22,8 @@ const TOM_POR_ACAO: Record<string, TimelineTone> = {
   importar_insumos: 'primary',
   importar_composicoes: 'primary',
   importar_planilha: 'primary',
-  versao_criada: 'primary',
-  versao_restaurada: 'warning',
   duplicar_orcamento: 'neutral',
   criar_orcamento: 'success',
-  criar_orcamento_de_versao: 'success',
 }
 
 export function AtividadeRecente({ items }: { items: AtividadeAgrupada[] }) {
@@ -38,7 +32,7 @@ export function AtividadeRecente({ items }: { items: AtividadeAgrupada[] }) {
       <EmptyState
         icon={<Activity size={18} />}
         title="Nenhuma atividade recente"
-        description="Alterações de preço, importações e versões salvas aparecem aqui."
+        description="Alterações de preço, importações e criação de orçamentos aparecem aqui."
       />
     )
   }
