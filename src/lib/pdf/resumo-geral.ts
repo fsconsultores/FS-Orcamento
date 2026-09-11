@@ -73,54 +73,19 @@ function cadernoNodeParaServicoEstimado(node: CadernoNode): ServicoEstimado {
 }
 
 /**
- * Regra de negócio para classificar um nó da árvore como Serviço Estimado (B):
- * flag persistida, id já listado em B, insumo estimado, ou sufixo "- Estimado".
- */
-export function isServicoEstimadoNode(
-  node: CadernoNode,
-  idsInsumoEstimado: Set<string>,
-  idsServicosEstimados: Set<string>,
-): boolean {
-  if (node.estimado) return true
-  if (node.id && idsInsumoEstimado.has(node.id)) return true
-  if (node.id && idsServicosEstimados.has(node.id)) return true
-  if (pareceEstimado(node.descricao)) return true
-  return false
-}
-
-/**
- * Separa arrays (A) e (B) antes de renderizar — impede vazamento de estimados
- * para "(A) DETALHAMENTO DOS CUSTOS" e recalcula totais dos respectivos blocos.
+ * Monta (A) e (B) pra exibição — (A) é sempre o valor COMPLETO de cada
+ * categoria (grupos/itens marcados como estimado continuam somados dentro
+ * do total real, nunca são descontados daqui). (B) existe só como REFERÊNCIA
+ * de quais itens têm preço/insumo estimado — não é mais descontado nem
+ * separado de (A); ver decisão de 2026-09-11 (o valor de uma categoria como
+ * "ESQUADRIAS" precisa bater com o que está na Planilha, sem depender de
+ * nenhum item por baixo estar marcado como estimado ou não).
+ * `input.arvore` já deve vir como a árvore COMPLETA (CadernoData.arvoreCompleta)
+ * — quem monta o input decide isso, aqui só soma o que veio.
  */
 export function splitResumoGeralDados(input: ResumoGeralTabelasInput): ResumoGeralSplitResult {
-  const idsInsumo = new Set((input.servicosComInsumoEstimado ?? []).map(s => s.id))
-  const servicosFromData = resolveServicosEstimadosParaTabela(input)
-  const idsServicos = new Set(servicosFromData.flatMap(s => (s.id ? [s.id] : [])))
-
-  const categoriasA: CadernoNode[] = []
-  const vazadosDeArvore: ServicoEstimado[] = []
-
-  for (const node of input.arvore) {
-    if (isServicoEstimadoNode(node, idsInsumo, idsServicos)) {
-      vazadosDeArvore.push(cadernoNodeParaServicoEstimado(node))
-      if (node.id) idsServicos.add(node.id)
-    } else {
-      categoriasA.push(node)
-    }
-  }
-
-  const byId = new Map<string, ServicoEstimado>()
-  const semId: ServicoEstimado[] = []
-
-  for (const s of [...servicosFromData, ...vazadosDeArvore]) {
-    if (s.id) {
-      if (!byId.has(s.id)) byId.set(s.id, s)
-    } else {
-      semId.push(s)
-    }
-  }
-
-  const servicosEstimados = [...byId.values(), ...semId]
+  const categoriasA = input.arvore
+  const servicosEstimados = resolveServicosEstimadosParaTabela(input)
   const totalOrcadoA = categoriasA.reduce((sum, n) => sum + n.totalComBdi, 0)
   const totalServicosEstimadosB = servicosEstimados.reduce((sum, s) => sum + s.valor, 0)
 

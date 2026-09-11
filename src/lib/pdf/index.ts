@@ -1,5 +1,5 @@
 export { PDF_COLORS, CADERNO_BRAND, type PdfColorPalette } from './theme'
-export { BRAND_LOGO_PNG_PATH, BRAND_LOGO_PNG_WHITE_PATH, BRAND_LOGO_PNG_ASPECT } from './assets'
+export { BRAND_LOGO_PNG_PATH, BRAND_LOGO_PNG_WHITE_PATH, BRAND_LOGO_PNG_ASPECT, preloadBrandLogoWhite } from './assets'
 export {
   CADERNO_FONT,
   cadernoTableBodyStyles,
@@ -16,7 +16,6 @@ export {
   resolveServicosEstimadosParaTabela,
   filterServicosEstimadosVisiveis,
   splitResumoGeralDados,
-  isServicoEstimadoNode,
   type ResumoGeralSplitResult,
   type ResumoGeralDashboardInput,
   type ResumoGeralTabelasInput,

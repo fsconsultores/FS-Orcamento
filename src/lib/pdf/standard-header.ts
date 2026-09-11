@@ -5,6 +5,7 @@ import type { jsPDF } from 'jspdf'
 import { CADERNO_BRAND } from './theme'
 import { CADERNO_FONT } from './typography'
 import { PDF_PAGE_MARGIN, pdfAutoTableMargins, pdfContentWidth } from './table-layout'
+import { BRAND_LOGO_PNG_ASPECT, getBrandLogoWhiteBytes } from './assets'
 
 export const STANDARD_HEADER_HEIGHT = 28
 export const STANDARD_HEADER_CONTENT_GAP = 4
@@ -46,11 +47,29 @@ export function drawStandardHeader(
   doc.line(cx, ty + 3, cx, ty + HEADER_H - 3)
   doc.line(rx, ty + 3, rx, ty + HEADER_H - 3)
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(CADERNO_FONT.docHeaderBrand + 1)
-  doc.setTextColor('#ffffff')
-  doc.text('FS CONSULTORES', lx + 3, ty + 9)
+  // Logo real da marca (versão branca, mesmo asset do nav/login) no lugar do
+  // texto "FS CONSULTORES" — carregado uma vez por exportação via
+  // preloadBrandLogoWhite() (ver assets.ts), nunca aqui dentro (este desenho
+  // roda de forma síncrona a cada página, dentro de um hook do autoTable).
+  // Sem o asset (preload não rodou/falhou), cai pro texto — nunca quebra o
+  // cabeçalho por causa de uma imagem.
+  const logoBytes = getBrandLogoWhiteBytes()
+  if (logoBytes) {
+    const logoH = 7.5
+    const logoW = logoH / BRAND_LOGO_PNG_ASPECT
+    doc.addImage(logoBytes, 'PNG', lx + 3, ty + 2.8, logoW, logoH)
+  } else {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(CADERNO_FONT.docHeaderBrand + 1)
+    doc.setTextColor('#ffffff')
+    doc.text('FS CONSULTORES', lx + 3, ty + 9)
+  }
 
+  // setTextColor precisa ser reafirmado aqui (fora do if/else acima) — no
+  // caminho do logo, nenhum texto branco foi desenhado ainda nesta função, e
+  // o estado de cor do jsPDF persiste entre chamadas (poderia vazar a cor de
+  // um desenho anterior no mesmo doc, ex. uma tabela em preto).
+  doc.setTextColor('#ffffff')
   doc.setFontSize(CADERNO_FONT.docHeaderMeta)
   const metaLines: [string, string][] = [
     ['Cliente:', data.cliente || '—'],

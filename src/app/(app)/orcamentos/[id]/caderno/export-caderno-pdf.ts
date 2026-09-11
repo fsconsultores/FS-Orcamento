@@ -38,6 +38,7 @@ import {
   formatRevisaoLabel,
   createLandscapeA4Pdf,
   addLandscapeA4Page,
+  preloadBrandLogoWhite,
   drawStandardHeader,
   standardHeaderAutoTableHooks,
   standardHeaderTableTop,
@@ -106,21 +107,24 @@ async function drawResumoGeralSection(
   const headerData = buildStandardHeaderData(data)
   const sectionTitle = 'RESUMO GERAL DO ORÇAMENTO'
 
+  // arvoreCompleta (não data.arvore): "(A) DETALHAMENTO DOS CUSTOS" precisa
+  // mostrar o valor COMPLETO de cada categoria — um grupo marcado como
+  // estimado (ex.: "ESQUADRIAS DE ALUMÍNIO") não pode fazer a categoria pai
+  // ("ESQUADRIAS") aparecer menor do que o que está na Planilha. servicosEstimados
+  // fica só com as entradas MANUAIS (sem `id` — não têm nó correspondente na
+  // estrutura, por isso continuam de fato somadas à parte); as detectadas
+  // automaticamente (flag direta ou insumo estimado) já estão dentro do total
+  // de arvoreCompleta, então não entram mais em (B) pra não contar em dobro.
   const tabelasInput = {
-    arvore: data.arvore,
-    servicosEstimados: data.servicosEstimados,
-    servicosComInsumoEstimado: data.servicosComInsumoEstimado,
+    arvore: data.arvoreCompleta,
+    servicosEstimados: data.servicosEstimados.filter(s => !s.id),
+    servicosComInsumoEstimado: [],
     totalGeralComBdi: data.totalGeralComBdi,
     totalServicosEstimados: data.totalServicosEstimados,
   }
 
   const split = splitResumoGeralDados(tabelasInput)
-  const servicosEstimadosVisiveis = filterServicosEstimadosVisiveis(
-    split.servicosEstimados,
-    data.servicosComInsumoEstimado,
-    incluirServicosComInsumoEstimado,
-    servicosComInsumoEstimadoOcultos,
-  )
+  const servicosEstimadosVisiveis = split.servicosEstimados
 
   addLandscapeA4Page(doc)
   const dashboardY = drawStandardHeader(doc, headerData, sectionTitle)
@@ -252,7 +256,11 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
     if (!temBdi) {
       const totalEfetivo = totalComBdiEfetivo(node)
       if (node.tipo === 'grupo') {
-        return [node.numero, node.codigo ?? '', node.descricao, '', '', '', '', '', fmt(totalEfetivo), pct(totalEfetivo), '']
+        // 12 colunas, igual à linha-folha abaixo (Item/Cód/Descrição + Und/Qtd/
+        // Mat/M.O./Terceiros/Unitário em branco + Total/%/ABC preenchidos) —
+        // faltava 1 placeholder aqui, o que empurrava Total/%/ que deveriam
+        // cair em "Total"/"%" pra "Unitário"/"Total" (ABC ficava sem valor).
+        return [node.numero, node.codigo ?? '', node.descricao, '', '', '', '', '', '', fmt(totalEfetivo), pct(totalEfetivo), '']
       }
       return [
         node.numero,
@@ -611,7 +619,12 @@ export interface ExportCadernoOptions {
 }
 
 export async function exportCadernoPdf(data: CadernoData, options: ExportCadernoOptions = {}) {
-  const doc = await createLandscapeA4Pdf()
+  // Carrega o logo branco (usado no Cabeçalho Mestre de toda página de
+  // conteúdo) uma única vez antes de qualquer página ser desenhada — o
+  // desenho do cabeçalho em si é síncrono (roda dentro de hooks do
+  // autoTable), então precisa do asset já em memória. Em paralelo com a
+  // criação do doc: não depende uma da outra.
+  const [doc] = await Promise.all([createLandscapeA4Pdf(), preloadBrandLogoWhite()])
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
   const margin = PDF_PAGE_MARGIN
