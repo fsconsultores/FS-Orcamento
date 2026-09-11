@@ -5,6 +5,7 @@ import { getComposicoesByOrcamentoDetalhado, type InsumoDeComposicao } from './c
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
 import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
 import { getPavimentosByOrcamento, type OrcamentoPavimento } from './pavimentos'
+import { fetchAllPaginatedParallel } from './paginate'
 
 // Alguns catálogos de insumos importados (SINAPI/SICRO/etc.) trazem descrição
 // com múltiplos espaços em sequência — resquício de padding de coluna de
@@ -291,23 +292,29 @@ export async function getCadernoData(
 ): Promise<CadernoData> {
   const sb = supabase as any
 
-  let estruturaQuery = sb.from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo, valor_estimado')
-    .eq('orcamento_id', orcamentoId)
-  if (planilhaIds && planilhaIds.length > 0) estruturaQuery = estruturaQuery.in('planilha_id', planilhaIds)
-  estruturaQuery = estruturaQuery
-    .order('nivel', { ascending: true })
-    .order('ordem', { ascending: true })
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — num orçamento
+  // grande isso fazia o Caderno (PDF) sair incompleto em silêncio, com itens
+  // de verdade faltando na Planilha de Preços Unitários e nos totais (mesma
+  // classe de bug encontrada na tela da Planilha e na Conferência de
+  // Importação).
+  const estruturaPromise = fetchAllPaginatedParallel<EstruturaFullItem>((from, to) => {
+    let q = sb.from('orcamento_estrutura')
+      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, estimado, estimado_motivo, valor_estimado', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+    if (planilhaIds && planilhaIds.length > 0) q = q.in('planilha_id', planilhaIds)
+    return q.range(from, to)
+  })
 
   let planilhasQuery = sb.from('orcamento_planilhas').select('id, nome, bdi_global, ordem').eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) planilhasQuery = planilhasQuery.in('id', planilhaIds)
 
-  const [{ data: orc }, { data: estrutura }, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
+  const [{ data: orc }, estruturaSemOrdenar, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico, numero_revisao')
       .eq('id', orcamentoId)
       .single(),
-    estruturaQuery,
+    estruturaPromise,
     sb.from('orcamento_servicos_estimados')
       .select('descricao, valor')
       .eq('orcamento_id', orcamentoId)
@@ -316,6 +323,7 @@ export async function getCadernoData(
     planilhasQuery,
     getPavimentosByOrcamento(supabase, orcamentoId),
   ])
+  const estrutura = estruturaSemOrdenar.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
   // Reaproveita insumosDeComposicao/avulsos já buscados acima em vez de deixar
   // getComposicoesByOrcamentoDetalhado refazer a MESMA paginação de
   // vw_insumos_de_composicao + orcamento_insumos avulsos — medido em produção,

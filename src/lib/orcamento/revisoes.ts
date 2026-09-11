@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { fetchAllPaginatedParallel } from './paginate'
 
 export interface RevisaoResumo {
   id: string
@@ -93,15 +94,22 @@ export async function compararInsumosRevisoes(
   const revisoes = await listarRevisoes(supabase, orcamentoId)
   if (revisoes.length < 2) return { revisoes, insumos: [] }
 
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, insumos
+  // além da linha 1000 sumiam da comparação entre revisões em silêncio
+  // (mesma classe de bug encontrada em outros pontos que leem sem paginar).
   const porRevisao = await Promise.all(
     revisoes.map(async r => {
-      const { data, error } = await sb
-        .from('orcamento_insumos')
-        .select('codigo, descricao, unidade, custo')
-        .eq('orcamento_id', r.id)
-        .is('composicao_id', null)
-      if (error) throw new Error(`Erro ao buscar insumos da revisão ${r.numero_revisao}: ${error.message}`)
-      return data as { codigo: string; descricao: string; unidade: string; custo: number }[]
+      try {
+        return await fetchAllPaginatedParallel<{ codigo: string; descricao: string; unidade: string; custo: number }>((from, to) =>
+          sb.from('orcamento_insumos')
+            .select('codigo, descricao, unidade, custo', { count: 'exact' })
+            .eq('orcamento_id', r.id)
+            .is('composicao_id', null)
+            .range(from, to)
+        )
+      } catch (e) {
+        throw new Error(`Erro ao buscar insumos da revisão ${r.numero_revisao}: ${e instanceof Error ? e.message : String(e)}`)
+      }
     })
   )
 

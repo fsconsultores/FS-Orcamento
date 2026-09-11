@@ -6,6 +6,7 @@ import { getPlanilhasEnsuredCached } from '@/lib/orcamento/planilhas-server'
 import { DevProfiler } from '@/components/dev-profiler'
 import type { EstruturaItem } from './planilha-crud-action'
 import { getTaxaAdministracaoItens, type ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 export default async function PlanilhaPage({
   params,
@@ -26,13 +27,18 @@ export default async function PlanilhaPage({
   // Planilha ativa: prioriza param da URL, cai para a primeira
   const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? todasPlanilhas[0]
 
-  const [{ data }, { data: orc }, { data: config }, taxaAdministracaoItens] = await Promise.all([
-    sb.from('orcamento_estrutura')
-      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao')
-      .eq('orcamento_id', orcamentoId)
-      .eq('planilha_id', activePlanilha.id)
-      .order('nivel', { ascending: true })
-      .order('ordem', { ascending: true }),
+  const [data, { data: orc }, { data: config }, taxaAdministracaoItens] = await Promise.all([
+    // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+    // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+    // grande isso derrubava itens de verdade da tela mesmo eles existindo no
+    // banco (bug real encontrado ao vivo no Edifício Oásis, 1073 itens).
+    fetchAllPaginatedParallel<EstruturaItem>((from, to) =>
+      sb.from('orcamento_estrutura')
+        .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .eq('planilha_id', activePlanilha.id)
+        .range(from, to)
+    ),
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, data, bdi_global, modelo_acrescimo')
       .eq('id', orcamentoId)
@@ -44,7 +50,7 @@ export default async function PlanilhaPage({
     getTaxaAdministracaoItens(supabase, orcamentoId),
   ])
 
-  const items: EstruturaItem[] = data ?? []
+  const items: EstruturaItem[] = data.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
   const nomeOrcamento: string = orc ? `${orc.codigo} - ${orc.nome_obra}` : orcamentoId
   const numeracaoDigitos: number[] = config?.numeracao_digitos ?? [1, 1, 1, 1]
   const bdiGlobal: number = activePlanilha.bdi_global ?? orc?.bdi_global ?? 0

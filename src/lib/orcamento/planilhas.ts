@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { OrcamentoPlanilha } from './types'
+import { fetchAllPaginatedParallel } from './paginate'
 
 const TABLE = 'orcamento_planilhas'
 
@@ -77,15 +78,25 @@ export async function duplicatePlanilha(
 
   const nova = await createPlanilha(supabase, original.orcamento_id, novoNome, original.bdi_global)
 
-  // Clonar itens por nível para manter integridade de parent_id
-  const { data: itens, error: itensErr } = await supabase
-    .from('orcamento_estrutura')
-    .select('*')
-    .eq('planilha_id', planilhaId)
-    .order('nivel', { ascending: true })
-    .order('ordem', { ascending: true })
-  if (itensErr) throw new Error(`Erro ao buscar itens: ${itensErr.message}`)
-  if (!itens || itens.length === 0) return nova
+  // Clonar itens por nível para manter integridade de parent_id.
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+  // grande isso perdia itens em silêncio ao duplicar (mesma classe de bug
+  // encontrada em outros pontos que leem orcamento_estrutura sem paginar).
+  let itens: any[]
+  try {
+    itens = await fetchAllPaginatedParallel<any>((from, to) =>
+      supabase
+        .from('orcamento_estrutura')
+        .select('*', { count: 'exact' })
+        .eq('planilha_id', planilhaId)
+        .range(from, to)
+    )
+  } catch (e) {
+    throw new Error(`Erro ao buscar itens: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  itens.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
+  if (itens.length === 0) return nova
 
   const idMap = new Map<string, string>()
   const byLevel = new Map<number, typeof itens>()

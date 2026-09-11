@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache'
 import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 // Mesmo padrão do resto do projeto: tipos gerados (src/lib/supabase/types.ts)
 // estão desatualizados frente ao schema real, então as queries usam `as any`.
@@ -133,11 +134,19 @@ export async function getPlanilhasResumo(sb: SB): Promise<PlanilhaResumo[]> {
 /** Itens (não grupos) de todas as planilhas do usuário — sem decompor
  * sub-composições. Alimenta a Curva ABC Geral e o total de "itens orçados". */
 export async function getEstruturaItens(sb: SB): Promise<EstruturaItemResumo[]> {
-  const { data } = await sb
-    .from('orcamento_estrutura')
-    .select('orcamento_id, codigo, descricao, unidade, quantidade, custo_unitario')
-    .eq('tipo', 'item')
-  return data ?? []
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — como esta query
+  // não filtra por orçamento (soma TODOS os orçamentos do domínio pra
+  // alimentar a Curva ABC Geral), o corte acontecia bem antes de qualquer
+  // orçamento individual ficar grande: confirmado ao vivo, o sistema já tem
+  // 3473 linhas tipo='item' no total, então a Curva ABC Geral estava
+  // mostrando menos de 30% dos dados reais da empresa em silêncio.
+  return fetchAllPaginatedParallel<EstruturaItemResumo>((from, to) =>
+    sb.from('orcamento_estrutura')
+      .select('orcamento_id, codigo, descricao, unidade, quantidade, custo_unitario', { count: 'exact' })
+      .eq('tipo', 'item')
+      .range(from, to)
+  )
 }
 
 export interface InsumoAvulsoResumo {
@@ -153,11 +162,15 @@ export interface InsumoAvulsoResumo {
  * Alimenta o widget "Insumos por categoria, por obra" do dashboard — ver
  * computeInsumosPorCategoria em curva-abc-geral.ts. */
 export async function getInsumosAvulsosResumo(sb: SB): Promise<InsumoAvulsoResumo[]> {
-  const { data } = await sb
-    .from('orcamento_insumos')
-    .select('orcamento_id, grupo, custo')
-    .is('composicao_id', null)
-  return data ?? []
+  // fetchAllPaginatedParallel: sem filtro de orçamento (soma o domínio
+  // inteiro), mesmo risco de corte em 1000 linhas já confirmado em
+  // getEstruturaItens acima.
+  return fetchAllPaginatedParallel<InsumoAvulsoResumo>((from, to) =>
+    sb.from('orcamento_insumos')
+      .select('orcamento_id, grupo, custo', { count: 'exact' })
+      .is('composicao_id', null)
+      .range(from, to)
+  )
 }
 
 export interface HistoricoPrecoResumo {

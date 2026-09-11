@@ -28,6 +28,7 @@ import { usePlanilhaExport, type AnaliticaInsumoRow } from './use-planilha-expor
 import { usePlanilhaSave } from './use-planilha-save'
 import { usePlanilhaCalculo } from './use-planilha-calculo'
 import { ConfirmDialog } from '@/components/ui/modal'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 import { useToast } from '@/components/ui/toast'
 import type { ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
 
@@ -126,11 +127,17 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
   useEffect(() => {
     let cancelado = false
     const sb = createClient() as any
-    sb.from('orcamento_composicoes').select('codigo').eq('orcamento_id', orcamentoId)
-      .then(({ data }: any) => {
-        if (cancelado) return
-        setComposicaoCodigos(new Set((data ?? []).map((c: any) => c.codigo)))
-      })
+    // fetchAllPaginatedParallel: sem paginar, composições além da linha 1000
+    // ficavam fora do Set em silêncio — o Custo Unitário delas ficava
+    // editável manualmente como se fossem itens comuns, quando na verdade é
+    // sempre calculado a partir dos insumos (mesma classe de bug encontrada
+    // em outros pontos que leem sem paginar).
+    fetchAllPaginatedParallel<{ codigo: string }>((from, to) =>
+      sb.from('orcamento_composicoes').select('codigo', { count: 'exact' }).eq('orcamento_id', orcamentoId).range(from, to)
+    ).then((data) => {
+      if (cancelado) return
+      setComposicaoCodigos(new Set(data.map((c) => c.codigo)))
+    })
     return () => { cancelado = true }
   }, [orcamentoId])
   const [editingInsumoCodigo, setEditingInsumoCodigo] = useState<string | null>(null)

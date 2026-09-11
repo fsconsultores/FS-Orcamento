@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatDateOnly } from '@/lib/format-date'
 import type { EstruturaItem } from './planilha-crud-action'
 import type { Nodo } from './planilha-tree'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 /**
  * Insumo mostrado na sub-linha do modo Analítica. `id`/`estimado`/
@@ -224,15 +225,24 @@ export function usePlanilhaExport({
 
     try {
       const sb = createClient() as any
-      const { data: composicoes, error: compError } = await sb
-        .from('orcamento_composicoes')
-        .select('id, codigo')
-        .eq('orcamento_id', orcamentoId)
-        .abortSignal(ac.signal)
-      if (compError) throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : compError
+      // fetchAllPaginatedParallel: sem paginar, orçamentos com mais de 1000
+      // composições exportavam a Analítica incompleta em silêncio (mesma
+      // classe de bug encontrada em outros pontos que leem sem paginar).
+      let composicoes: { id: string; codigo: string }[]
+      try {
+        composicoes = await fetchAllPaginatedParallel<{ id: string; codigo: string }>((from, to) =>
+          sb.from('orcamento_composicoes')
+            .select('id, codigo', { count: 'exact' })
+            .eq('orcamento_id', orcamentoId)
+            .abortSignal(ac.signal)
+            .range(from, to)
+        )
+      } catch (e) {
+        throw ac.signal.aborted ? new Error('Tempo limite excedido. Verifique sua conexão.') : e
+      }
       const idToCodigo = new Map<string, string>()
-      for (const c of composicoes ?? []) idToCodigo.set(c.id, c.codigo)
-      const compIds = (composicoes ?? []).map((c: any) => c.id)
+      for (const c of composicoes) idToCodigo.set(c.id, c.codigo)
+      const compIds = composicoes.map((c) => c.id)
       const result = new Map<string, AnaliticaInsumoRow[]>()
       if (compIds.length > 0) {
         const insumos = await emLotes<{ id: string; composicao_id: string; codigo: string | null; descricao: string | null; unidade: string | null; custo: number | null; indice: number | null; estimado: boolean | null; estimado_motivo: string | null }>(

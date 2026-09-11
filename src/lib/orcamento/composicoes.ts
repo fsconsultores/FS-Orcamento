@@ -182,14 +182,23 @@ export async function sincronizarCustosPlanilha(
 
   const custoPorCodigo = new Map(composicoes.map((c) => [c.codigo, c.custo_unitario]))
 
-  const { data: itens } = await supabase
-    .from('orcamento_estrutura')
-    .select('id, codigo, custo_unitario')
-    .eq('orcamento_id', orcamentoId)
-    .eq('tipo', 'item')
-    .not('codigo', 'is', null)
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+  // grande isso deixava itens além da linha 1000 com custo_unitario
+  // desatualizado em silêncio após mudar o preço de um insumo (mesma classe
+  // de bug encontrada em outros pontos que leem orcamento_estrutura sem
+  // paginar).
+  const itens = await fetchAllPaginatedParallel<{ id: string; codigo: string; custo_unitario: number | null }>((from, to) =>
+    supabase
+      .from('orcamento_estrutura')
+      .select('id, codigo, custo_unitario', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .eq('tipo', 'item')
+      .not('codigo', 'is', null)
+      .range(from, to)
+  )
 
-  const updates = ((itens ?? []) as { id: string; codigo: string; custo_unitario: number | null }[])
+  const updates = itens
     .filter((item) => custoPorCodigo.has(item.codigo) && custoPorCodigo.get(item.codigo) !== item.custo_unitario)
     .map((item) => ({ id: item.id, custo_unitario: custoPorCodigo.get(item.codigo)! }))
 

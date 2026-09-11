@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { createInsumo, createComposicao } from '@/lib/orcamento'
 import type { CreateInsumoData, CreateComposicaoData } from '@/lib/orcamento'
 import { Modal } from '@/components/ui/modal'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 const GRUPOS = [
   { value: 'E',  label: 'E — Equipamento' },
@@ -85,14 +86,18 @@ export function GlobalCreateActions({ orcamentoId }: { orcamentoId: string }) {
   useEffect(() => {
     if (!insumoOpen || composicoesCarregadas) return
     const sb = createClient() as any
-    sb.from('orcamento_composicoes')
-      .select('id, codigo, descricao')
-      .eq('orcamento_id', orcamentoId)
-      .order('codigo')
-      .then(({ data }: any) => {
-        setComposicoes(data ?? [])
-        setComposicoesCarregadas(true)
-      })
+    // fetchAllPaginatedParallel: sem paginar, composições além da linha 1000
+    // não apareciam pra escolher como "Composição pai" (mesma classe de bug
+    // encontrada em outros pontos que leem sem paginar).
+    fetchAllPaginatedParallel<{ id: string; codigo: string; descricao: string }>((from, to) =>
+      sb.from('orcamento_composicoes')
+        .select('id, codigo, descricao', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .range(from, to)
+    ).then((data) => {
+      setComposicoes(data.sort((a, b) => a.codigo.localeCompare(b.codigo)))
+      setComposicoesCarregadas(true)
+    })
   }, [insumoOpen, composicoesCarregadas, orcamentoId])
 
   function closeInsumo() {

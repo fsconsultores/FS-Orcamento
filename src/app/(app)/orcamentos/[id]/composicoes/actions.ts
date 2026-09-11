@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getComposicoesByOrcamentoDetalhado, calcularCodigosUtilizados } from '@/lib/orcamento'
 import type { OrcamentoComposicao } from '@/lib/orcamento'
 import type { ComposicaoParaExport } from '@/components/export-composicoes-button'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 /**
  * Busca pesada (custo_unitario em cadeia + "usados/não usados" + dados para
@@ -16,13 +17,19 @@ export async function getComposicoesDetalhadoAction(orcamentoId: string) {
   const supabase = await createClient()
   const sb = supabase as any
 
-  const [{ composicoes, insumosDeComposicao }, { data: estrutura }] = await Promise.all([
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, uma
+  // composição usada só por um item além da linha 1000 aparecia como "não
+  // usada" em silêncio (mesma classe de bug encontrada em outros pontos que
+  // leem orcamento_estrutura sem paginar).
+  const [{ composicoes, insumosDeComposicao }, estrutura] = await Promise.all([
     getComposicoesByOrcamentoDetalhado(sb, orcamentoId),
-    sb.from('orcamento_estrutura').select('codigo').eq('orcamento_id', orcamentoId).eq('tipo', 'item'),
+    fetchAllPaginatedParallel<{ codigo: string | null }>((from, to) =>
+      sb.from('orcamento_estrutura').select('codigo', { count: 'exact' }).eq('orcamento_id', orcamentoId).eq('tipo', 'item').range(from, to)
+    ),
   ])
 
   const codigosUtilizados = [...calcularCodigosUtilizados(
-    (estrutura ?? []).map((e: { codigo: string | null }) => e.codigo),
+    estrutura.map((e) => e.codigo),
     composicoes.map((c: OrcamentoComposicao) => ({ id: c.id, codigo: c.codigo })),
     insumosDeComposicao
   )]

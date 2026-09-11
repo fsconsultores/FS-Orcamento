@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { persistirTotaisPlanilha } from '@/lib/orcamento/motor-calculo'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 export interface EstruturaItem {
   id: string
@@ -30,15 +31,20 @@ export async function buscarItensEstrutura(
 ): Promise<EstruturaItem[]> {
   const supabase = await createClient()
   const sb = supabase as any
-  let q = sb
-    .from('orcamento_estrutura')
-    .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao')
-    .eq('orcamento_id', orcamentoId)
-    .order('nivel', { ascending: true })
-    .order('ordem', { ascending: true })
-  if (planilhaId) q = q.eq('planilha_id', planilhaId)
-  const { data } = await q
-  return data ?? []
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — usado pelos hooks
+  // de recálculo/salvamento da Planilha, então sem isso o primeiro salvar
+  // numa planilha grande re-truncava a lista na tela (mesma classe de bug
+  // encontrada em outros pontos que leem orcamento_estrutura sem paginar).
+  const data = await fetchAllPaginatedParallel<EstruturaItem>((from, to) => {
+    let q = sb
+      .from('orcamento_estrutura')
+      .select('id, parent_id, planilha_id, numero, nivel, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, tipo, ordem, eh_taxa_administracao', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+    if (planilhaId) q = q.eq('planilha_id', planilhaId)
+    return q.range(from, to)
+  })
+  return data.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
 }
 
 export async function atualizarItemEstrutura(
@@ -194,15 +200,20 @@ export async function buscarSugestoesCodigo(
 
   const ids = comps.map((c: any) => c.id)
 
-  // 2 + 3 em paralelo: insumos das composições + avulsos do orçamento
-  const [{ data: allIns }, { data: avulsos }] = await Promise.all([
+  // 2 + 3 em paralelo: insumos das composições (já limitado a 15 acima) +
+  // avulsos do orçamento inteiro (esse sim sem limite — paginado pra não
+  // cortar em 1000 e sugerir preço desatualizado).
+  const [{ data: allIns }, avulsos] = await Promise.all([
     sb.from('orcamento_insumos')
       .select('composicao_id, codigo, custo, indice')
       .in('composicao_id', ids),
-    sb.from('orcamento_insumos')
-      .select('codigo, custo')
-      .eq('orcamento_id', orcamentoId)
-      .is('composicao_id', null),
+    fetchAllPaginatedParallel<{ codigo: string; custo: number }>((from, to) =>
+      sb.from('orcamento_insumos')
+        .select('codigo, custo', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .is('composicao_id', null)
+        .range(from, to)
+    ),
   ])
 
   const precoMap = new Map<string, number>()

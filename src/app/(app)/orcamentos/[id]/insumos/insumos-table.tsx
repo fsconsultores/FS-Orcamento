@@ -19,6 +19,7 @@ import { formatDateOnly, formatDateShort } from '@/lib/format-date'
 import { ComposicoesModal, type ComposicoesModalState } from './composicoes-modal'
 import { HistoricoPrecoModal, type HistoricoModal, type HistoricoPreco } from './historico-preco-modal'
 import { getInsumosDetalhadoAction, previewLimparNaoUtilizadosAction, executarLimparNaoUtilizadosAction, type PreviaLimpezaNaoUtilizados } from './actions'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-button'
 import { HighlightMatch } from '@/components/ui/highlight-match'
 import { ConfirmDialog } from '@/components/ui/modal'
@@ -516,16 +517,23 @@ export function OrcamentoInsumosTable({
 
     // Conta direto no banco — não confia no estado local, que pode estar
     // desatualizado se a página não foi recarregada após uma importação/adição.
-    const { data: avulsosAtuais, error: countErr } = await sb
-      .from('orcamento_insumos')
-      .select('id, codigo, descricao, unidade, custo, grupo, base, data_ref, orcamento_id, composicao_id, created_at')
-      .eq('orcamento_id', orcamentoId)
-      .is('composicao_id', null)
-    if (countErr) {
-      toast.show(`Erro ao verificar insumos avulsos: ${countErr.message}`, 'error')
+    // fetchAllPaginatedParallel: sem paginar, um orçamento com mais de 1000
+    // insumos avulsos mostraria uma contagem de confirmação menor que a real
+    // (mesma classe de bug encontrada em outros pontos que leem sem paginar).
+    let avulsosAtuais: OrcamentoInsumo[]
+    try {
+      avulsosAtuais = await fetchAllPaginatedParallel<OrcamentoInsumo>((from, to) =>
+        sb.from('orcamento_insumos')
+          .select('id, codigo, descricao, unidade, custo, grupo, base, data_ref, orcamento_id, composicao_id, created_at', { count: 'exact' })
+          .eq('orcamento_id', orcamentoId)
+          .is('composicao_id', null)
+          .range(from, to)
+      )
+    } catch (e) {
+      toast.show(`Erro ao verificar insumos avulsos: ${e instanceof Error ? e.message : String(e)}`, 'error')
       return
     }
-    const totalAvulsos = avulsosAtuais?.length ?? 0
+    const totalAvulsos = avulsosAtuais.length
     if (totalAvulsos === 0) {
       // Insumos ainda podem aparecer na tabela mesmo com 0 avulsos — são
       // cópias embutidas em composições (têm preço próprio dentro da

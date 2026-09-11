@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getUser } from '@/lib/supabase/auth'
 import { registrarHistorico } from '@/lib/log'
 import { removerFavoritosDaEntidade } from '@/lib/favoritos'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 export async function createBase(orgao: string): Promise<{ id: string } | { error: string }> {
   if (!orgao.trim()) return { error: 'Nome obrigatório.' }
@@ -66,14 +67,22 @@ export async function preencherPrecos(
   const user = await getUser(supabase)
   if (!user) return { atualizados: 0, naoEncontrados: 0, error: 'Não autenticado.' }
 
-  const { data: semPreco, error: e1 } = await sb
-    .from('tabela_insumos')
-    .select('id, codigo')
-    .eq('base_id', minhaBaseId)
-    .or('preco_base.is.null,preco_base.eq.0')
-  if (e1) return { atualizados: 0, naoEncontrados: 0, error: e1.message }
-
-  const insumos = (semPreco ?? []) as { id: string; codigo: string }[]
+  // fetchAllPaginatedParallel: sem paginar, uma base com mais de 1000
+  // insumos sem preço só preenchia os 1000 primeiros em silêncio (mesma
+  // classe de bug encontrada em outros pontos que leem sem paginar).
+  let insumos: { id: string; codigo: string }[]
+  try {
+    insumos = await fetchAllPaginatedParallel<{ id: string; codigo: string }>((from, to) =>
+      sb
+        .from('tabela_insumos')
+        .select('id, codigo', { count: 'exact' })
+        .eq('base_id', minhaBaseId)
+        .or('preco_base.is.null,preco_base.eq.0')
+        .range(from, to)
+    )
+  } catch (e) {
+    return { atualizados: 0, naoEncontrados: 0, error: e instanceof Error ? e.message : String(e) }
+  }
   if (insumos.length === 0) return { atualizados: 0, naoEncontrados: 0 }
 
   const codigos = insumos.map(i => i.codigo).filter(Boolean)

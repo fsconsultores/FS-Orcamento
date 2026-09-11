@@ -24,19 +24,30 @@ export default async function CurvaAbcPage({
   const todasPlanilhas = await getPlanilhasEnsuredCached(orcamentoId)
   const activePlanilha = todasPlanilhas.find(p => p.id === planilhaParam) ?? todasPlanilhas[0]
 
-  // 1. Orçamento + planilha + composições em paralelo
-  const [{ data: orcamento }, { data: estrutura }, { data: composicoes }] = await Promise.all([
+  // 1. Orçamento + planilha + composições em paralelo.
+  // fetchAllPaginatedParallel (não um select() solto) nos dois últimos: sem
+  // paginar, o PostgREST corta em 1000 linhas por padrão — a Curva ABC de um
+  // orçamento grande ficava incompleta em silêncio (mesma classe de bug
+  // encontrada em outros pontos que leem orcamento_estrutura/composicoes
+  // sem paginar; as buscas de insumos abaixo já foram corrigidas antes).
+  const [{ data: orcamento }, estrutura, composicoes] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, bdi_global')
       .eq('id', orcamentoId)
       .single(),
-    sb.from('orcamento_estrutura')
-      .select('id, parent_id, tipo, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, estimado')
-      .eq('orcamento_id', orcamentoId)
-      .eq('planilha_id', activePlanilha.id),
-    sb.from('orcamento_composicoes')
-      .select('id, codigo, descricao')
-      .eq('orcamento_id', orcamentoId),
+    fetchAllPaginatedParallel<any>((from, to) =>
+      sb.from('orcamento_estrutura')
+        .select('id, parent_id, tipo, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, estimado', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .eq('planilha_id', activePlanilha.id)
+        .range(from, to)
+    ),
+    fetchAllPaginatedParallel<{ id: string; codigo: string; descricao: string }>((from, to) =>
+      sb.from('orcamento_composicoes')
+        .select('id, codigo, descricao', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .range(from, to)
+    ),
   ])
 
   // Itens marcados como "Estimado" (aba Estimados) — ou descendentes de um
@@ -44,7 +55,7 @@ export default async function CurvaAbcPage({
   // ranking/percentuais da Curva ABC (mesmo critério de getCadernoData, ver
   // computeIdsEstimados). Sem isso, esta página e a Curva ABC dentro do
   // Caderno mostrariam classificações A/B/C diferentes pro mesmo orçamento.
-  const estruturaFull = estrutura ?? []
+  const estruturaFull = estrutura
   const idsEstimados = computeIdsEstimados(
     estruturaFull.map((e: any) => ({ id: e.id, parent_id: e.parent_id, estimado: e.estimado ?? false }))
   )
@@ -87,7 +98,7 @@ export default async function CurvaAbcPage({
     ),
   ])
 
-  const items = computeAbcCurvaUnica(estItems, composicoes ?? [], allInsumos, insumosAvulsos)
+  const items = computeAbcCurvaUnica(estItems, composicoes, allInsumos, insumosAvulsos)
 
   return (
     <div className="space-y-5">

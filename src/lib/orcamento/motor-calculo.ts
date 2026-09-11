@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ModoCalculo, CalculoOptions, OrfaosDetectados } from './types'
 import { registrarHistorico } from '@/lib/log'
 import { getTaxaAdministracaoItens, sincronizarItensTaxaAdministracao } from './modelo-acrescimo'
+import { fetchAllPaginatedParallel } from './paginate'
 
 export interface ConsistenciaReport {
   ok: boolean
@@ -57,26 +58,43 @@ type ComposicaoRow = {
 }
 
 async function fetchComposicoes(supabase: SupabaseClient, orcamentoId: string): Promise<ComposicaoRow[]> {
-  const { data, error } = await supabase
-    .from('orcamento_composicoes')
-    .select('id, codigo, calculado_em, custo_unitario')
-    .eq('orcamento_id', orcamentoId)
-    .is('deleted_at', null)
-    .order('codigo')
-  if (error) throw new Error(`Erro ao buscar composições: ${error.message}`)
-  return (data ?? []) as ComposicaoRow[]
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, composições
+  // além da linha 1000 nunca entravam no motor de cálculo — ficavam com
+  // custo_unitario desatualizado em silêncio (mesma classe de bug encontrada
+  // em outros pontos que leem sem paginar).
+  let data: ComposicaoRow[]
+  try {
+    data = await fetchAllPaginatedParallel<ComposicaoRow>((from, to) =>
+      supabase
+        .from('orcamento_composicoes')
+        .select('id, codigo, calculado_em, custo_unitario', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .is('deleted_at', null)
+        .range(from, to)
+    )
+  } catch (e) {
+    throw new Error(`Erro ao buscar composições: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  return data.sort((a, b) => a.codigo.localeCompare(b.codigo))
 }
 
 async function fetchInsumosPorComps(supabase: SupabaseClient, compIds: string[]): Promise<InsumoRow[]> {
+  // fetchAllPaginatedParallel dentro de cada lote de 100 composições (não um
+  // select() solto): o filtro .in(composicao_id, slice) já limita QUANTAS
+  // composições entram no lote, mas não quantos insumos elas têm ao todo —
+  // um lote de 100 composições com muitos insumos cada facilmente passa de
+  // 1000 linhas, cortando insumos em silêncio (mesma classe de bug
+  // encontrada em outros pontos que leem sem paginar).
   const batches: Promise<InsumoRow[]>[] = []
   for (let i = 0; i < compIds.length; i += 100) {
     const slice = compIds.slice(i, i + 100)
     batches.push(
-      Promise.resolve(
+      fetchAllPaginatedParallel<InsumoRow>((from, to) =>
         supabase.from('orcamento_insumos')
-          .select('composicao_id, codigo, custo, indice, custo_atualizado_em')
+          .select('composicao_id, codigo, custo, indice, custo_atualizado_em', { count: 'exact' })
           .in('composicao_id', slice)
-      ).then(({ data }) => (data ?? []) as InsumoRow[])
+          .range(from, to)
+      )
     )
   }
   return (await Promise.all(batches)).flat()
@@ -226,14 +244,22 @@ async function fetchAvulsosDiretos(
   orcamentoId: string,
   codigosComposicao: Set<string>
 ): Promise<Map<string, number>> {
-  const { data } = await supabase
-    .from('orcamento_insumos')
-    .select('codigo, custo')
-    .eq('orcamento_id', orcamentoId)
-    .is('composicao_id', null)
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, insumos
+  // avulsos além da linha 1000 ficavam de fora do mapa de preços em
+  // silêncio — itens que referenciam esses códigos caiam pro custo da cópia
+  // embutida (geralmente 0), zerando preço em silêncio (mesma classe de bug
+  // encontrada em outros pontos que leem sem paginar).
+  const data = await fetchAllPaginatedParallel<{ codigo: string; custo: number }>((from, to) =>
+    supabase
+      .from('orcamento_insumos')
+      .select('codigo, custo', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .range(from, to)
+  )
 
   const mapa = new Map<string, number>()
-  for (const av of (data ?? []) as { codigo: string; custo: number }[]) {
+  for (const av of data) {
     const codigo = norm(av.codigo)
     if (av.custo && !codigosComposicao.has(codigo)) mapa.set(codigo, av.custo)
   }
@@ -252,23 +278,31 @@ async function atualizarEstrutura(
   const custoPorCodigo = new Map<string, number>()
   for (const [codigo, custo] of custoPorCodigoRaw) custoPorCodigo.set(norm(codigo), custo)
 
-  let query = supabase
-    .from('orcamento_estrutura')
-    .select('id, codigo, custo_unitario')
-    .eq('orcamento_id', orcamentoId)
-    .eq('tipo', 'item')
-    .not('codigo', 'is', null)
-
-  if (planilhaIds && planilhaIds.length === 1) {
-    query = query.eq('planilha_id', planilhaIds[0])
-  } else if (planilhaIds && planilhaIds.length > 1) {
-    query = query.in('planilha_id', planilhaIds)
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+  // grande isso deixava itens além da linha 1000 com custo_unitario
+  // desatualizado em silêncio sempre que o preço de uma composição/insumo
+  // mudava (mesma classe de bug encontrada na tela da Planilha, na
+  // Conferência de Importação e no Caderno).
+  let todosItens: { id: string; codigo: string; custo_unitario: number | null }[]
+  try {
+    todosItens = await fetchAllPaginatedParallel<{ id: string; codigo: string; custo_unitario: number | null }>((from, to) => {
+      let q = supabase
+        .from('orcamento_estrutura')
+        .select('id, codigo, custo_unitario', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .eq('tipo', 'item')
+        .not('codigo', 'is', null)
+      if (planilhaIds && planilhaIds.length === 1) {
+        q = q.eq('planilha_id', planilhaIds[0])
+      } else if (planilhaIds && planilhaIds.length > 1) {
+        q = q.in('planilha_id', planilhaIds)
+      }
+      return q.range(from, to)
+    })
+  } catch (e) {
+    throw new Error(`Erro ao buscar itens da planilha: ${e instanceof Error ? e.message : String(e)}`)
   }
-
-  const { data: itens, error: itensErr } = await query
-  if (itensErr) throw new Error(`Erro ao buscar itens da planilha: ${itensErr.message}`)
-
-  const todosItens = (itens ?? []) as { id: string; codigo: string; custo_unitario: number | null }[]
   const elegiveis = todosItens.filter(item => custoPorCodigo.has(norm(item.codigo)))
   const updates = elegiveis
     .filter(item => custoPorCodigo.get(norm(item.codigo)) !== item.custo_unitario)
@@ -332,16 +366,24 @@ export async function persistirTotaisPlanilha(
 
     const bdi = planilha?.bdi_global ?? 0
 
-    const { data: itens } = await supabase
-      .from('orcamento_estrutura')
-      .select('custo_unitario, quantidade, bdi_especifico')
-      .eq('orcamento_id', orcamentoId)
-      .eq('planilha_id', planilhaId)
-      .eq('tipo', 'item')
+    // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+    // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+    // grande isso subestimava o total_custo/total_com_bdi persistido em
+    // silêncio (mesma classe de bug encontrada em buscarEstruturaParaConferencia
+    // e na página da Planilha).
+    const itens = await fetchAllPaginatedParallel<{ custo_unitario: number | null; quantidade: number | null; bdi_especifico: number | null }>((from, to) =>
+      supabase
+        .from('orcamento_estrutura')
+        .select('custo_unitario, quantidade, bdi_especifico', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .eq('planilha_id', planilhaId)
+        .eq('tipo', 'item')
+        .range(from, to)
+    )
 
     let totalCusto = 0
     let totalComBdi = 0
-    for (const item of (itens ?? []) as { custo_unitario: number | null; quantidade: number | null; bdi_especifico: number | null }[]) {
+    for (const item of itens) {
       const custo = (item.custo_unitario ?? 0) * (item.quantidade ?? 0)
       const bdiItem = item.bdi_especifico ?? bdi
       totalCusto += custo
@@ -370,25 +412,37 @@ export async function detectarOrfaos(
   supabase: SupabaseClient,
   orcamentoId: string
 ): Promise<OrfaosDetectados> {
-  // Busca todos os códigos de composições usados nas estruturas do projeto
-  const { data: estrutura } = await supabase
-    .from('orcamento_estrutura')
-    .select('codigo')
-    .eq('orcamento_id', orcamentoId)
-    .eq('tipo', 'item')
-    .not('codigo', 'is', null)
+  // Busca todos os códigos de composições usados nas estruturas do projeto.
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, uma
+  // composição usada só por um item além da linha 1000 seria marcada como
+  // "órfã" (não usada) em silêncio — risco real de exclusão indevida (mesma
+  // classe de bug encontrada em outros pontos que leem orcamento_estrutura
+  // sem paginar).
+  const estrutura = await fetchAllPaginatedParallel<{ codigo: string }>((from, to) =>
+    supabase
+      .from('orcamento_estrutura')
+      .select('codigo', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .eq('tipo', 'item')
+      .not('codigo', 'is', null)
+      .range(from, to)
+  )
 
-  const codigosUsados = new Set((estrutura ?? []).map((e: { codigo: string }) => e.codigo))
+  const codigosUsados = new Set(estrutura.map((e) => e.codigo))
 
-  // Busca todas as composições não deletadas do projeto
-  const { data: comps } = await supabase
-    .from('orcamento_composicoes')
-    .select('id, codigo, descricao')
-    .eq('orcamento_id', orcamentoId)
-    .is('deleted_at', null)
+  // Busca todas as composições não deletadas do projeto. Mesma paginação —
+  // sem ela, uma composição de verdade órfã além da linha 1000 nunca seria
+  // encontrada pela limpeza.
+  const comps = await fetchAllPaginatedParallel<{ id: string; codigo: string; descricao: string }>((from, to) =>
+    supabase
+      .from('orcamento_composicoes')
+      .select('id, codigo, descricao', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .is('deleted_at', null)
+      .range(from, to)
+  )
 
-  const orphanComps = ((comps ?? []) as { id: string; codigo: string; descricao: string }[])
-    .filter(c => !codigosUsados.has(c.codigo))
+  const orphanComps = comps.filter(c => !codigosUsados.has(c.codigo))
 
   if (orphanComps.length === 0) return { composicoes: [], insumos: 0 }
 
@@ -418,14 +472,20 @@ export async function executarLimpeza(
 ): Promise<{ composicoesRemovidas: number; insumosRemovidos: number; ignorados: number }> {
   if (composicaoIds.length === 0) return { composicoesRemovidas: 0, insumosRemovidos: 0, ignorados: 0 }
 
-  // Filtra bases nacionais
-  const { data: todasComps } = await supabase
-    .from('orcamento_composicoes')
-    .select('id, base')
-    .in('id', composicaoIds)
-    .is('deleted_at', null)
+  // Filtra bases nacionais — em lotes de 100 (mesmo tamanho do soft-delete
+  // logo abaixo): uma lista grande de órfãos confirmados tanto estoura o
+  // limite de URL do .in() quanto o corte de 1000 linhas do PostgREST.
+  const todasComps: { id: string; base: string | null }[] = []
+  for (let i = 0; i < composicaoIds.length; i += 100) {
+    const { data } = await supabase
+      .from('orcamento_composicoes')
+      .select('id, base')
+      .in('id', composicaoIds.slice(i, i + 100))
+      .is('deleted_at', null)
+    todasComps.push(...((data ?? []) as { id: string; base: string | null }[]))
+  }
 
-  const permitidos = ((todasComps ?? []) as { id: string; base: string | null }[])
+  const permitidos = todasComps
     .filter(c => !BASES_NACIONAIS.has((c.base ?? '').toUpperCase().trim()))
     .map(c => c.id)
 
@@ -571,28 +631,38 @@ export async function verificarConsistencia(
   supabase: SupabaseClient,
   orcamentoId: string
 ): Promise<ConsistenciaReport> {
-  const [
-    { data: estruturaItems },
-    { data: todasComps },
-  ] = await Promise.all([
-    supabase
-      .from('orcamento_estrutura')
-      .select('id, numero, codigo, descricao, custo_unitario, quantidade, tipo')
-      .eq('orcamento_id', orcamentoId),
-    supabase
-      .from('orcamento_composicoes')
-      .select('id, codigo, descricao')
-      .eq('orcamento_id', orcamentoId)
-      .is('deleted_at', null),
-  ])
-
-  const compSet = new Map((todasComps ?? []).map((c: { id: string; codigo: string; descricao: string }) => [c.codigo, c]))
-  const codigosNaEstrutura = new Set<string>()
-
-  const items = (estruturaItems ?? []) as {
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, itens
+  // além da linha 1000 ficavam fora do relatório de consistência em
+  // silêncio — falso-negativo (referência quebrada real não reportada),
+  // mesma classe de bug encontrada em outros pontos que leem
+  // orcamento_estrutura sem paginar.
+  type EstruturaConsistenciaRow = {
     id: string; numero: string; codigo: string | null
     descricao: string; custo_unitario: number | null; quantidade: number | null; tipo: string
-  }[]
+  }
+  const [
+    items,
+    todasComps,
+  ] = await Promise.all([
+    fetchAllPaginatedParallel<EstruturaConsistenciaRow>((from, to) =>
+      supabase
+        .from('orcamento_estrutura')
+        .select('id, numero, codigo, descricao, custo_unitario, quantidade, tipo', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .range(from, to)
+    ),
+    fetchAllPaginatedParallel<{ id: string; codigo: string; descricao: string }>((from, to) =>
+      supabase
+        .from('orcamento_composicoes')
+        .select('id, codigo, descricao', { count: 'exact' })
+        .eq('orcamento_id', orcamentoId)
+        .is('deleted_at', null)
+        .range(from, to)
+    ),
+  ])
+
+  const compSet = new Map(todasComps.map((c) => [c.codigo, c]))
+  const codigosNaEstrutura = new Set<string>()
 
   // Referências quebradas e valores inválidos
   const referenciasQuebradas: ConsistenciaReport['referenciasQuebradas'] = []
@@ -683,11 +753,17 @@ export async function executarCalculo(
     // ── Modo direto: sem composições, aplica preços avulsos direto na estrutura ─
     if (allComps.length === 0) {
       log('Nenhuma composição encontrada — aplicando preços avulsos diretamente na estrutura...')
-      const { data: avs } = await supabase
-        .from('orcamento_insumos').select('codigo, custo')
-        .eq('orcamento_id', orcamentoId).is('composicao_id', null)
+      // fetchAllPaginatedParallel: mesma classe de bug de paginação já
+      // corrigida em fetchAvulsosDiretos acima — sem isso, insumos além da
+      // linha 1000 ficavam sem preço aplicado em silêncio.
+      const avs = await fetchAllPaginatedParallel<{ codigo: string; custo: number }>((from, to) =>
+        supabase
+          .from('orcamento_insumos').select('codigo, custo', { count: 'exact' })
+          .eq('orcamento_id', orcamentoId).is('composicao_id', null)
+          .range(from, to)
+      )
       const precoAvulso = new Map<string, number>()
-      for (const av of (avs ?? []) as { codigo: string; custo: number }[]) {
+      for (const av of avs) {
         if (av.custo) precoAvulso.set(av.codigo, av.custo)
       }
       if (precoAvulso.size === 0) {

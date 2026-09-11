@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
 
 export async function salvarNumeros(
   orcamentoId: string,
@@ -33,13 +34,17 @@ export async function salvarConfigNumeracao(
     .eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao salvar configuração de numeração: ${error.message}`)
 
-  const { data } = await sb
-    .from('orcamento_estrutura')
-    .select('id, parent_id, ordem')
-    .eq('orcamento_id', orcamentoId)
-    .order('ordem', { ascending: true })
-
-  const items = (data ?? []) as { id: string; parent_id: string | null; ordem: number }[]
+  // fetchAllPaginatedParallel (não um select() solto): sem paginar, o
+  // PostgREST corta a resposta em 1000 linhas por padrão — numa planilha
+  // grande isso deixava nós de fora da árvore reconstruída aqui, corrompendo
+  // a sequência de numeração dos irmãos restantes (mesma classe de bug
+  // encontrada em outros pontos que leem orcamento_estrutura sem paginar).
+  const items = await fetchAllPaginatedParallel<{ id: string; parent_id: string | null; ordem: number }>((from, to) =>
+    sb.from('orcamento_estrutura')
+      .select('id, parent_id, ordem', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .range(from, to)
+  )
   if (items.length > 0) {
     interface Node { id: string; parent_id: string | null; ordem: number; filhos: Node[] }
     const map = new Map<string, Node>()
