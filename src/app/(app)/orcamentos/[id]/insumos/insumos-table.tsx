@@ -10,7 +10,7 @@ import { aplicarSugestoesCotacaoAction } from '../aplicar-sugestoes-cotacao-acti
 import type { OrcamentoInsumo, SugestaoCotacao } from '@/lib/orcamento'
 import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
-import { Truck, CalendarDays, Sparkles, LibraryBig } from 'lucide-react'
+import { Truck, CalendarDays, Sparkles } from 'lucide-react'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
@@ -23,8 +23,6 @@ import { ExportInsumoModeloButton } from '@/components/export-insumo-modelo-butt
 import { HighlightMatch } from '@/components/ui/highlight-match'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
-import { adicionarInsumoABibliotecaAction } from '../biblioteca-actions'
-import type { ItemJaNaBiblioteca } from '@/lib/biblioteca/promover'
 
 const PAGE_SIZE = 100
 
@@ -107,8 +105,6 @@ export function OrcamentoInsumosTable({
   const usadosSet = useMemo(() => new Set(codigosUtilizados), [codigosUtilizados])
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
   const [confirmarExcluir, setConfirmarExcluir] = useState<{ id: string; codigo: string } | null>(null)
-  const [promovendoBiblioteca, setPromovendoBiblioteca] = useState<string | null>(null)
-  const [conflitoBiblioteca, setConflitoBiblioteca] = useState<{ id: string; codigo: string; existente: ItemJaNaBiblioteca } | null>(null)
   const [confirmarExcluirHistorico, setConfirmarExcluirHistorico] = useState<HistoricoPreco | null>(null)
   const [confirmarLimparAvulsos, setConfirmarLimparAvulsos] = useState<{ total: number; avulsos: OrcamentoInsumo[] } | null>(null)
   const [limpandoAvulsos, setLimpandoAvulsos] = useState(false)
@@ -389,24 +385,6 @@ export function OrcamentoInsumosTable({
       toast.show(`Erro ao excluir: ${error.message}`, 'error')
     }
     setDeletingId(null)
-  }
-
-  async function handleAdicionarBiblioteca(insumo: OrcamentoInsumo) {
-    setPromovendoBiblioteca(insumo.id)
-    const result = await adicionarInsumoABibliotecaAction(orcamentoId, insumo.id)
-    setPromovendoBiblioteca(null)
-    if ('error' in result) { toast.show(result.error, 'error'); return }
-    if (result.status === 'conflito') { setConflitoBiblioteca({ id: insumo.id, codigo: insumo.codigo, existente: result.existente }); return }
-    toast.show(result.status === 'criado' ? 'Insumo adicionado à sua Biblioteca.' : 'Insumo atualizado na sua Biblioteca.')
-  }
-
-  async function confirmarSobrescreverBiblioteca() {
-    if (!conflitoBiblioteca) return
-    const { id } = conflitoBiblioteca
-    setConflitoBiblioteca(null)
-    const result = await adicionarInsumoABibliotecaAction(orcamentoId, id, true)
-    if ('error' in result) toast.show(result.error, 'error')
-    else toast.show('Insumo atualizado na sua Biblioteca.')
   }
 
   async function openComposicoesModal(insumo: OrcamentoInsumo, e: React.MouseEvent) {
@@ -1062,17 +1040,6 @@ export function OrcamentoInsumosTable({
                               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </button>
-                        {/* Só avulsos criados direto no orçamento (base===null) — itens importados de
-                            uma base (SINAPI etc.) já existem na base de origem; promovê-los aqui
-                            duplicaria o item na Biblioteca em vez de reaproveitar o original. */}
-                        {insumo.composicao_id === null && insumo.base === null && (
-                          <button onClick={() => handleAdicionarBiblioteca(insumo)}
-                            disabled={promovendoBiblioteca === insumo.id}
-                            title="Adicionar à minha Biblioteca"
-                            className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-all disabled:opacity-100">
-                            <LibraryBig size={16} className={promovendoBiblioteca === insumo.id ? 'animate-pulse' : ''} />
-                          </button>
-                        )}
                         <button onClick={() => setConfirmarExcluir({ id: insumo.id, codigo: insumo.codigo })}
                           title="Excluir insumo"
                           className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all">
@@ -1130,17 +1097,6 @@ export function OrcamentoInsumosTable({
       description={confirmarExcluir ? <>Excluir o insumo <strong>{confirmarExcluir.codigo}</strong>?</> : null}
       confirmLabel="Excluir"
       danger
-    />
-
-    <ConfirmDialog
-      open={!!conflitoBiblioteca}
-      onClose={() => setConflitoBiblioteca(null)}
-      onConfirm={confirmarSobrescreverBiblioteca}
-      title="Já existe na Biblioteca"
-      description={conflitoBiblioteca ? (
-        <>Já existe um insumo com o código <strong>{conflitoBiblioteca.codigo}</strong> na sua Biblioteca (&quot;{conflitoBiblioteca.existente.descricao}&quot;). Sobrescrever com os dados deste orçamento?</>
-      ) : null}
-      confirmLabel="Sobrescrever"
     />
 
     <ConfirmDialog

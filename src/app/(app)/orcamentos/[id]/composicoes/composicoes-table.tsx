@@ -13,9 +13,6 @@ import { ExportComposicaoModeloButton } from '@/components/export-composicao-mod
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { HighlightMatch } from '@/components/ui/highlight-match'
-import { adicionarComposicaoABibliotecaAction } from '../biblioteca-actions'
-import type { ItemJaNaBiblioteca } from '@/lib/biblioteca/promover'
-import { LibraryBig } from 'lucide-react'
 
 const PAGE_SIZE = 100
 
@@ -41,8 +38,6 @@ export function ComposicoesTable({
   const [clearing, setClearing] = useState(false)
   const [removendoBase, setRemovendoBase] = useState<string | null>(null)
   const [confirmarExcluir, setConfirmarExcluir] = useState<OrcamentoComposicao | null>(null)
-  const [promovendoBiblioteca, setPromovendoBiblioteca] = useState<string | null>(null)
-  const [conflitoBiblioteca, setConflitoBiblioteca] = useState<{ id: string; codigo: string; existente: ItemJaNaBiblioteca } | null>(null)
   const [confirmarLimpar, setConfirmarLimpar] = useState(false)
   const [confirmarExcluirNaoUtilizadas, setConfirmarExcluirNaoUtilizadas] = useState<PreviaLimpezaNaoUtilizados | null>(null)
   const [excluindoNaoUtilizadas, setExcluindoNaoUtilizadas] = useState(false)
@@ -123,26 +118,6 @@ export function ComposicoesTable({
       toast.show(`Erro ao excluir: ${error.message}`, 'error')
     }
     setDeletingId(null)
-  }
-
-  async function handleAdicionarBiblioteca(c: OrcamentoComposicao, e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    setPromovendoBiblioteca(c.id)
-    const result = await adicionarComposicaoABibliotecaAction(orcamentoId, c.id)
-    setPromovendoBiblioteca(null)
-    if ('error' in result) { toast.show(result.error, 'error'); return }
-    if (result.status === 'conflito') { setConflitoBiblioteca({ id: c.id, codigo: c.codigo, existente: result.existente }); return }
-    toast.show(result.status === 'criado' ? 'Composição adicionada à sua Biblioteca.' : 'Composição atualizada na sua Biblioteca.')
-  }
-
-  async function confirmarSobrescreverBiblioteca() {
-    if (!conflitoBiblioteca) return
-    const { id } = conflitoBiblioteca
-    setConflitoBiblioteca(null)
-    const result = await adicionarComposicaoABibliotecaAction(orcamentoId, id, true)
-    if ('error' in result) toast.show(result.error, 'error')
-    else toast.show('Composição atualizada na sua Biblioteca.')
   }
 
   async function handleClear() {
@@ -445,20 +420,6 @@ export function ComposicoesTable({
                     <Link href={`/orcamentos/${orcamentoId}/composicoes/${c.id}`} className="block w-full px-4 py-3">{c.base ?? '—'}</Link>
                   </td>
                   <td className="px-2 py-3">
-                    <div className="flex items-center justify-end gap-0.5">
-                    {/* Só composições criadas direto no orçamento (base===null) — uma importada
-                        de uma base (SINAPI etc.) já existe na base de origem; promover aqui
-                        duplicaria a composição na Biblioteca em vez de reaproveitar a original. */}
-                    {c.base === null && (
-                    <button
-                      onClick={(e) => handleAdicionarBiblioteca(c, e)}
-                      disabled={promovendoBiblioteca === c.id}
-                      title="Adicionar à minha Biblioteca"
-                      className="opacity-0 group-hover:opacity-100 rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-all disabled:opacity-100"
-                    >
-                      <LibraryBig size={16} className={promovendoBiblioteca === c.id ? 'animate-pulse' : ''} />
-                    </button>
-                    )}
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmarExcluir(c) }}
                       title="Excluir composição"
@@ -469,7 +430,6 @@ export function ComposicoesTable({
                           d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
-                    </div>
                   </td>
                 </tr>
               ))
@@ -493,17 +453,6 @@ export function ComposicoesTable({
         description={confirmarExcluir ? <>Excluir a composição <strong>{confirmarExcluir.codigo}</strong> — {confirmarExcluir.descricao}? Os insumos vinculados não serão excluídos.</> : null}
         confirmLabel="Excluir"
         danger
-      />
-
-      <ConfirmDialog
-        open={!!conflitoBiblioteca}
-        onClose={() => setConflitoBiblioteca(null)}
-        onConfirm={confirmarSobrescreverBiblioteca}
-        title="Já existe na Biblioteca"
-        description={conflitoBiblioteca ? (
-          <>Já existe uma composição com o código <strong>{conflitoBiblioteca.codigo}</strong> na sua Biblioteca (&quot;{conflitoBiblioteca.existente.descricao}&quot;). Sobrescrever com os dados deste orçamento?</>
-        ) : null}
-        confirmLabel="Sobrescrever"
       />
 
       <ConfirmDialog
