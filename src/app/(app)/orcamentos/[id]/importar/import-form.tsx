@@ -55,6 +55,21 @@ function parseNumber(val: unknown): number {
   return parseFloat(s) || 0
 }
 
+/**
+ * Índice/coeficiente de um insumo dentro de uma composição — igual a
+ * parseNumber, exceto que preserva um 0 explícito da planilha em vez de
+ * cair no fallback de "não informado". `parseFloat(...) || 1` tratava 0
+ * como falsy em JS e silenciosamente virava 1 — um índice 0 legítimo da
+ * planilha do usuário (insumo informativo, sem peso no custo) ficava
+ * indistinguível de célula vazia/inválida, inflando o custo calculado.
+ */
+function parseIndice(val: unknown): number {
+  if (typeof val === 'number') return val
+  const s = String(val ?? '').replace(',', '.').replace(/[^\d.-]/g, '')
+  const n = parseFloat(s)
+  return isNaN(n) ? 1 : n
+}
+
 // Converte a célula de data da planilha para 'AAAA-MM-DD' (formato aceito
 // pela coluna DATE do banco) — aceita serial do Excel (célula formatada como
 // data, lida como número por XLSX.read sem cellDates), 'DD/MM/AAAA' e
@@ -166,7 +181,7 @@ function parseSudecap(data: unknown[][], defaultBase?: string): { rows: ImportCo
     const codigoIns   = String(row[C.codigoIns]   ?? '').trim()
     const descIns     = String(row[C.descIns]     ?? '').trim()
     const unidadeIns  = String(row[C.unidadeIns]  ?? '').trim()
-    const indice      = parseFloat(String(row[C.indice] ?? '1').replace(',', '.')) || 1
+    const indice      = parseIndice(row[C.indice])
     const grupo       = String(row[C.grupo]       ?? '').trim() || null
 
     if (!codigoComp && !descComp && !descIns) continue

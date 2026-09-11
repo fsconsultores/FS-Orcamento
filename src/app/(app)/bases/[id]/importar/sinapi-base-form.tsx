@@ -60,6 +60,22 @@ function parseNumber(val: unknown): number {
   return parseFloat(s) || 0
 }
 
+/**
+ * Índice/coeficiente de um insumo dentro de uma composição — igual a
+ * parseNumber, exceto que preserva um 0 explícito da planilha em vez de
+ * cair no fallback de "não informado". `parseNumber(...) || 1` (e o
+ * equivalente com parseFloat direto) tratavam 0 como falsy em JS e
+ * silenciosamente viravam 1 — um índice 0 legítimo da planilha do usuário
+ * (insumo informativo, sem peso no custo) ficava indistinguível de célula
+ * vazia/inválida, inflando o custo calculado da composição.
+ */
+function parseIndice(val: unknown): number {
+  if (typeof val === 'number') return val
+  const s = String(val ?? '').replace(',', '.').replace(/[^\d.-]/g, '')
+  const n = parseFloat(s)
+  return isNaN(n) ? 1 : n
+}
+
 function parseDate(val: unknown): string | null {
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return null
@@ -551,7 +567,7 @@ function parseSudecap(data: unknown[][]): { rows: ImportComposicaoRow[]; erros: 
     const codigoIns   = String(row[C.codigoIns]   ?? '').trim()
     const descIns     = String(row[C.descIns]     ?? '').trim()
     const unidadeIns  = String(row[C.unidadeIns]  ?? '').trim()
-    const indice      = parseFloat(String(row[C.indice] ?? '1').replace(',', '.')) || 1
+    const indice      = parseIndice(row[C.indice])
     const grupo       = String(row[C.grupo]       ?? '').trim() || null
     if (!codigoComp && !descComp && !descIns) continue
     if (codigoComp && descComp) {
@@ -595,7 +611,7 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
           codigo:  codigoItem,
           descricao, unidade,
           custo:   'custo'  in cols ? parseNumber(row[cols.custo])  : 0,
-          indice:  'indice' in cols ? parseNumber(row[cols.indice]) || 1 : 1,
+          indice:  'indice' in cols ? parseIndice(row[cols.indice]) : 1,
           grupo:   'grupo'  in cols ? String(row[cols.grupo]  ?? '').trim() || null : null,
           base: null, data_ref: null,
         })
@@ -610,7 +626,7 @@ function parseAnalitico(data: unknown[][]): { rows: ImportComposicaoRow[]; erros
           codigo:  '',
           descricao, unidade,
           custo:   'custo'  in cols ? parseNumber(row[cols.custo])  : 0,
-          indice:  'indice' in cols ? parseNumber(row[cols.indice]) || 1 : 1,
+          indice:  'indice' in cols ? parseIndice(row[cols.indice]) : 1,
           grupo:   'grupo'  in cols ? String(row[cols.grupo]  ?? '').trim() || null : null,
           base: null, data_ref: null,
         })
