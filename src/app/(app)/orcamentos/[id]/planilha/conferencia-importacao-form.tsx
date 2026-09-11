@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef } from 'react'
 import { ClipboardCheck, X, ExternalLink, AlertTriangle } from 'lucide-react'
-import { buscarEstruturaParaConferencia } from './planilha-import-action'
+import { buscarEstruturaParaConferencia, adicionarItensAusentes } from './planilha-import-action'
 import {
   CAMPOS, sugerirMapeamento, parseMatrix, lerArquivoPlanilha, motivoLabel,
   type AbaBruta, type CampoAlvo, type Mapeamento, type LinhaIgnorada,
@@ -14,9 +14,17 @@ import { WizardSteps } from '@/components/ui/import-wizard'
  * Conferência de Importação — compara um Excel (reenviado a qualquer
  * momento, não só logo após importar) contra o estado ATUAL da planilha,
  * usando o MESMO parser/mapeamento de colunas da Importação (ver
- * planilha-excel-parser.ts). Não escreve nada no banco — é só diagnóstico:
- * o Excel é lido, comparado, e descartado depois. Ver proposta "Conferência
- * de Importação" (28/08/2026) para o raciocínio completo.
+ * planilha-excel-parser.ts). A comparação em si não escreve nada — o Excel é
+ * lido, comparado, e descartado depois. Ver proposta "Conferência de
+ * Importação" (28/08/2026) para o raciocínio completo.
+ *
+ * Único caso com escrita: "Adicionar itens ausentes" (ver
+ * handleAdicionarAusentes/adicionarItensAusentes) — deliberadamente só esse
+ * status é corrigível com 1 clique, porque é o único sem risco de
+ * sobrescrever algo: o item não existe, então só pode ser CRIADO, nunca
+ * substitui edição manual do usuário. "Diferença"/"Sobrando" continuam só
+ * relatório — corrigir esses exigiria decidir se o Excel ou o orçamento tem
+ * razão, o que só o usuário sabe.
  */
 
 const STATUS_META: Record<StatusItemConferencia, { label: string; cls: string; badge: string }> = {
@@ -57,6 +65,8 @@ export function ConferenciaImportacaoForm({ orcamentoId, planilhaId }: { orcamen
   const [resumo, setResumo] = useState<ResumoConferencia | null>(null)
   const [linhasIgnoradas, setLinhasIgnoradas] = useState<LinhaIgnorada[]>([])
   const [mostrarTudo, setMostrarTudo] = useState(false)
+  const [adicionando, setAdicionando] = useState(false)
+  const [resultadoAdicao, setResultadoAdicao] = useState<{ ok: number; erros: string[] } | null>(null)
 
   const abaAtual = abas?.find(a => a.nome === abaSelecionada) ?? null
 
@@ -132,9 +142,32 @@ export function ConferenciaImportacaoForm({ orcamentoId, planilhaId }: { orcamen
     }
   }
 
+  async function handleAdicionarAusentes() {
+    if (!itens || !preview) return
+    const numerosAusentes = new Set(itens.filter(i => i.status === 'ausente').map(i => i.numero))
+    if (numerosAusentes.size === 0) return
+    const linhas = preview.rows.filter(r => numerosAusentes.has(r.numero))
+    setAdicionando(true)
+    setResultadoAdicao(null)
+    try {
+      const resultado = await adicionarItensAusentes(orcamentoId, linhas, planilhaId)
+      setResultadoAdicao(resultado)
+      // Reconfere automaticamente contra a mesma planilha atual — os itens
+      // que acabaram de ser adicionados devem sumir da lista de "ausente".
+      const estruturaAtual = await buscarEstruturaParaConferencia(orcamentoId, planilhaId)
+      const novoResultado = compararComExcel(preview.rows, estruturaAtual)
+      setItens(novoResultado.itens)
+      setResumo({ ...novoResultado.resumo, naoReconhecidas: linhasIgnoradas.length })
+    } catch (e) {
+      setResultadoAdicao({ ok: 0, erros: [e instanceof Error ? e.message : 'Não foi possível adicionar os itens.'] })
+    } finally {
+      setAdicionando(false)
+    }
+  }
+
   function limpar() {
     setAbas(null); setAbaSelecionada(''); setAbaAutoDetectada(''); setMapeamento(null); setMapeamentoConfirmado(false)
-    setItens(null); setResumo(null); setLinhasIgnoradas([]); setErro(null)
+    setItens(null); setResumo(null); setLinhasIgnoradas([]); setErro(null); setResultadoAdicao(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -168,8 +201,9 @@ export function ConferenciaImportacaoForm({ orcamentoId, planilhaId }: { orcamen
         <>
           <p className="rounded-md bg-white border border-gray-200 p-3 text-xs text-gray-600">
             Envie o Excel original (o mesmo usado na importação, ou uma versão mais nova) para comparar contra o
-            que está na planilha agora. Nada é alterado — é só um relatório de diferenças. Reaproveita o mesmo
-            mapeamento de colunas da importação.
+            que está na planilha agora. A comparação em si não altera nada — é um relatório de diferenças, com a
+            opção de adicionar com 1 clique os itens que faltarem. Reaproveita o mesmo mapeamento de colunas da
+            importação.
           </p>
           <input
             ref={inputRef}
@@ -278,6 +312,38 @@ export function ConferenciaImportacaoForm({ orcamentoId, planilhaId }: { orcamen
             <ResumoCard label="Sobrando" valor={resumo.sobrando + resumo.duplicado} tom="bad" />
             <ResumoCard label="Não reconhecidas" valor={resumo.naoReconhecidas} tom="info" />
           </div>
+
+          {resumo.ausente > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3 py-2.5">
+              <p className="text-xs text-red-700">
+                {resumo.ausente} item(ns) do Excel não existe(m) na planilha do orçamento — provavelmente ficaram
+                de fora na importação original.
+              </p>
+              <button
+                onClick={handleAdicionarAusentes}
+                disabled={adicionando}
+                className="shrink-0 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {adicionando ? 'Adicionando…' : `Adicionar os ${resumo.ausente} itens ausentes`}
+              </button>
+            </div>
+          )}
+
+          {resultadoAdicao && (
+            <div className={`rounded-md border px-3 py-2.5 text-xs ${resultadoAdicao.erros.length > 0 && resultadoAdicao.ok === 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+              <p className="font-medium">
+                {resultadoAdicao.ok} item(ns) adicionado(s) à planilha
+                {resultadoAdicao.erros.length > 0 ? `, ${resultadoAdicao.erros.length} não puderam ser adicionados` : ''}.
+                {resultadoAdicao.ok > 0 && ' Os totais da planilha já foram recalculados.'}
+              </p>
+              {resultadoAdicao.erros.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5 pl-1 text-red-600">
+                  {resultadoAdicao.erros.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}
+                  {resultadoAdicao.erros.length > 10 && <li>… e mais {resultadoAdicao.erros.length - 10}.</li>}
+                </ul>
+              )}
+            </div>
+          )}
 
           <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
             <input type="checkbox" checked={mostrarTudo} onChange={e => setMostrarTudo(e.target.checked)} className="accent-amber-600" />
