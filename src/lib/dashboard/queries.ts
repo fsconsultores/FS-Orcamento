@@ -105,7 +105,7 @@ export async function getOrcamentosResumo(sb: SB): Promise<OrcamentoResumo[]> {
 
   const representantes: any[] = []
   for (const membros of porGrupo.values()) {
-    representantes.push(membros.reduce((a: any, b: any) => ((b.numero_revisao ?? 1) > (a.numero_revisao ?? 1) ? b : a)))
+    representantes.push(membros.reduce((a: any, b: any) => ((b.numero_revisao ?? 0) > (a.numero_revisao ?? 0) ? b : a)))
   }
 
   return representantes.map((o) => ({
@@ -117,7 +117,7 @@ export async function getOrcamentosResumo(sb: SB): Promise<OrcamentoResumo[]> {
     ultimo_acesso: o.ultimo_acesso,
     created_at: o.created_at,
     modelo_acrescimo: o.modelo_acrescimo,
-    numero_revisao: o.numero_revisao ?? 1,
+    numero_revisao: o.numero_revisao ?? 0,
   }))
 }
 

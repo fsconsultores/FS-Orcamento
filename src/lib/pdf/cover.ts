@@ -15,7 +15,7 @@ export interface CadernoCoverInfo {
 }
 
 export function formatRevisaoLabel(numeroRevisao?: number | null): string {
-  const n = numeroRevisao ?? 1
+  const n = numeroRevisao ?? 0
   return `Rev. ${String(n).padStart(2, '0')}`
 }
 

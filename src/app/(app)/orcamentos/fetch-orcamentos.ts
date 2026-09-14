@@ -55,7 +55,7 @@ export async function fetchOrcamentos(filters: OrcamentosFilters): Promise<Orcam
   // reordenar pelo representante (que pode não ser o primeiro a aparecer).
   const orcamentos: OrcRow[] = [];
   for (const membros of porGrupo.values()) {
-    const representante = membros.reduce((a, b) => ((b.numero_revisao ?? 1) > (a.numero_revisao ?? 1) ? b : a));
+    const representante = membros.reduce((a, b) => ((b.numero_revisao ?? 0) > (a.numero_revisao ?? 0) ? b : a));
     orcamentos.push(membros.length > 1 ? { ...representante, revisaoCount: membros.length } : representante);
   }
 

@@ -105,7 +105,7 @@ describe.sequential('Isolamento entre revisões', () => {
     const resultado = await criarRevisao(sb, USER_ID, USER_EMAIL, revisao1Id)
     revisao2Id = resultado.id
     orcamentosParaLimpar.push(revisao2Id)
-    expect(resultado.numero_revisao).toBe(2)
+    expect(resultado.numero_revisao).toBe(1)
 
     const { data: cimentoR2 } = await sb
       .from('orcamento_insumos')
@@ -231,9 +231,9 @@ describe.sequential('Isolamento entre revisões', () => {
 
   it('listarRevisoes retorna as duas revisões da família, na ordem certa, com a mais recente marcada', async () => {
     const revisoes = await listarRevisoes(sb, revisao1Id)
-    expect(revisoes.map(r => r.numero_revisao)).toEqual([1, 2])
-    expect(revisoes.find(r => r.numero_revisao === 1)!.ehAtual).toBe(false)
-    expect(revisoes.find(r => r.numero_revisao === 2)!.ehAtual).toBe(true)
-    expect(revisoes.find(r => r.numero_revisao === 2)!.autor_email).toBe(USER_EMAIL)
+    expect(revisoes.map(r => r.numero_revisao)).toEqual([0, 1])
+    expect(revisoes.find(r => r.numero_revisao === 0)!.ehAtual).toBe(false)
+    expect(revisoes.find(r => r.numero_revisao === 1)!.ehAtual).toBe(true)
+    expect(revisoes.find(r => r.numero_revisao === 1)!.autor_email).toBe(USER_EMAIL)
   })
 })

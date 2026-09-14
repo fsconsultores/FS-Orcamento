@@ -49,7 +49,7 @@ export const getOrcamentoHeaderCached = cache(async (orcamentoId: string): Promi
       cliente: data.cliente,
       bdi_global: data.bdi_global,
       data: data.data,
-      numeroRevisao: data.numero_revisao ?? 1,
+      numeroRevisao: data.numero_revisao ?? 0,
       totalRevisoes: data.total_revisoes ?? 1,
     }
   }
@@ -68,7 +68,7 @@ export const getOrcamentoHeaderCached = cache(async (orcamentoId: string): Promi
     cliente: basico.cliente,
     bdi_global: basico.bdi_global,
     data: basico.data,
-    numeroRevisao: 1,
+    numeroRevisao: 0,
     totalRevisoes: 1,
   }
 })
