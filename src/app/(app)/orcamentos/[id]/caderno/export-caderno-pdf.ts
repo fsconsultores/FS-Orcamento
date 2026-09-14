@@ -358,8 +358,16 @@ async function drawPlanilhaPrecosSection(doc: jsPDF, data: CadernoData, margin: 
       ]]
     : [['', '', 'TOTAL GERAL', '', '', '', '', '', fmt(totalGeralCompleto), fmtPct(100), '']]
 
-  const columnStylesComBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, true)
-  const columnStylesSemBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, false)
+  // Largura da coluna "Item" calculada pelo numero mais longo de verdade —
+  // a largura fixa (12-14mm) só cabia numeração rasa; itens de nível
+  // profundo (ex.: "22.02.03.04.02.01") cortavam dígitos.
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  const maiorNumero = flat.reduce((max, { node }) => (node.numero.length > max.length ? node.numero : max), '')
+  const itemColWidth = Math.max(12, doc.getTextWidth(maiorNumero) + 4)
+
+  const columnStylesComBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, true, itemColWidth)
+  const columnStylesSemBdi = planilhaPrecosColumnStyles(tableLayout.tableWidth, false, itemColWidth)
   const abcColIndex = temBdi ? 14 : 11
 
   drawStandardHeader(doc, headerData, sectionTitle)
@@ -523,6 +531,14 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     ]
   })
 
+  // Mesmo raciocínio da Planilha de Preços Unitários: largura da coluna
+  // "Item" calculada pelo numero mais longo de verdade, não um fixo que só
+  // cabia numeração rasa.
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  const maiorNumeroAnalitica = rows.reduce((max, row) => ('numero' in row && row.numero.length > max.length ? row.numero : max), '')
+  const itemColWidthAnalitica = Math.max(14, doc.getTextWidth(maiorNumeroAnalitica) + 4)
+
   autoTable(doc, {
     startY: contentY,
     tableWidth: tableLayout.tableWidth,
@@ -532,7 +548,7 @@ async function drawPlanilhaAnaliticaSection(doc: jsPDF, data: CadernoData, margi
     body,
     rowPageBreak: 'avoid',
     ...globalTableStylesNoZebra,
-    columnStyles: planilhaAnaliticaCadernoColumnStyles(tableLayout.tableWidth),
+    columnStyles: planilhaAnaliticaCadernoColumnStyles(tableLayout.tableWidth, itemColWidthAnalitica),
     didParseCell: (cellData) => {
       if (cellData.section !== 'body') return
       const row = rows[cellData.row.index]

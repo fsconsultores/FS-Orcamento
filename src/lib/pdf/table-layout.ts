@@ -54,8 +54,8 @@ export function resumoValorColumnStyles(contentW: number) {
 }
 
 /** Planilha Analítica (8 colunas fixas do Caderno). */
-export function planilhaAnaliticaCadernoColumnStyles(_contentW: number) {
-  const item = 14
+export function planilhaAnaliticaCadernoColumnStyles(_contentW: number, itemColWidth?: number) {
+  const item = itemColWidth ?? 14
   const codigo = 16
   const und = 12
   const indice = 20
@@ -93,9 +93,13 @@ export function planilhaSinteticaColumnStyles(contentW: number) {
   }
 }
 
-/** Planilha de Preços Unitários — variantes com/sem BDI; coluna Descrição absorve o restante. */
-export function planilhaPrecosColumnStyles(_contentW: number, temBdi: boolean) {
-  const item = 14
+/** Planilha de Preços Unitários — variantes com/sem BDI; coluna Descrição absorve o restante.
+ *  itemColWidth: largura da coluna "Item" calculada pelo chamador a partir do numero mais
+ *  longo dos dados de verdade (doc.getTextWidth) — sem isso, itens de nível muito profundo
+ *  (ex.: "22.02.03.04.02.01") cortavam dígitos numa largura fixa pensada pra numeração rasa. */
+export function planilhaPrecosColumnStyles(_contentW: number, temBdi: boolean, itemColWidth?: number) {
+  const item = itemColWidth ?? 14
+  const itemComBdi = itemColWidth ?? 12
   const codigo = 16
   const money = {
     halign: 'center' as const,
@@ -118,7 +122,7 @@ export function planilhaPrecosColumnStyles(_contentW: number, temBdi: boolean) {
     // a descrição de todo item a quebrar em várias linhas empilhadas (bug real,
     // comparado visualmente: mesmo orçamento com/sem BDI configurado).
     return {
-      0: { cellWidth: 12, halign: 'center' as const, minCellWidth: 12, overflow: 'hidden' as const, cellPadding: 1 },
+      0: { cellWidth: itemComBdi, halign: 'center' as const, minCellWidth: itemComBdi, overflow: 'hidden' as const, cellPadding: 1 },
       1: { cellWidth: 14, halign: 'center' as const, minCellWidth: 14, overflow: 'hidden' as const, cellPadding: 1 },
       2: { ...descricaoBase, minCellWidth: 42 },
       3: { cellWidth: 9, halign: 'center' as const, minCellWidth: 9, overflow: 'hidden' as const, cellPadding: 1 },
