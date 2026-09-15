@@ -6,10 +6,12 @@ import { fmt, fmtPct } from '@/lib/curva-abc'
 import type { DistribuicaoCustoItem } from '@/lib/orcamento/caderno'
 import { CADERNO_BRAND } from './theme'
 import { CADERNO_FONT } from './typography'
-import { filterRealCategoriesForTop5 } from './filters'
 
 /**
- * Categorias à esquerda; barra proporcional; valor financeiro + percentual destacado à direita.
+ * Itens de nível 1 à esquerda; barra proporcional; valor financeiro + percentual destacado à direita.
+ * `distribuicao` já vem com número/nome reais (ver splitResumoGeralDados/principaisItens) — sem
+ * filtro de exclusão por nome aqui: um capítulo real chamado "DIVERSOS" é um item válido no ranking,
+ * diferente da antiga categoria residual "Outros" (agregada, sintética) que esse filtro existia pra excluir.
  */
 export function drawTop5HorizontalBarChart(
   doc: jsPDF,
@@ -18,7 +20,7 @@ export function drawTop5HorizontalBarChart(
   contentW: number,
   startY: number,
 ): number {
-  const top5 = filterRealCategoriesForTop5(distribuicao)
+  const top5 = [...distribuicao]
     .sort((a, b) => b.value - a.value)
     .slice(0, 5)
 

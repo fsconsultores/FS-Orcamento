@@ -7,7 +7,6 @@ export {
   cadernoTableDenseStyles,
   cadernoTableDenseHeadStyles,
 } from './typography'
-export { filterRealCategoriesForTop5 } from './filters'
 export { drawTop5HorizontalBarChart } from './charts'
 export { drawCadernoKpiRow, CADERNO_KPI_PRIMARY, CADERNO_KPI_NEUTRAL, type CadernoKpiCard } from './kpi'
 export {
@@ -17,6 +16,7 @@ export {
   filterServicosEstimadosVisiveis,
   splitResumoGeralDados,
   type ResumoGeralSplitResult,
+  type ResumoDetalhamentoRow,
   type ResumoGeralDashboardInput,
   type ResumoGeralTabelasInput,
   type ResumoGeralTabelasOptions,

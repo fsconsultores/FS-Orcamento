@@ -119,11 +119,14 @@ function drawPavimentosBlock(
     doc.setTextColor(PDF_COLORS.textPrimary)
     doc.text(doc.splitTextToSize(p.descricao, labelW - 4)[0] ?? p.descricao, margin + 3, y + 5.5)
 
+    // Só mostra as métricas de fato preenchidas — um pavimento com só área
+    // total cadastrada não precisa exibir "Equiv.: 0 m² • Cob.: 0 m²" ao
+    // lado, que só duplicava a leitura sem informação nova.
     const metrics = [
-      `Total: ${fmtQtd(p.area_total)} m²`,
-      `Equiv.: ${fmtQtd(p.area_equivalente)} m²`,
-      `Cob.: ${fmtQtd(p.area_coberta)} m²`,
-    ].join('   •   ')
+      p.area_total > 0 ? `Total: ${fmtQtd(p.area_total)} m²` : null,
+      p.area_equivalente > 0 ? `Equiv.: ${fmtQtd(p.area_equivalente)} m²` : null,
+      p.area_coberta > 0 ? `Cob.: ${fmtQtd(p.area_coberta)} m²` : null,
+    ].filter((m): m is string => m != null).join('   •   ')
     doc.setFontSize(8)
     doc.setTextColor('#64748b')
     doc.text(metrics, margin + labelW, y + 5.5)

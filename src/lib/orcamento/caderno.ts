@@ -3,6 +3,7 @@ import { computeAbcCurves, computeAbcCurvaUnica, type AbcItem, type AbcItemComCa
 import { getInsumosByOrcamentoDetalhado } from './insumos'
 import { getComposicoesByOrcamentoDetalhado, type InsumoDeComposicao } from './composicoes'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, CORES_DISTRIBUICAO_CUSTOS, sugerirCategoria } from './categorias-grafico'
+import type { CategoriaResumoGrupo } from './categorias-resumo'
 import { classificarCategoriaAnalitica, type CategoriaAnalitica } from './analitica-filtros'
 import { getPavimentosByOrcamento, type OrcamentoPavimento } from './pavimentos'
 import { fetchAllPaginatedParallel } from './paginate'
@@ -185,6 +186,8 @@ export interface DistribuicaoCustoItem {
   color: string
 }
 
+export type { CategoriaResumoGrupo }
+
 export interface CadernoData {
   orcamento: {
     nome_obra: string
@@ -219,6 +222,7 @@ export interface CadernoData {
   insumosConsumo: InsumoConsumoRow[]
   listaInsumos: ListaInsumoGrupo[]
   distribuicaoCustos: DistribuicaoCustoItem[]
+  categoriasResumo: CategoriaResumoGrupo[]
   /** Detalhamento de área por pavimento (Configurações) — vazio quando o orçamento usa só as áreas totais únicas (orcamento.area_total/coberta/equivalente). */
   pavimentos: OrcamentoPavimento[]
 }
@@ -311,7 +315,7 @@ export async function getCadernoData(
 
   const [{ data: orc }, estruturaSemOrdenar, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico, numero_revisao')
+      .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico, categorias_resumo, numero_revisao')
       .eq('id', orcamentoId)
       .single(),
     estruturaPromise,
@@ -773,12 +777,18 @@ export async function getCadernoData(
     }
     return out
   }
-  if (totalGeral > 0) {
-    const leaves = collectLeaves(arvore).filter(n => n.total > 0).sort((a, b) => b.total - a.total)
+  // classeMap construído a partir de arvoreCompleta (não arvore, que exclui
+  // subárvores marcadas como estimado) — senão todo item embaixo de um grupo
+  // estimado (ex.: "27 INSTALAÇÕES ELÉTRICAS...") nunca entrava no ranking e
+  // ficava com classeAbc null (coluna ABC vazia), mesmo tendo valor de
+  // verdade. Mesmo raciocínio do totalGeralComBdiCompleto usado alhures.
+  const totalGeralCompleto = arvoreCompleta.reduce((s, n) => s + n.total, 0)
+  if (totalGeralCompleto > 0) {
+    const leaves = collectLeaves(arvoreCompleta).filter(n => n.total > 0).sort((a, b) => b.total - a.total)
     let acumulado = 0
     const classeMap = new Map<string, AbcClasse>()
     for (const leaf of leaves) {
-      acumulado += (leaf.total / totalGeral) * 100
+      acumulado += (leaf.total / totalGeralCompleto) * 100
       classeMap.set(leaf.id, acumulado <= 80 ? 'A' : acumulado <= 95 ? 'B' : 'C')
     }
     function aplicarClasse(nodes: CadernoNode[]) {
@@ -826,6 +836,13 @@ export async function getCadernoData(
       color: CORES_DISTRIBUICAO_CUSTOS[CATEGORIA_OUTROS],
     })
   }
+
+  // Categorias de agrupamento da tabela "(A) DETALHAMENTO DOS CUSTOS" do
+  // Resumo Geral (ver categorias-resumo.ts) — diferente do bloco acima,
+  // definidas livremente pelo usuário em Configurações. O cruzamento com os
+  // totais dos nós acontece em resumo-geral.ts (único consumidor), aqui só
+  // repassa o dado bruto já salvo.
+  const categoriasResumo: CategoriaResumoGrupo[] = Array.isArray(orc?.categorias_resumo) ? orc.categorias_resumo : []
 
   // ── Curva ABC (Insumos / Serviços) ────────────────────────────────────────────
   // bdiPercentual reaproveita fatorBdiDoItem — mesma cadeia de fallback do
@@ -1089,6 +1106,7 @@ export async function getCadernoData(
     insumosConsumo,
     listaInsumos,
     distribuicaoCustos,
+    categoriasResumo,
     pavimentos,
   }
 }

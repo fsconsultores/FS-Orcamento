@@ -21,7 +21,6 @@ import {
   drawResumoGeralDashboardPage,
   drawResumoGeralDetailTables,
   splitResumoGeralDados,
-  filterServicosEstimadosVisiveis,
   drawCustoM2SectionContent,
   drawListaInsumosGrupoTable,
   globalTableStyles,
@@ -93,7 +92,17 @@ function addDivider(doc: jsPDF, pageW: number, pageH: number, numero: string, ti
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(CADERNO_FONT.dividerSub)
     doc.setTextColor('#6b7280')
-    doc.text(subtitle, pageW / 2, pageH / 2 + 10, { align: 'center' })
+    // Descrições mais longas (ex.: "Planilha com os preços unitários, de
+    // todos os serviços e materiais que compõe o orçamento.") não cabem numa
+    // linha só nesse tamanho de fonte — sem quebrar, o texto vazava pra fora
+    // da página.
+    const linhas = doc.splitTextToSize(subtitle, pageW * 0.62)
+    const lineH = 7
+    let subY = pageH / 2 + 10
+    for (const linha of linhas) {
+      doc.text(linha, pageW / 2, subY, { align: 'center' })
+      subY += lineH
+    }
   }
 }
 
@@ -107,24 +116,25 @@ async function drawResumoGeralSection(
   const headerData = buildStandardHeaderData(data)
   const sectionTitle = 'RESUMO GERAL DO ORÇAMENTO'
 
-  // arvoreCompleta (não data.arvore): "(A) DETALHAMENTO DOS CUSTOS" precisa
-  // mostrar o valor COMPLETO de cada categoria — um grupo marcado como
-  // estimado (ex.: "ESQUADRIAS DE ALUMÍNIO") não pode fazer a categoria pai
-  // ("ESQUADRIAS") aparecer menor do que o que está na Planilha. servicosEstimados
-  // fica só com as entradas MANUAIS (sem `id` — não têm nó correspondente na
-  // estrutura, por isso continuam de fato somadas à parte); as detectadas
-  // automaticamente (flag direta ou insumo estimado) já estão dentro do total
-  // de arvoreCompleta, então não entram mais em (B) pra não contar em dobro.
+  // data.arvore (não arvoreCompleta): separação total, pedido explícito do
+  // usuário em 2026-09-15 — orçado em (A), estimado em (B), cada item conta
+  // uma vez só, nunca nas duas tabelas. arvore já exclui subárvores marcadas
+  // como estimado (ver removerEstimados em getCadernoData), então uma
+  // categoria com subgrupo estimado (ex.: "ESQUADRIAS", que tem "ESQUADRIAS
+  // DE ALUMÍNIO" estimado por baixo) mostra em (A) só a parte confirmada —
+  // o restante aparece em (B), não em nenhum outro lugar. Decisão consciente
+  // do usuário mesmo vendo o efeito: ~R$32,7mi saem do Total Orçado (A) e
+  // passam a somar em (B) neste orçamento real.
   const tabelasInput = {
-    arvore: data.arvoreCompleta,
-    servicosEstimados: data.servicosEstimados.filter(s => !s.id),
-    servicosComInsumoEstimado: [],
+    arvore: data.arvore,
+    servicosEstimados: data.servicosEstimados,
+    servicosComInsumoEstimado: data.servicosComInsumoEstimado,
+    categoriasResumo: data.categoriasResumo,
     totalGeralComBdi: data.totalGeralComBdi,
     totalServicosEstimados: data.totalServicosEstimados,
   }
 
   const split = splitResumoGeralDados(tabelasInput)
-  const servicosEstimadosVisiveis = split.servicosEstimados
 
   addLandscapeA4Page(doc)
   const dashboardY = drawStandardHeader(doc, headerData, sectionTitle)
@@ -134,7 +144,7 @@ async function drawResumoGeralSection(
     areaTotal: area_total,
     areaCoberta: area_coberta,
     areaEquivalente: area_equivalente,
-    distribuicaoCustos: data.distribuicaoCustos,
+    distribuicaoCustos: split.principaisItens,
   })
 
   addLandscapeA4Page(doc)
@@ -148,10 +158,7 @@ async function drawResumoGeralSection(
     tablesY,
     headerData,
     sectionTitle,
-    {
-      ...tabelasInput,
-      servicosEstimadosVisiveis,
-    },
+    tabelasInput,
     {
       incluirServicosComInsumoEstimado,
       servicosComInsumoEstimadoOcultos,
@@ -626,7 +633,7 @@ async function drawListaInsumosSection(doc: jsPDF, data: CadernoData, margin: nu
 // ─── PDF principal ────────────────────────────────────────────────────────────
 
 export interface ExportCadernoOptions {
-  /** Default true — colore de âmbar as linhas de insumo estimado na Planilha Analítica (8.0). */
+  /** Default false — colore de âmbar as linhas de insumo estimado na Planilha Analítica (8.0). */
   destacarNaAnalitica?: boolean
   /** Default true — inclui a listagem de serviços com insumo de preço estimado em "(B) Serviços Estimados" (3.0). O total (B) nunca muda — só afeta quais linhas aparecem. */
   incluirServicosComInsumoEstimado?: boolean
@@ -666,12 +673,12 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   divider('1.0', 'CARTA DE APRESENTAÇÃO', SEM_DADOS)
 
   // 2.0 Lista de Projetos (placeholder)
-  divider('2.0', 'LISTA DE PROJETOS', SEM_DADOS)
+  divider('2.0', 'LISTA DE PROJETOS', 'Detalhamento dos projetos considerados no orçamento.')
 
   // 3.0 Resumo Geral do Orçamento — inclui (B) Serviços Estimados, que já
   // reúne tanto itens "- Estimado" quanto serviços com insumo de preço
   // estimado na cotação (ver detectarEstimados em getCadernoData).
-  divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Detalhamento dos Custos')
+  divider('3.0', 'RESUMO GERAL DO ORÇAMENTO', 'Resumo Geral dos principais grupos do orçamento')
   await drawResumoGeralSection(
     doc, data, margin, contentW, pageH,
     options.incluirServicosComInsumoEstimado ?? true,
@@ -683,30 +690,30 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
   await drawCustoM2Section(doc, data, margin, contentW, pageH)
 
   // 5.0 Planilha de Preços Unitários
-  divider('5.0', 'PLANILHA DE PREÇOS UNITÁRIOS', 'Planilha de Orçamento')
+  divider('5.0', 'PLANILHA DE PREÇOS UNITÁRIOS', 'Planilha com os preços unitários, de todos os serviços e materiais que compõe o orçamento.')
   await drawPlanilhaPrecosSection(doc, data, margin, contentW, destacarEstimados)
 
   // 6.0 Curva ABC Insumos
-  divider('6.0', 'CURVA ABC INSUMOS')
+  divider('6.0', 'CURVA ABC INSUMOS', 'Relação decrescente de todos os insumos com seus respectivos pesos no orçamento da obra.')
   await drawAbcSection(doc, data.abcInsumos, 'CURVA ABC INSUMOS', margin, contentW, headerData)
 
   // 7.0 Curva ABC de Serviços
-  divider('7.0', 'CURVA ABC DE SERVIÇOS')
+  divider('7.0', 'CURVA ABC DE SERVIÇOS', 'Relação decrescente de todos os serviços com seus respectivos pesos no orçamento da obra.')
   await drawAbcSection(doc, data.abcServicos, 'CURVA ABC DE SERVIÇOS', margin, contentW, headerData)
 
   // 8.0 Planilha Analítica de Preços Unitários
-  divider('8.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS')
+  divider('8.0', 'PLANILHA ANALÍTICA DE PREÇOS UNITÁRIOS', 'Composição detalhada dos preços unitários dos serviços que compõe o orçamento.')
   await drawPlanilhaAnaliticaSection(doc, data, margin, contentW, pageH, destacarEstimados)
 
   // 9.0 Lista de Insumos
-  divider('9.0', 'LISTA DE INSUMOS', 'Equipamento, Mão de Obra, Material e Serviço de Terceiros')
+  divider('9.0', 'LISTA DE INSUMOS', 'Relação em ordem alfabética de todos os insumos do orçamento da obra.')
   await drawListaInsumosSection(doc, data, margin, contentW, pageH)
 
   // 10.0 Anexos (placeholder)
-  divider('10.0', 'ANEXOS', SEM_DADOS)
+  divider('10.0', 'ANEXOS', 'Documentos, e-mails e informações pertinentes à elaboração do orçamento da obra.')
 
   // 11.0 Cotações (placeholder)
-  divider('11.0', 'COTAÇÕES', SEM_DADOS)
+  divider('11.0', 'COTAÇÕES', 'Relação das propostas recebidas')
 
   // ── Rodapé com numeração de página (a partir da capa) ───────────────────────
   const pageCount = doc.getNumberOfPages()

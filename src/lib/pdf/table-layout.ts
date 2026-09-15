@@ -30,9 +30,13 @@ export function pdfAutoTableMargins(opts?: { bottom?: number; top?: number }) {
   }
 }
 
-/** Resumo Geral — (A) Detalhamento: Item | Descrição | Valor | % */
-export function resumoDetalhamentoColumnStyles(_contentW: number) {
-  const itemW = 12
+/** Resumo Geral — (A) Detalhamento: Item | Descrição | Valor | %
+ *  itemColWidth: largura da coluna "Item" calculada pelo chamador a partir do numero mais
+ *  longo de verdade (doc.getTextWidth), entre (A) e (B) — sem isso, itens de nível muito
+ *  profundo (ex.: serviço estimado dentro de um subgrupo, "20.02.01.03") cortavam dígitos
+ *  numa largura fixa pensada pra numeração rasa (mesmo bug já corrigido em planilhaPrecosColumnStyles). */
+export function resumoDetalhamentoColumnStyles(_contentW: number, itemColWidth?: number) {
+  const itemW = itemColWidth ?? 12
   const valorW = 58
   const pctW = 36
   return {
@@ -44,8 +48,8 @@ export function resumoDetalhamentoColumnStyles(_contentW: number) {
 }
 
 /** Resumo Geral — (B) Serviços Estimados — mesma grade da tabela (A). */
-export function resumoServicosColumnStyles(contentW: number) {
-  return resumoDetalhamentoColumnStyles(contentW)
+export function resumoServicosColumnStyles(contentW: number, itemColWidth?: number) {
+  return resumoDetalhamentoColumnStyles(contentW, itemColWidth)
 }
 
 /** @deprecated Use resumoDetalhamentoColumnStyles ou resumoServicosColumnStyles */

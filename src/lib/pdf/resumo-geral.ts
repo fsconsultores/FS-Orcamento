@@ -6,6 +6,7 @@ import type { RowInput } from 'jspdf-autotable'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
 import type {
   CadernoNode,
+  CategoriaResumoGrupo,
   DistribuicaoCustoItem,
   ServicoComInsumoEstimado,
   ServicoEstimado,
@@ -36,6 +37,10 @@ export interface ResumoGeralTabelasInput {
   servicosComInsumoEstimado: ServicoComInsumoEstimado[]
   totalGeralComBdi: number
   totalServicosEstimados: number
+  /** Categorias de agrupamento definidas pelo usuário (Configurações) pra
+   * tabela (A) — ver categorias-resumo.ts. Grupo de nível 1 não referenciado
+   * em nenhuma continua aparecendo como linha solta (ver buildDetalhamentoRows). */
+  categoriasResumo: CategoriaResumoGrupo[]
   /** Pré-filtrado no exportador (export-caderno-pdf.ts) — mesma regra do PDF original. */
   servicosEstimadosVisiveis?: ServicoEstimado[]
 }
@@ -45,12 +50,71 @@ export interface ResumoGeralTabelasOptions {
   servicosComInsumoEstimadoOcultos: Set<string>
 }
 
+/** Uma linha da tabela (A): cabeçalho de categoria (com subtotal) ou um grupo
+ * de nível 1 — solto (sem categoria atribuída) ou membro de uma categoria
+ * (indentado). Ver buildDetalhamentoRows. */
+export type ResumoDetalhamentoRow =
+  | { tipo: 'categoria'; letra: string; nome: string; total: number; percentual: number }
+  | { tipo: 'grupo'; node: CadernoNode; indentado: boolean }
+
 /** Resultado da separação (A) categorias padrão × (B) serviços estimados. */
 export interface ResumoGeralSplitResult {
   categoriasA: CadernoNode[]
+  /** Linhas já montadas pra tabela (A), com cabeçalhos de categoria
+   * interleaved — ver buildDetalhamentoRows. */
+  detalhamentoRows: ResumoDetalhamentoRow[]
+  /** Itens de nível 1 reais (número/nome/valor verdadeiros), pro gráfico
+   * "PRINCIPAIS ITENS DO ORÇAMENTO" — drawTop5HorizontalBarChart escolhe o
+   * top 5 por valor. */
+  principaisItens: DistribuicaoCustoItem[]
+  /** Lista completa de (B) — detectados automaticamente (flag direta ou
+   * insumo estimado) e cadastrados manualmente. Nenhum deles está contado
+   * em totalOrcadoA (separação total). */
   servicosEstimados: ServicoEstimado[]
   totalOrcadoA: number
   totalServicosEstimadosB: number
+}
+
+/**
+ * Monta as linhas da tabela (A) agrupadas pelas categorias que o usuário
+ * definiu em Configurações (ver categorias-resumo.ts) — uma linha de
+ * cabeçalho (letra + nome + subtotal) por categoria não-vazia, na ordem em
+ * que foram criadas, seguida dos grupos membros; todo grupo de nível 1 não
+ * referenciado em nenhuma categoria (configuração parcial, ou nenhuma
+ * categoria criada ainda) vira linha solta no final, exatamente como antes
+ * dessa feature existir — nunca cai num bucket "Outros" automático.
+ */
+function buildDetalhamentoRows(
+  categoriasAComPct: CadernoNode[],
+  categorias: CategoriaResumoGrupo[],
+  totalOrcadoA: number,
+): ResumoDetalhamentoRow[] {
+  const porNumero = new Map(categoriasAComPct.map(n => [n.numero, n]))
+  const usados = new Set<string>()
+  const rows: ResumoDetalhamentoRow[] = []
+  let letraIndex = 0
+
+  for (const cat of categorias) {
+    const membros = cat.numeros
+      .map(numero => porNumero.get(numero))
+      .filter((n): n is CadernoNode => !!n && !usados.has(n.numero))
+    if (membros.length === 0) continue // nunca emite cabeçalho de categoria vazia
+
+    for (const n of membros) usados.add(n.numero)
+    const total = membros.reduce((s, n) => s + n.totalComBdi, 0)
+    const percentual = totalOrcadoA > 0 ? (total / totalOrcadoA) * 100 : 0
+    const letra = letraIndex < 26 ? String.fromCharCode(65 + letraIndex) : String(letraIndex + 1)
+    letraIndex++
+
+    rows.push({ tipo: 'categoria', letra, nome: cat.nome, total, percentual })
+    for (const n of membros) rows.push({ tipo: 'grupo', node: n, indentado: true })
+  }
+
+  for (const n of categoriasAComPct) {
+    if (!usados.has(n.numero)) rows.push({ tipo: 'grupo', node: n, indentado: false })
+  }
+
+  return rows
 }
 
 /** Valor com BDI efetivo de um nó estimado — mesma regra do export-caderno-pdf.ts. */
@@ -73,15 +137,13 @@ function cadernoNodeParaServicoEstimado(node: CadernoNode): ServicoEstimado {
 }
 
 /**
- * Monta (A) e (B) pra exibição — (A) é sempre o valor COMPLETO de cada
- * categoria (grupos/itens marcados como estimado continuam somados dentro
- * do total real, nunca são descontados daqui). (B) existe só como REFERÊNCIA
- * de quais itens têm preço/insumo estimado — não é mais descontado nem
- * separado de (A); ver decisão de 2026-09-11 (o valor de uma categoria como
- * "ESQUADRIAS" precisa bater com o que está na Planilha, sem depender de
- * nenhum item por baixo estar marcado como estimado ou não).
- * `input.arvore` já deve vir como a árvore COMPLETA (CadernoData.arvoreCompleta)
- * — quem monta o input decide isso, aqui só soma o que veio.
+ * Monta (A) e (B) pra exibição — separação total, pedido explícito do
+ * usuário em 2026-09-15: cada item conta uma vez só, ou em (A) ou em (B),
+ * nunca nos dois. `input.arvore` já deve vir SEM as subárvores marcadas como
+ * estimado (CadernoData.arvore, não arvoreCompleta) — quem monta o input
+ * decide isso, aqui só soma o que veio. (B) soma TODOS os serviços
+ * estimados — detectados automaticamente (flag direta ou insumo estimado) e
+ * cadastrados manualmente — já que nenhum deles está contado em (A).
  */
 export function splitResumoGeralDados(input: ResumoGeralTabelasInput): ResumoGeralSplitResult {
   const categoriasA = input.arvore
@@ -94,8 +156,22 @@ export function splitResumoGeralDados(input: ResumoGeralTabelasInput): ResumoGer
     percentualComBdi: totalOrcadoA > 0 ? (n.totalComBdi / totalOrcadoA) * 100 : 0,
   }))
 
+  // "Principais Itens do Orçamento" (dashboard, pág. 1) — itens de nível 1
+  // de verdade (número e nome reais), não mais a categoria fixa agregada de
+  // categorias_grafico (que também trazia número/nome sintéticos, sem
+  // correspondência com a Planilha — ver decisão de 2026-09-15).
+  const principaisItens: DistribuicaoCustoItem[] = categoriasAComPct.map(n => ({
+    numero: n.numero,
+    label: n.descricao,
+    value: n.totalComBdi,
+    percentual: n.percentualComBdi,
+    color: CADERNO_BRAND.primary,
+  }))
+
   return {
     categoriasA: categoriasAComPct,
+    detalhamentoRows: buildDetalhamentoRows(categoriasAComPct, input.categoriasResumo, totalOrcadoA),
+    principaisItens,
     servicosEstimados,
     totalOrcadoA,
     totalServicosEstimadosB,
@@ -247,6 +323,24 @@ export async function drawResumoGeralDetailTables(
     skipFirstTablePage: true,
   })
 
+  const servicosVisiveis = input.servicosEstimadosVisiveis ?? filterServicosEstimadosVisiveis(
+    split.servicosEstimados,
+    input.servicosComInsumoEstimado ?? [],
+    options.incluirServicosComInsumoEstimado,
+    options.servicosComInsumoEstimadoOcultos,
+  )
+
+  // Largura da coluna "Item" calculada pelo numero mais longo de verdade,
+  // entre (A) e (B) — mesma correção já aplicada em planilhaPrecosColumnStyles
+  // pra numeração de nível profundo não cortar dígitos (overflow:'hidden').
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(globalTableStyles.styles.fontSize)
+  const numerosA = split.detalhamentoRows.map(row => row.tipo === 'categoria' ? row.letra : row.node.numero)
+  const numerosB = servicosVisiveis.map(s => s.numero ?? '')
+  const maiorNumero = [...numerosA, ...numerosB].reduce((max, n) => (n.length > max.length ? n : max), '')
+  const itemColWidth = Math.max(12, doc.getTextWidth(maiorNumero) + 4)
+  const detalhamentoColumnStyles = resumoDetalhamentoColumnStyles(tableLayout.tableWidth, itemColWidth)
+
   let y = startY
 
   function ensureSpaceWithHeader(required: number): number {
@@ -267,24 +361,36 @@ export async function drawResumoGeralDetailTables(
     margin: headerHooks.margin,
     didDrawPage: headerHooks.didDrawPage,
     head: RESUMO_DETALHAMENTO_HEAD,
-    body: split.categoriasA.map(n => [n.numero, n.descricao, fmt(n.totalComBdi), fmtPct(n.percentualComBdi)]),
+    body: split.detalhamentoRows.map(row => row.tipo === 'categoria'
+      ? [row.letra, row.nome, fmt(row.total), fmtPct(row.percentual)]
+      : [row.node.numero, row.node.descricao, fmt(row.node.totalComBdi), fmtPct(row.node.percentualComBdi)]),
     foot: [['', 'TOTAL GERAL', fmt(A), '100,00%']],
     showFoot: 'lastPage',
     ...globalTableStyles,
-    columnStyles: resumoDetalhamentoColumnStyles(tableLayout.tableWidth),
+    columnStyles: detalhamentoColumnStyles,
+    didParseCell: (cellData) => {
+      if (cellData.section !== 'body') return
+      const row = split.detalhamentoRows[cellData.row.index]
+      if (!row) return
+      if (row.tipo === 'categoria') {
+        // Azul da marca (CADERNO_BRAND.secondary — mesmo tom já usado nas
+        // capas/KPIs do Caderno) + texto branco — pedido explícito do
+        // usuário pra diferenciar do roxo do cabeçalho da própria tabela.
+        cellData.cell.styles.fillColor = CADERNO_BRAND.secondary
+        cellData.cell.styles.textColor = '#ffffff'
+        cellData.cell.styles.fontStyle = 'bold'
+        return
+      }
+      if (row.indentado && cellData.column.index === 1) {
+        cellData.cell.styles.cellPadding = { top: 2, bottom: 2, left: 5, right: 2 }
+      }
+    },
   })
 
   // @ts-expect-error lastAutoTable injetado em runtime
   y = doc.lastAutoTable.finalY + 4
 
   // ── (B) Serviços Estimados ───────────────────────────────────────────────
-  const servicosVisiveis = input.servicosEstimadosVisiveis ?? filterServicosEstimadosVisiveis(
-    split.servicosEstimados,
-    input.servicosComInsumoEstimado ?? [],
-    options.incluirServicosComInsumoEstimado,
-    options.servicosComInsumoEstimadoOcultos,
-  )
-
   y = ensureSpaceWithHeader(12)
   y = drawResumoSectionTitle(doc, margin, y, '(B) SERVIÇOS ESTIMADOS')
 
@@ -304,7 +410,7 @@ export async function drawResumoGeralDetailTables(
       foot: [['', 'TOTAL', fmt(B), '100,00%']],
       showFoot: 'lastPage',
       ...globalTableStyles,
-      columnStyles: resumoDetalhamentoColumnStyles(tableLayout.tableWidth),
+      columnStyles: detalhamentoColumnStyles,
     })
   } else {
     autoTable(doc, {

@@ -17,14 +17,13 @@ export function CadernoView({ data }: { data: CadernoData }) {
   const [exportando, setExportando] = useState(false)
   const itens = countItens(data.arvoreCompleta)
   const totalInsumos = data.listaInsumos.reduce((s, g) => s + g.items.length, 0)
-  // (A) sempre completo (arvoreCompleta — grupos/itens estimados continuam
-  // somados no total real) e (B) só com as entradas MANUAIS (sem `id`, sem
-  // nó correspondente na estrutura) — mesmo cálculo de splitResumoGeralDados
-  // em export-caderno-pdf.ts, pra este resumo na tela nunca divergir do PDF.
-  const totalOrcadoA = data.arvoreCompleta.reduce((s, n) => s + n.totalComBdi, 0)
-  const totalServicosEstimadosB = data.servicosEstimados
-    .filter(s => !s.id)
-    .reduce((s, x) => s + x.valor, 0)
+  // Separação total (A) orçado × (B) estimado — data.arvore já exclui as
+  // subárvores marcadas como estimado, então (A) soma só o que não é
+  // estimado; (B) soma TODOS os serviços estimados (detectados + manuais).
+  // Mesmo cálculo de splitResumoGeralDados em export-caderno-pdf.ts, pra
+  // este resumo na tela nunca divergir do PDF.
+  const totalOrcadoA = data.arvore.reduce((s, n) => s + n.totalComBdi, 0)
+  const totalServicosEstimadosB = data.servicosEstimados.reduce((s, x) => s + x.valor, 0)
 
   async function handleExport() {
     setExportando(true)
