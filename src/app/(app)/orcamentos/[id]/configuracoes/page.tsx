@@ -19,7 +19,7 @@ export default async function ConfiguracoesPage({
       .eq('id', orcamentoId)
       .single(),
     sb.from('tabela_orcamentos')
-      .select('local, numeracao_digitos, categorias_grafico')
+      .select('local, numeracao_digitos, categorias_grafico, categorias_resumo')
       .eq('id', orcamentoId)
       .single(),
     sb.from('orcamento_servicos_estimados')
@@ -36,7 +36,15 @@ export default async function ConfiguracoesPage({
     getTaxaAdministracaoItens(supabase, orcamentoId),
   ])
 
+  // "Distribuição de Custos (Gráfico)" só soma sobre a árvore SEM estimados
+  // (ver getCadernoData/arvore) — atribuir categoria a um grupo estimado ali
+  // seria uma opção morta, nunca aparece no gráfico. Já "Categorias do Resumo
+  // Geral" soma sobre arvoreCompleta (inclui estimados — ver resumo-geral.ts),
+  // então precisa da lista SEM esse filtro, senão um grupo de nível 1 marcado
+  // como estimado (ex.: "27 INSTALAÇÕES ELÉTRICAS...") nunca aparece pra
+  // selecionar categoria, mesmo contando no total da tabela (A).
   const gruposNivel1 = (grupos ?? []).filter((g: any) => !g.estimado)
+  const gruposNivel1Todos = grupos ?? []
 
   return (
     <div className="space-y-5">
@@ -59,7 +67,9 @@ export default async function ConfiguracoesPage({
         servicosEstimados={(servicos ?? []).map((s: any) => ({ id: s.id, descricao: s.descricao, valor: s.valor }))}
         pavimentos={pavimentos}
         gruposNivel1={gruposNivel1.map((g: any) => ({ numero: g.numero, descricao: g.descricao }))}
+        gruposNivel1Resumo={gruposNivel1Todos.map((g: any) => ({ numero: g.numero, descricao: g.descricao }))}
         categoriasGrafico={extra?.categorias_grafico ?? {}}
+        categoriasResumo={extra?.categorias_resumo ?? []}
       />
     </div>
   )

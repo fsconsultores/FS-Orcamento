@@ -514,7 +514,7 @@ export async function criarRevisao(
 ): Promise<RevisaoResult> {
   const { data: orig, error: errOrig } = await sb
     .from('tabela_orcamentos')
-    .select('nome_obra, cliente, data, bdi_global, modelo_acrescimo, codigo, grupo_id, area_total, area_coberta, area_equivalente, local, numeracao_digitos, categorias_grafico')
+    .select('nome_obra, cliente, data, bdi_global, modelo_acrescimo, codigo, grupo_id, area_total, area_coberta, area_equivalente, local, numeracao_digitos, categorias_grafico, categorias_resumo')
     .eq('id', orcamentoOrigemId)
     .single()
   if (errOrig || !orig) throw new Error(`Orçamento não encontrado: ${errOrig?.message ?? ''}`)
@@ -550,6 +550,7 @@ export async function criarRevisao(
       local: orig.local,
       numeracao_digitos: orig.numeracao_digitos,
       categorias_grafico: orig.categorias_grafico,
+      categorias_resumo: orig.categorias_resumo,
     })
     .select('id')
     .single()

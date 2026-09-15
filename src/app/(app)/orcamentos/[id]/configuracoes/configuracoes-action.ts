@@ -8,6 +8,7 @@ import { salvarPavimentos, type OrcamentoPavimento } from '@/lib/orcamento/pavim
 import { registrarHistorico } from '@/lib/log'
 import { aplicarModeloAcrescimo, bdiEfetivo, salvarTaxaAdministracaoItens, type ModeloAcrescimo, type TaxaAdministracaoItem } from '@/lib/orcamento/modelo-acrescimo'
 import { persistirTotaisPlanilha } from '@/lib/orcamento/motor-calculo'
+import type { CategoriaResumoGrupo } from '@/lib/orcamento/categorias-resumo'
 
 export interface ConfigOrcamentoInput {
   nome_obra: string
@@ -24,6 +25,7 @@ export interface ConfigOrcamentoInput {
   numeracao_digitos: number[]
   servicos_estimados: { descricao: string; valor: number }[]
   categorias_grafico: Record<string, string>
+  categorias_resumo: CategoriaResumoGrupo[]
   pavimentos: OrcamentoPavimento[]
 }
 
@@ -49,11 +51,12 @@ export async function salvarConfiguracoes(orcamentoId: string, input: ConfigOrca
     servicos_estimados: input.servicos_estimados,
   })
 
-  // Campo exclusivo de Configurações (não faz parte do helper compartilhado
-  // com a aba Relatórios/Caderno): distribuição de custos.
+  // Campos exclusivos de Configurações (não fazem parte do helper
+  // compartilhado com a aba Relatórios/Caderno): distribuição de custos
+  // (gráfico) e categorias de agrupamento do Resumo Geral.
   const { error } = await sb
     .from('tabela_orcamentos')
-    .update({ categorias_grafico: input.categorias_grafico })
+    .update({ categorias_grafico: input.categorias_grafico, categorias_resumo: input.categorias_resumo })
     .eq('id', orcamentoId)
   if (error) throw new Error(`Erro ao salvar dados do orçamento: ${error.message}`)
 
