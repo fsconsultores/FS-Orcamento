@@ -79,7 +79,7 @@ export function ReportDetailPanel({ orcamentoId, report, data, planilhas, planil
   // Analítica do Caderno (8.0) — os próprios serviços com preço estimado já
   // aparecem em "(B) Serviços Estimados" no Resumo Geral, sem opção pra
   // desligar (mesmo tratamento dos itens "- Estimado").
-  const [destacarNaAnalitica, setDestacarNaAnalitica] = useState(true)
+  const [destacarNaAnalitica, setDestacarNaAnalitica] = useState(false)
   // Quais serviços com insumo estimado aparecem em "(B) Serviços Estimados"
   // NESTE Caderno — escolha só desta exportação, nunca salva no orçamento
   // (a detecção em si é sempre automática, ver data.servicosComInsumoEstimado).

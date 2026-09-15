@@ -8,9 +8,9 @@ import { pareceEstimado } from '@/lib/orcamento/estimado-sugestao'
 export const ESTIMADO_HIGHLIGHT_FILL = '#FEF9C3'
 export const ESTIMADO_HIGHLIGHT_TEXT = '#92400e'
 
-/** Normaliza a flag da UI — só `false` explícito desliga o destaque. */
+/** Normaliza a flag da UI — padrão desmarcado, só `true` explícito liga o destaque. */
 export function resolveDestacarEstimados(value: boolean | undefined): boolean {
-  return value !== false
+  return value === true
 }
 
 /** Fallback duplo: flag do dado OU padrão textual (regex + "estimado"). */

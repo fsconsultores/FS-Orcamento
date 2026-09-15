@@ -1,14 +1,17 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { X, Plus, Building2, User, Hash, Ruler, PieChart } from 'lucide-react'
+import { X, Plus, Building2, User, Hash, Ruler, PieChart, Layers } from 'lucide-react'
 import { salvarConfiguracoes } from './configuracoes-action'
 import { CATEGORIAS_DISTRIBUICAO_CUSTOS, CATEGORIA_OUTROS, sugerirCategoria } from '@/lib/orcamento/categorias-grafico'
+import type { CategoriaResumoGrupo } from '@/lib/orcamento/categorias-resumo'
 import { Input } from '@/components/ui/input'
 import { Button, IconButton } from '@/components/ui/button'
 import { type ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo'
 import { ModeloAcrescimoSelect } from '../../modelo-acrescimo-select'
 import { TaxaAdministracaoItensEditor, type TaxaAdministracaoItemForm } from '../../taxa-administracao-itens-editor'
+import { CategoriasResumoEditor, type CategoriaResumoForm } from '../../categorias-resumo-editor'
+import { useToast } from '@/components/ui/toast'
 
 const MIN_NIVEIS = 1
 const MAX_NIVEIS = 6
@@ -61,7 +64,7 @@ export function ConfiguracoesView({
   orcamentoId, nomeObra, codigo, cliente, local, dataOrcamento, bdiGlobal, modeloAcrescimo,
   taxaAdministracaoItens,
   areaTotal, areaCoberta, areaEquivalente, numeracaoDigitos, servicosEstimados, pavimentos,
-  gruposNivel1, categoriasGrafico,
+  gruposNivel1, gruposNivel1Resumo, categoriasGrafico, categoriasResumo,
 }: {
   orcamentoId: string
   nomeObra: string
@@ -79,7 +82,9 @@ export function ConfiguracoesView({
   servicosEstimados: { id?: string; descricao: string; valor: number }[]
   pavimentos: { id?: string; descricao: string; unidade: string; area_total: number; area_equivalente: number; area_coberta: number }[]
   gruposNivel1: { numero: string; descricao: string }[]
+  gruposNivel1Resumo: { numero: string; descricao: string }[]
   categoriasGrafico: Record<string, string>
+  categoriasResumo: CategoriaResumoGrupo[]
 }) {
   const [form, setForm] = useState({
     nome_obra: nomeObra,
@@ -111,10 +116,19 @@ export function ConfiguracoesView({
     for (const g of gruposNivel1) map[g.numero] = categoriasGrafico[g.numero] || sugerirCategoria(g.descricao)
     return map
   })
+  const [categoriasResumoLista, setCategoriasResumoLista] = useState<CategoriaResumoForm[]>(
+    categoriasResumo.map(c => ({ id: c.id, nome: c.nome }))
+  )
+  const [categoriasResumoAtribuicoes, setCategoriasResumoAtribuicoes] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    for (const c of categoriasResumo) for (const numero of c.numeros) map[numero] = c.id
+    return map
+  })
 
   const [isPending, startTransition] = useTransition()
   const [salvo, setSalvo] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const toast = useToast()
 
   function update(field: keyof typeof form, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -180,6 +194,16 @@ export function ConfiguracoesView({
     setSalvo(false)
   }
 
+  function updateCategoriasResumoLista(next: CategoriaResumoForm[]) {
+    setCategoriasResumoLista(next)
+    setSalvo(false)
+  }
+
+  function updateCategoriasResumoAtribuicoes(next: Record<string, string>) {
+    setCategoriasResumoAtribuicoes(next)
+    setSalvo(false)
+  }
+
   const exemploNumeracao = digitos.map((d, i) => String(i + 1).padStart(d, '0')).join('.')
 
   function handleSalvar() {
@@ -213,6 +237,30 @@ export function ConfiguracoesView({
       }))
       .filter(p => p.descricao)
 
+    // numeros de cada categoria vêm da ordem de gruposNivel1Resumo (já
+    // ordenado por `ordem` da planilha), não de Object.entries(atribuicoes) —
+    // cuja ordem de chave depende da ordem de clique do usuário, não do
+    // numero do grupo. gruposNivel1Resumo (não gruposNivel1) porque esta
+    // feature soma sobre arvoreCompleta — inclui grupos marcados como
+    // estimado, diferente da lista usada pelo card "Distribuição de Custos".
+    const categoriasResumoValidas = categoriasResumoLista
+      .map(c => ({ id: c.id, nome: c.nome.trim() }))
+      .filter(c => c.nome)
+    const idsCategoriasResumoValidas = new Set(categoriasResumoValidas.map(c => c.id))
+    const numerosPorCategoriaResumo = new Map<string, string[]>()
+    for (const g of gruposNivel1Resumo) {
+      const catId = categoriasResumoAtribuicoes[g.numero]
+      if (!catId || !idsCategoriasResumoValidas.has(catId)) continue
+      const arr = numerosPorCategoriaResumo.get(catId) ?? []
+      arr.push(g.numero)
+      numerosPorCategoriaResumo.set(catId, arr)
+    }
+    const categoriasResumoPayload: CategoriaResumoGrupo[] = categoriasResumoValidas.map(c => ({
+      id: c.id,
+      nome: c.nome,
+      numeros: numerosPorCategoriaResumo.get(c.id) ?? [],
+    }))
+
     startTransition(async () => {
       try {
         await salvarConfiguracoes(orcamentoId, {
@@ -230,11 +278,15 @@ export function ConfiguracoesView({
           numeracao_digitos: digitos,
           servicos_estimados: servicosValidos,
           categorias_grafico: categorias,
+          categorias_resumo: categoriasResumoPayload,
           pavimentos: pavimentosValidos,
         })
         setSalvo(true)
+        toast.show('Configurações salvas com sucesso.')
       } catch (err) {
-        setErro(err instanceof Error ? err.message : 'Não foi possível salvar as configurações. Tente novamente.')
+        const mensagem = err instanceof Error ? err.message : 'Não foi possível salvar as configurações. Tente novamente.'
+        setErro(mensagem)
+        toast.show(mensagem, 'error')
       }
     })
   }
@@ -424,6 +476,16 @@ export function ConfiguracoesView({
             ))}
           </div>
         )}
+      </SettingsCard>
+
+      <SettingsCard title="Categorias do Resumo Geral (Caderno)" icon={<Layers size={16} />} span>
+        <CategoriasResumoEditor
+          categorias={categoriasResumoLista}
+          onChangeCategorias={updateCategoriasResumoLista}
+          gruposNivel1={gruposNivel1Resumo}
+          atribuicoes={categoriasResumoAtribuicoes}
+          onChangeAtribuicoes={updateCategoriasResumoAtribuicoes}
+        />
       </SettingsCard>
 
       <div className="space-y-2 pt-1 lg:col-span-2">
