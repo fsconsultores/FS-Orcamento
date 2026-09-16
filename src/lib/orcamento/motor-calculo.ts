@@ -357,7 +357,11 @@ export async function persistirTotaisPlanilha(
     await sincronizarItensTaxaAdministracao(supabase, orcamentoId, planilhaIds, itensTaxa)
   }
 
-  for (const planilhaId of planilhaIds) {
+  // Cada planilha é independente das demais (busca+soma+persiste só os
+  // próprios itens) — em paralelo em vez de sequencial paga só a latência
+  // da mais lenta, não a soma de todas (mesma alavanca já usada pra
+  // paginação em outros pontos do sistema).
+  const porPlanilha = await Promise.all(planilhaIds.map(async (planilhaId): Promise<TotaisPlanilha> => {
     const { data: planilha } = await supabase
       .from('orcamento_planilhas')
       .select('nome, bdi_global')
@@ -395,8 +399,9 @@ export async function persistirTotaisPlanilha(
       .update({ total_custo: totalCusto, total_com_bdi: totalComBdi, ultima_calculo_em: agora, invalidado_em: null })
       .eq('id', planilhaId)
 
-    resultado.push({ planilhaId, nome: planilha?.nome ?? planilhaId, totalCusto, totalComBdi })
-  }
+    return { planilhaId, nome: planilha?.nome ?? planilhaId, totalCusto, totalComBdi }
+  }))
+  resultado.push(...porPlanilha)
 
   return resultado
 }

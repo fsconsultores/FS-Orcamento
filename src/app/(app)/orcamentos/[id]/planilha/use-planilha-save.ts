@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { atualizarItemEstrutura, restaurarEstruturaSnapshot, buscarItensEstrutura, type EstruturaItem } from './planilha-crud-action'
+import { atualizarItemEstrutura, persistirTotaisPlanilhaAction, restaurarEstruturaSnapshot, buscarItensEstrutura, type EstruturaItem } from './planilha-crud-action'
 import { validarComposicoes } from './planilha-import-action'
 
 export function usePlanilhaSave({
@@ -113,6 +113,16 @@ export function usePlanilhaSave({
           pending.map(([id, fields]) => atualizarItemEstrutura(id, orcamentoId, fields as any))
         )
         dirtyItemsRef.current.clear()
+
+        // Recalcula os totais da planilha 1 vez só pro lote inteiro — ver
+        // comentário em atualizarItemEstrutura (planilha-crud-action.ts).
+        // Sem isso cada célula editada disparava seu próprio recálculo
+        // completo (relê todos os itens da planilha) em paralelo com as
+        // demais, na prática o maior gargalo de "Salvar Planilha".
+        const afetaTotal = pending.some(([, fields]) => 'quantidade' in fields || 'custo_unitario' in fields || 'bdi_especifico' in fields)
+        if (afetaTotal && activePlanilhaId) {
+          await persistirTotaisPlanilhaAction(orcamentoId, activePlanilhaId).catch(console.error)
+        }
       }
       setInvalidCodigos(new Set())
       setIsDirty(false)

@@ -11,6 +11,22 @@ export async function salvarNumeros(
   if (updates.length === 0) return
   const supabase = await createClient()
   const sb = supabase as any
+
+  // 1 round-trip via RPC (update em massa com unnest) em vez de N/50 lotes
+  // concorrentes — mesma otimização de sincronizar_custos_estrutura (ver
+  // 20260916000000_bulk_update_numeros_e_estimados.sql). Toda renumeração
+  // reatribui TODA a EAP do orçamento (ver salvarConfigNumeracao), então
+  // updates aqui é rotineiramente milhares de linhas.
+  const { error: rpcError } = await sb.rpc('atualizar_numeros_estrutura', {
+    p_orcamento_id: orcamentoId,
+    p_ids: updates.map(u => u.id),
+    p_numeros: updates.map(u => u.numero),
+    p_niveis: updates.map(u => u.nivel),
+  })
+  if (!rpcError) return
+
+  // RPC ainda não existe nesse banco (migração não aplicada) — cai pro
+  // caminho antigo item a item.
   const BATCH = 50
   for (let i = 0; i < updates.length; i += BATCH) {
     await Promise.all(

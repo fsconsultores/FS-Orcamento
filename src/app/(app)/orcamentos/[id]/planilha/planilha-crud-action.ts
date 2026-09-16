@@ -47,6 +47,16 @@ export async function buscarItensEstrutura(
   return data.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
 }
 
+/**
+ * Não recalcula totais sozinho — quem chama é responsável por rodar
+ * persistirTotaisPlanilha/persistirTotaisPlanilhaAction depois, se o campo
+ * editado afetar o total (mesma convenção de aplicarModeloAcrescimo em
+ * modelo-acrescimo.ts). Antes recalculava a cada chamada, o que virava 1
+ * recálculo completo (relê TODOS os itens da planilha) por CÉLULA editada
+ * quando usePlanilhaSave chama isto em lote via Promise.all — editar
+ * algumas centenas de células antes de "Salvar Planilha" disparava
+ * centenas de recálculos concorrentes pro mesmo lote.
+ */
 export async function atualizarItemEstrutura(
   id: string,
   orcamentoId: string,
@@ -63,13 +73,17 @@ export async function atualizarItemEstrutura(
 ): Promise<void> {
   const supabase = await createClient()
   const sb = supabase as any
-  const { data } = await sb.from('orcamento_estrutura').update(fields).eq('id', id).select('planilha_id').single()
+  await sb.from('orcamento_estrutura').update(fields).eq('id', id)
   revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
+}
 
-  const afetaTotal = 'quantidade' in fields || 'custo_unitario' in fields || 'bdi_especifico' in fields
-  if (afetaTotal && data?.planilha_id) {
-    await persistirTotaisPlanilha(supabase, orcamentoId, [data.planilha_id]).catch(console.error)
-  }
+/** Recalcula e persiste os totais de 1 planilha — usado depois de um lote de
+ * atualizarItemEstrutura (ver comentário acima) em vez de 1 chamada própria
+ * por item. */
+export async function persistirTotaisPlanilhaAction(orcamentoId: string, planilhaId: string): Promise<void> {
+  const supabase = await createClient()
+  await persistirTotaisPlanilha(supabase, orcamentoId, [planilhaId])
+  revalidatePath(`/orcamentos/${orcamentoId}/planilha`)
 }
 
 export async function deletarItemEstrutura(
