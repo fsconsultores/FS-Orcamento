@@ -10,7 +10,8 @@ import { aplicarSugestoesCotacaoAction } from '../aplicar-sugestoes-cotacao-acti
 import type { OrcamentoInsumo, SugestaoCotacao } from '@/lib/orcamento'
 import { registrarHistorico } from '@/lib/log'
 import { ClientPagination } from '@/components/client-pagination'
-import { Truck, CalendarDays, Sparkles } from 'lucide-react'
+import { Truck, CalendarDays, Sparkles, Trash2, Wrench } from 'lucide-react'
+import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
 import { InlineInput, InlineSelect } from '@/components/ui/inline-edit'
@@ -834,28 +835,34 @@ export function OrcamentoInsumosTable({
           </svg>
           Exportar XLSX
         </button>
-        <button
-          onClick={handleClearClick}
-          disabled={limpandoAvulsos}
-          title="Remove só os insumos avulsos (com preço próprio) — insumos embutidos em composições não são afetados"
-          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        {/* Ações destrutivas pouco frequentes atrás de 1 menu em vez de 2
+            botões sempre visíveis lado a lado com os de exportação do dia a
+            dia (lei de Hick) — mesma ideia do painel "Ferramentas" da
+            Planilha. */}
+        <DropdownMenu
+          label="Manutenção"
+          icon={<Wrench size={14} />}
+          disabled={limpandoAvulsos && excluindoNaoUtilizados}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          {limpandoAvulsos ? 'Limpando…' : 'Limpar avulsos'}
-        </button>
-        <button
-          onClick={handleExcluirNaoUtilizadosClick}
-          disabled={excluindoNaoUtilizados || carregandoPreviaLimpeza || usoStatus !== 'pronto'}
-          title="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha (composições não utilizadas saem junto com os insumos embutidos nelas) — os utilizados ficam intactos"
-          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          {excluindoNaoUtilizados ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
-        </button>
+          <div className="p-1.5">
+            <DropdownMenuItem
+              icon={<Trash2 size={16} />}
+              label={limpandoAvulsos ? 'Limpando…' : 'Limpar avulsos'}
+              description="Remove só os insumos avulsos (com preço próprio) — insumos embutidos em composições não são afetados."
+              onClick={handleClearClick}
+              disabled={limpandoAvulsos}
+              tone="danger"
+            />
+            <DropdownMenuItem
+              icon={<Trash2 size={16} />}
+              label={excluindoNaoUtilizados ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
+              description="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha — os utilizados ficam intactos."
+              onClick={handleExcluirNaoUtilizadosClick}
+              disabled={excluindoNaoUtilizados || carregandoPreviaLimpeza || usoStatus !== 'pronto'}
+              tone="danger"
+            />
+          </div>
+        </DropdownMenu>
         {/* Condicional (só existe com sugestões selecionadas) sempre por
             último — não pode ficar antes dos botões fixos acima, senão eles
             "pulam" de posição toda vez que o usuário marca/desmarca uma

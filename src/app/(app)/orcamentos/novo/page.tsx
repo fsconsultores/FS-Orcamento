@@ -14,6 +14,22 @@ import type { ModeloInfo } from '../actions';
 import { bdiEfetivo, salvarTaxaAdministracaoItens, sincronizarItensTaxaAdministracao, type ModeloAcrescimo } from '@/lib/orcamento/modelo-acrescimo';
 import { ModeloAcrescimoSelect } from '../modelo-acrescimo-select';
 import { TaxaAdministracaoItensEditor, type TaxaAdministracaoItemForm } from '../taxa-administracao-itens-editor';
+import { WizardSteps, type WizardStepDef } from '@/components/ui/import-wizard';
+
+type Step = 'basico' | 'acrescimo' | 'origem';
+
+// Fluxo de criação de uma vez só (não se revisita como Configurações) — vira
+// um wizard de 3 passos em vez de um formulário longo com "Criar orçamento"
+// só no fim, mesmo padrão (WizardSteps) já usado nos 2 fluxos de importação
+// de insumos. Isso encurta a distância até o botão principal conforme a
+// lista de modelos/bases cresce (lei de Fitts) e mostra só as decisões de um
+// assunto por vez (lei de Hick) — "criar a partir de modelo" e "bases
+// padrão" não competem mais visualmente com os campos de identificação.
+const STEPS: WizardStepDef[] = [
+  { key: 'basico', label: 'Dados básicos' },
+  { key: 'acrescimo', label: 'Acréscimo' },
+  { key: 'origem', label: 'Origem' },
+];
 
 export default function NovoOrcamentoPage() {
   const router = useRouter();
@@ -21,6 +37,7 @@ export default function NovoOrcamentoPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>('basico');
   const [form, setForm] = useState({
     nome_obra: '',
     cliente: '',
@@ -66,6 +83,33 @@ export default function NovoOrcamentoPage() {
 
   function updateModeloAcrescimo(value: ModeloAcrescimo) {
     setForm((prev) => ({ ...prev, modelo_acrescimo: value }));
+  }
+
+  const stepIndex = STEPS.findIndex((s) => s.key === step);
+
+  function goBack() {
+    setError(null);
+    if (stepIndex > 0) setStep(STEPS[stepIndex - 1].key as Step);
+  }
+
+  function goNext() {
+    setError(null);
+    // Validação leve de "o que já foi preenchido neste passo" antes de
+    // avançar — sem isso, um BDI inválido só apareceria como erro na hora de
+    // criar, na tela do passo 3 (Origem), longe do campo que precisa de
+    // correção.
+    if (step === 'basico' && !form.nome_obra.trim()) {
+      setError('Informe o nome da obra.');
+      return;
+    }
+    if (step === 'acrescimo' && form.modelo_acrescimo === 'bdi') {
+      const bdi = parseFloat(form.bdi_global);
+      if (isNaN(bdi) || bdi < 0) {
+        setError('BDI inválido.');
+        return;
+      }
+    }
+    if (stepIndex < STEPS.length - 1) setStep(STEPS[stepIndex + 1].key as Step);
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -219,170 +263,189 @@ export default function NovoOrcamentoPage() {
         <h1 className="mt-2 text-2xl font-bold text-gray-900">Novo orçamento</h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
-        <div className="space-y-1">
-          <label htmlFor="nome_obra" className="text-sm font-medium text-gray-700">
-            Nome da obra *
-          </label>
-          <input
-            id="nome_obra"
-            required
-            value={form.nome_obra}
-            onChange={(e) => update('nome_obra', e.target.value)}
-            placeholder="Ex: Residência Unifamiliar - Rua das Flores"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          />
-      
-          <label htmlFor="codigo" className="text-sm font-medium text-gray-700">
-            Código *
-          </label>
-          <input
-            id="codigo"
-            required
-            value={form.codigo}
-            onChange={(e) => update('codigo', e.target.value)}
-            placeholder="Código"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          />
-        </div>
-        
+      <form onSubmit={handleSubmit} className="rounded-xl border bg-white p-6 shadow-sm space-y-5">
+        <WizardSteps steps={STEPS} currentKey={step} />
 
-        <div className="space-y-1">
-          <label htmlFor="cliente" className="text-sm font-medium text-gray-700">
-            Cliente
-          </label>
-          <input
-            id="cliente"
-            value={form.cliente}
-            onChange={(e) => update('cliente', e.target.value)}
-            placeholder="Ex: João Silva"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          />
-        </div>
+        {step === 'basico' && (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label htmlFor="nome_obra" className="text-sm font-medium text-gray-700">
+                Nome da obra *
+              </label>
+              <input
+                id="nome_obra"
+                required
+                value={form.nome_obra}
+                onChange={(e) => update('nome_obra', e.target.value)}
+                placeholder="Ex: Residência Unifamiliar - Rua das Flores"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
-        <div className="space-y-1">
-          <label htmlFor="data" className="text-sm font-medium text-gray-700">
-            Data
-          </label>
-          <input
-            id="data"
-            type="date"
-            value={form.data}
-            onChange={(e) => update('data', e.target.value)}
-            className="w-full max-w-48 rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-          />
-        </div>
+            <div className="space-y-1">
+              <label htmlFor="codigo" className="text-sm font-medium text-gray-700">
+                Código *
+              </label>
+              <input
+                id="codigo"
+                required
+                value={form.codigo}
+                onChange={(e) => update('codigo', e.target.value)}
+                placeholder="Código"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
-        <ModeloAcrescimoSelect value={form.modelo_acrescimo} onChange={updateModeloAcrescimo} />
+            <div className="space-y-1">
+              <label htmlFor="cliente" className="text-sm font-medium text-gray-700">
+                Cliente
+              </label>
+              <input
+                id="cliente"
+                value={form.cliente}
+                onChange={(e) => update('cliente', e.target.value)}
+                placeholder="Ex: João Silva"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
 
-        {form.modelo_acrescimo === 'bdi' && (
-          <div className="space-y-1 max-w-48">
-            <label htmlFor="bdi_global" className="text-sm font-medium text-gray-700">
-              BDI global (%)
-            </label>
-            <input
-              id="bdi_global"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.bdi_global}
-              onChange={(e) => update('bdi_global', e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-            />
+            <div className="space-y-1">
+              <label htmlFor="data" className="text-sm font-medium text-gray-700">
+                Data
+              </label>
+              <input
+                id="data"
+                type="date"
+                value={form.data}
+                onChange={(e) => update('data', e.target.value)}
+                className="w-full max-w-48 rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
           </div>
         )}
 
-        {form.modelo_acrescimo === 'taxa_administracao' && (
-          <TaxaAdministracaoItensEditor itens={taxaItens} onChange={setTaxaItens} />
-        )}
+        {step === 'acrescimo' && (
+          <div className="space-y-4">
+            <ModeloAcrescimoSelect value={form.modelo_acrescimo} onChange={updateModeloAcrescimo} />
 
-        {modelos.length > 0 && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">
-              Criar a partir de um modelo (opcional)
-            </label>
-            <p className="text-xs text-gray-400 -mt-1">
-              A estrutura (planilhas, itens, composições e insumos) do modelo será copiada para este orçamento.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {modelos.map((m) => {
-                const checked = modeloId === m.id;
-                return (
-                  <label
-                    key={m.id}
-                    className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
-                      checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="modelo"
-                      checked={checked}
-                      onChange={() => selecionarModelo(checked ? null : m.id)}
-                      className="mt-0.5 accent-blue-600"
-                    />
-                    <div className="min-w-0">
-                      <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
-                        {m.nome_obra}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">Código {m.codigo}</p>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-            {modeloId && (
-              <button
-                type="button"
-                onClick={() => selecionarModelo(null)}
-                className="text-xs text-gray-500 hover:underline"
-              >
-                Não usar modelo
-              </button>
+            {form.modelo_acrescimo === 'bdi' && (
+              <div className="space-y-1 max-w-48">
+                <label htmlFor="bdi_global" className="text-sm font-medium text-gray-700">
+                  BDI global (%)
+                </label>
+                <input
+                  id="bdi_global"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.bdi_global}
+                  onChange={(e) => update('bdi_global', e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            )}
+
+            {form.modelo_acrescimo === 'taxa_administracao' && (
+              <TaxaAdministracaoItensEditor itens={taxaItens} onChange={setTaxaItens} />
             )}
           </div>
         )}
 
-        {!modeloId && bases.length > 0 && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">
-              Bases padrão (opcional)
-            </label>
-            <p className="text-xs text-gray-400 -mt-1">
-              Selecionadas serão importadas automaticamente para este orçamento assim que ele for criado.
-              Depois continua dando para importar outras bases normalmente.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {bases.map((b) => {
-                const checked = basesSelecionadas.has(b.id);
-                return (
-                  <label
-                    key={b.id}
-                    className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
-                      checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
-                    }`}
+        {step === 'origem' && (
+          <div className="space-y-4">
+            {modelos.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Criar a partir de um modelo (opcional)
+                </label>
+                <p className="text-xs text-gray-400 -mt-1">
+                  A estrutura (planilhas, itens, composições e insumos) do modelo será copiada para este orçamento.
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {modelos.map((m) => {
+                    const checked = modeloId === m.id;
+                    return (
+                      <label
+                        key={m.id}
+                        className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
+                          checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="modelo"
+                          checked={checked}
+                          onChange={() => selecionarModelo(checked ? null : m.id)}
+                          className="mt-0.5 accent-blue-600"
+                        />
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
+                            {m.nome_obra}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">Código {m.codigo}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                {modeloId && (
+                  <button
+                    type="button"
+                    onClick={() => selecionarModelo(null)}
+                    className="text-xs text-gray-500 hover:underline"
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleBase(b.id)}
-                      className="mt-0.5 accent-blue-600"
-                    />
-                    <div className="min-w-0">
-                      <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
-                        {b.orgao}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {b.total_insumos > 0 && `${b.total_insumos.toLocaleString('pt-BR')} insumos`}
-                        {b.total_insumos > 0 && b.total_composicoes > 0 && ' · '}
-                        {b.total_composicoes > 0 && `${b.total_composicoes.toLocaleString('pt-BR')} composições`}
-                        {b.total_insumos === 0 && b.total_composicoes === 0 && 'Base vazia'}
-                      </p>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
+                    Não usar modelo
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!modeloId && bases.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Bases padrão (opcional)
+                </label>
+                <p className="text-xs text-gray-400 -mt-1">
+                  Selecionadas serão importadas automaticamente para este orçamento assim que ele for criado.
+                  Depois continua dando para importar outras bases normalmente.
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {bases.map((b) => {
+                    const checked = basesSelecionadas.has(b.id);
+                    return (
+                      <label
+                        key={b.id}
+                        className={`flex items-start gap-3 cursor-pointer rounded-lg border px-3 py-2 transition-colors ${
+                          checked ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleBase(b.id)}
+                          className="mt-0.5 accent-blue-600"
+                        />
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium ${checked ? 'text-blue-700' : 'text-gray-800'}`}>
+                            {b.orgao}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {b.total_insumos > 0 && `${b.total_insumos.toLocaleString('pt-BR')} insumos`}
+                            {b.total_insumos > 0 && b.total_composicoes > 0 && ' · '}
+                            {b.total_composicoes > 0 && `${b.total_composicoes.toLocaleString('pt-BR')} composições`}
+                            {b.total_insumos === 0 && b.total_composicoes === 0 && 'Base vazia'}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {modelos.length === 0 && bases.length === 0 && (
+              <p className="text-xs text-gray-400">Nenhum modelo ou base cadastrado ainda — o orçamento nasce em branco.</p>
+            )}
           </div>
         )}
 
@@ -396,20 +459,40 @@ export default function NovoOrcamentoPage() {
           <p className="text-sm text-blue-600">{progresso}</p>
         )}
 
-        <div className="flex gap-3 pt-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? (progresso ?? 'Salvando...') : 'Criar orçamento'}
-          </button>
-          <Link
-            href="/orcamentos"
-            className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Cancelar
-          </Link>
+        <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+          {stepIndex > 0 ? (
+            <button
+              type="button"
+              onClick={goBack}
+              className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              ← Voltar
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-3">
+            <Link href="/orcamentos" className="rounded-md border px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Cancelar
+            </Link>
+            {stepIndex < STEPS.length - 1 ? (
+              <button
+                type="button"
+                onClick={goNext}
+                className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Próximo →
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={loading}
+                className="rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? (progresso ?? 'Salvando...') : 'Criar orçamento'}
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>

@@ -14,8 +14,9 @@ import {
 } from '@dnd-kit/core'
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Trash2, Save, Check } from 'lucide-react'
+import { Plus, Trash2, Save, Check, Calculator } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { DropdownMenu } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { formatCurrency } from '@/lib/costs'
@@ -767,22 +768,27 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                 </button>
 
                 {calcPanelOpen && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
+                  // w-80 e não mais w-72 (fixo): orçamento grande (dezenas de
+                  // milhões) faz "Custo"/"Com BDI" abaixo espremerem contra o
+                  // overflow-hidden e cortarem o valor — mesmo ajuste do
+                  // DropdownMenu novo (dropdown-menu.tsx).
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
                     {/* Header */}
                     <div className="bg-gray-700 px-4 py-3">
                       <p className="text-xs font-bold uppercase tracking-widest text-white">Ferramentas do Projeto</p>
                     </div>
 
-                    {/* Valores resumidos */}
-                    <div className="px-4 py-3 flex gap-4 justify-center border-b border-gray-100 bg-gray-50">
+                    {/* Valores resumidos — flex-wrap: se "Custo" e "Com BDI"
+                        não couberem lado a lado (valor muito grande), o 2º
+                        quebra pra linha de baixo em vez de ser cortado. */}
+                    <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-2 justify-center border-b border-gray-100 bg-gray-50">
                       <div className="text-center">
                         <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Custo</p>
-                        <p className="text-sm font-bold text-gray-900 tabular-nums">{BRL(grandTotal)}</p>
+                        <p className="text-sm font-bold text-gray-900 tabular-nums whitespace-nowrap">{BRL(grandTotal)}</p>
                       </div>
-                      <div className="w-px bg-gray-200" />
                       <div className="text-center">
                         <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Com BDI</p>
-                        <p className="text-sm font-bold text-gray-900 tabular-nums">{BRL(grandTotalComBdi)}</p>
+                        <p className="text-sm font-bold text-gray-900 tabular-nums whitespace-nowrap">{BRL(grandTotalComBdi)}</p>
                       </div>
                     </div>
 
@@ -885,80 +891,92 @@ export function PlanilhaView({ initialItems, orcamentoId, nomeOrcamento, nomePla
                         )}
                       </div>
                     )}
-
-                    {/* Ajustar valor do orçamento */}
-                    <div className="px-4 py-3 border-t border-orange-200 bg-orange-100/50">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-orange-700 mb-2">
-                        Ajustar valor do orçamento
-                      </p>
-                      <div className="flex gap-4 mb-3">
-                        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="tipoValorFinal"
-                            value="custo"
-                            checked={tipoValorFinal === 'custo'}
-                            onChange={() => setTipoValorFinal('custo')}
-                            className="accent-orange-500"
-                          />
-                          Valor final (Custo)
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="tipoValorFinal"
-                            value="venda"
-                            checked={tipoValorFinal === 'venda'}
-                            onChange={() => setTipoValorFinal('venda')}
-                            className="accent-orange-500"
-                          />
-                          Valor final (Venda)
-                        </label>
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        <span className="text-xs text-orange-700 font-medium shrink-0">R$</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={valorFinalInput}
-                          onChange={e => setValorFinalInput(e.target.value.replace(/[^0-9,.]/g, ''))}
-                          className="flex-1 rounded-md border border-orange-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
-                        />
-                      </div>
-                      {(() => {
-                        const num = parseFloat(valorFinalInput.replace(/\./g, '').replace(',', '.'))
-                        if (!num || num <= 0) return null
-                        const base = tipoValorFinal === 'custo' ? grandTotal : grandTotalComBdi
-                        const fator = base > 0 ? num / base : 0
-                        const bdiNecessario = usaBdi && tipoValorFinal === 'venda' && grandTotal > 0
-                          ? (num / grandTotal - 1) * 100
-                          : null
-                        return (
-                          <div className="mt-2 rounded-md bg-white border border-orange-200 px-3 py-2 space-y-1">
-                            <div className="flex justify-between text-[11px]">
-                              <span className="text-gray-500">Fator de ajuste</span>
-                              <span className="font-semibold text-gray-800 tabular-nums">{fator.toFixed(4)}×</span>
-                            </div>
-                            {bdiNecessario !== null && (
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-gray-500">BDI necessário</span>
-                                <span className="font-semibold text-blue-700 tabular-nums">{bdiNecessario.toFixed(2)}%</span>
-                              </div>
-                            )}
-                            <div className="flex justify-between text-[11px] border-t border-orange-100 pt-1 mt-1">
-                              <span className="text-gray-500">Diferença</span>
-                              <span className={`font-semibold tabular-nums ${num - base >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {num - base >= 0 ? '+' : ''}{BRL(num - base)}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Ajustar valor do orçamento — assunto próprio (simulação que
+                  fica aberta enquanto o usuário digita), separado do
+                  "Ferramentas" acima (executar uma ação e fechar) em vez de
+                  empilhado dentro do mesmo painel. */}
+              <DropdownMenu
+                label="Ajustar valor"
+                icon={<Calculator size={14} />}
+                panelClassName="border-orange-200"
+              >
+                <div className="px-4 py-3 bg-orange-100/50">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-orange-700 mb-2">
+                    Ajustar valor do orçamento
+                  </p>
+                  <div className="flex gap-4 mb-3">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="tipoValorFinal"
+                        value="custo"
+                        checked={tipoValorFinal === 'custo'}
+                        onChange={() => setTipoValorFinal('custo')}
+                        className="accent-orange-500"
+                      />
+                      Valor final (Custo)
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="tipoValorFinal"
+                        value="venda"
+                        checked={tipoValorFinal === 'venda'}
+                        onChange={() => setTipoValorFinal('venda')}
+                        className="accent-orange-500"
+                      />
+                      Valor final (Venda)
+                    </label>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-xs text-orange-700 font-medium shrink-0">R$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={valorFinalInput}
+                      onChange={e => setValorFinalInput(e.target.value.replace(/[^0-9,.]/g, ''))}
+                      className="flex-1 rounded-md border border-orange-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    />
+                  </div>
+                  {(() => {
+                    const num = parseFloat(valorFinalInput.replace(/\./g, '').replace(',', '.'))
+                    if (!num || num <= 0) return null
+                    const base = tipoValorFinal === 'custo' ? grandTotal : grandTotalComBdi
+                    const fator = base > 0 ? num / base : 0
+                    const bdiNecessario = usaBdi && tipoValorFinal === 'venda' && grandTotal > 0
+                      ? (num / grandTotal - 1) * 100
+                      : null
+                    // flex-wrap em cada linha: valor em R$ grande (diferença de
+                    // dezenas de milhões) quebra pra linha de baixo em vez de
+                    // ficar cortado contra o overflow-hidden do painel.
+                    return (
+                      <div className="mt-2 rounded-md bg-white border border-orange-200 px-3 py-2 space-y-1">
+                        <div className="flex flex-wrap justify-between gap-x-2 text-[11px]">
+                          <span className="text-gray-500">Fator de ajuste</span>
+                          <span className="font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fator.toFixed(4)}×</span>
+                        </div>
+                        {bdiNecessario !== null && (
+                          <div className="flex flex-wrap justify-between gap-x-2 text-[11px]">
+                            <span className="text-gray-500">BDI necessário</span>
+                            <span className="font-semibold text-blue-700 tabular-nums whitespace-nowrap">{bdiNecessario.toFixed(2)}%</span>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap justify-between gap-x-2 text-[11px] border-t border-orange-100 pt-1 mt-1">
+                          <span className="text-gray-500">Diferença</span>
+                          <span className={`font-semibold tabular-nums whitespace-nowrap ${num - base >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {num - base >= 0 ? '+' : ''}{BRL(num - base)}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              </DropdownMenu>
 
               <button onClick={handleExport}
                 className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">

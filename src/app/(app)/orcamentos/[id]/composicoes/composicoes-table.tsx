@@ -13,6 +13,8 @@ import { ExportComposicaoModeloButton } from '@/components/export-composicao-mod
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { HighlightMatch } from '@/components/ui/highlight-match'
+import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { Trash2, Wrench } from 'lucide-react'
 
 const PAGE_SIZE = 100
 
@@ -333,29 +335,34 @@ export function ComposicoesTable({
       <div className="flex items-center gap-3 flex-wrap">
         <ExportComposicaoModeloButton />
         <ExportComposicoesButton fetchComposicoes={() => exportComposicoesAction(orcamentoId)} />
-        <button
-          onClick={() => setConfirmarLimpar(true)}
-          disabled={composicoes.length === 0 || clearing}
-          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+        {/* Ações destrutivas pouco frequentes atrás de 1 menu em vez de 2
+            botões sempre visíveis lado a lado com os de exportação do dia a
+            dia (lei de Hick) — mesma ideia do painel "Ferramentas" da
+            Planilha e do menu equivalente na aba Insumos. */}
+        <DropdownMenu
+          label="Manutenção"
+          icon={<Wrench size={14} />}
+          disabled={clearing && excluindoNaoUtilizadas}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          {clearing ? 'Limpando…' : 'Limpar composições'}
-        </button>
-        <button
-          onClick={handleExcluirNaoUtilizadasClick}
-          disabled={excluindoNaoUtilizadas || carregandoPreviaLimpeza || custosStatus !== 'pronto'}
-          title="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha (composições não utilizadas saem junto com os insumos embutidos nelas) — mesma limpeza do botão equivalente na aba Insumos"
-          className="flex items-center gap-1.5 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          {excluindoNaoUtilizadas ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
-        </button>
+          <div className="p-1.5">
+            <DropdownMenuItem
+              icon={<Trash2 size={16} />}
+              label={clearing ? 'Limpando…' : 'Limpar composições'}
+              description="Exclui todas as composições deste orçamento e os insumos vinculados a elas."
+              onClick={() => setConfirmarLimpar(true)}
+              disabled={composicoes.length === 0 || clearing}
+              tone="danger"
+            />
+            <DropdownMenuItem
+              icon={<Trash2 size={16} />}
+              label={excluindoNaoUtilizadas ? 'Excluindo…' : carregandoPreviaLimpeza ? 'Verificando…' : 'Excluir não utilizados'}
+              description="Remove os insumos avulsos e as composições que não aparecem em nenhum item da planilha — mesma limpeza do menu equivalente na aba Insumos."
+              onClick={handleExcluirNaoUtilizadasClick}
+              disabled={excluindoNaoUtilizadas || carregandoPreviaLimpeza || custosStatus !== 'pronto'}
+              tone="danger"
+            />
+          </div>
+        </DropdownMenu>
       </div>
 
       {custosStatus === 'erro' && (

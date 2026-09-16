@@ -8,6 +8,12 @@ interface Props {
   orcamentoId: string
 }
 
+// newGroup marca o 1º item de um cluster visual (Trabalho / Saída /
+// Administração) — puramente cosmético (uma divisória fina antes do item),
+// não muda href, ordem nem comportamento de clique de nenhuma aba. 10 abas
+// simultâneas é lei de Hick em nível de navegação, mas reordenar ou esconder
+// abas atrás de "mais" mudaria o hábito de quem já navega o sistema todo
+// dia — o chunking visual reduz o custo de escanear sem esse risco.
 const TABS = [
   { suffix: 'planilha', label: 'Planilha' },
   // 'levantamentos' propositalmente fora da nav — feature construída e
@@ -18,9 +24,9 @@ const TABS = [
   { suffix: 'composicoes', label: 'Composições' },
   { suffix: 'curva-abc', label: 'Curva ABC' },
   { suffix: 'estimados', label: 'Estimados' },
-  { suffix: 'relatorios', label: 'Relatórios' },
+  { suffix: 'relatorios', label: 'Relatórios', newGroup: true },
   { suffix: 'importar', label: 'Importar' },
-  { suffix: 'versoes', label: 'Revisões' },
+  { suffix: 'versoes', label: 'Revisões', newGroup: true },
   { suffix: 'configuracoes', label: 'Configurações' },
   { suffix: 'logs', label: 'Logs' },
 ]
@@ -31,11 +37,11 @@ function SubNavLinks({ orcamentoId }: Props) {
   const planilhaId = searchParams.get('planilha')
   const base = `/orcamentos/${orcamentoId}`
 
-  const items: TabItem[] = TABS.map(({ suffix, label }) => {
+  const items: TabItem[] = TABS.map(({ suffix, label, newGroup }) => {
     const baseHref = `${base}/${suffix}`
     // Preserva ?planilha= ao navegar entre abas para manter a planilha ativa
     const href = planilhaId ? `${baseHref}?planilha=${planilhaId}` : baseHref
-    return { key: suffix, label, href, active: pathname.startsWith(baseHref) }
+    return { key: suffix, label, href, active: pathname.startsWith(baseHref), newGroup }
   })
 
   return <Tabs items={items} className="mb-6 -mt-2" />
@@ -49,8 +55,8 @@ export function OrcamentoSubNav({ orcamentoId }: Props) {
   // fazem sentido: elas só se aplicam depois que uma planilha é escolhida.
   if (pathname === base) return null
 
-  const fallbackItems: TabItem[] = TABS.map(({ suffix, label }) => ({
-    key: suffix, label, href: `${base}/${suffix}`, active: false,
+  const fallbackItems: TabItem[] = TABS.map(({ suffix, label, newGroup }) => ({
+    key: suffix, label, href: `${base}/${suffix}`, active: false, newGroup,
   }))
 
   return (
