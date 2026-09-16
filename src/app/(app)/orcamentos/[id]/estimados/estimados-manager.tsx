@@ -61,8 +61,33 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     return m
   }, [linhas])
 
+  // Base de comparação pra saber o que mudou de verdade desde o último save
+  // (raw.estimado/motivo/valor — sem o viés de sugestão do estadoInicial
+  // acima, que não reflete o banco). Precisa ser estado PRÓPRIO, não os
+  // `node.*` direto: a árvore (`arvore`/`linhas`) só vem do server component
+  // no load da página e nunca é re-buscada depois de um save (sem
+  // router.refresh) — comparar contra `node.estimado` direto em cada
+  // `salvar()` compararia sempre com o valor de QUANDO A PÁGINA CARREGOU, não
+  // com o que já foi persistido no save anterior. Resultado: numa sessão com
+  // mais de um save, o 2º em diante podia calcular um diff vazio pra um item
+  // que na verdade tinha voltado ao estado original (ex.: marcar, salvar,
+  // desmarcar, salvar de novo) — a reversão nunca chegava no banco, mesmo o
+  // botão mostrando "salvo com sucesso".
+  const baselineInicial = useMemo(() => {
+    const m = new Map<string, EstadoItem>()
+    for (const { node } of linhas) {
+      m.set(node.id, {
+        estimado: node.estimado,
+        motivo: node.estimado_motivo ?? '',
+        valor: node.valor_estimado != null ? String(node.valor_estimado) : '',
+      })
+    }
+    return m
+  }, [linhas])
+
   const toast = useToast()
   const [estado, setEstado] = useState(estadoInicial)
+  const [baseline, setBaseline] = useState(baselineInicial)
   const [query, setQuery] = useState('')
   const [salvando, setSalvando] = useState(false)
 
@@ -159,16 +184,18 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     for (const { node } of linhas) {
       const atual = estado.get(node.id)
       if (!atual) continue
-      const salvo = { estimado: node.estimado, motivo: node.estimado_motivo ?? '', valor: node.valor_estimado }
+      const salvo = baseline.get(node.id) ?? { estimado: node.estimado, motivo: node.estimado_motivo ?? '', valor: node.valor_estimado != null ? String(node.valor_estimado) : '' }
       const valorAtual = parseValor(atual.valor)
+      const valorSalvo = parseValor(salvo.valor)
       if (atual.estimado !== salvo.estimado
         || (atual.estimado && atual.motivo.trim() !== salvo.motivo.trim())
-        || (atual.estimado && valorAtual !== salvo.valor)) {
+        || (atual.estimado && valorAtual !== valorSalvo)) {
         alteracoes.push({ id: node.id, estimado: atual.estimado, motivo: atual.motivo.trim() || null, valorEstimado: atual.estimado ? valorAtual : null })
       }
     }
     try {
       await atualizarItensEstimadosAction(orcamentoId, alteracoes)
+      setBaseline(estado)
       toast.show(`${alteracoes.length} item(ns) salvo(s) com sucesso.`)
     } catch (e) {
       toast.show(e instanceof Error ? e.message : 'Erro ao salvar.', 'error')
