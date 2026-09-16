@@ -34,17 +34,21 @@ export function StatCard({ label, value, icon, hint, href, size = 'sm', accent =
         )}
         <p className="truncate text-sm font-semibold text-gray-700">{label}</p>
       </div>
-      {/* truncate + min-w-0 acima: sem isso, um valor longo (ex.: "R$ 5.649.143,64",
-          sem espaço pra quebrar linha dentro do número) força a coluna do grid a
-          crescer e estoura a caixa em telas pequenas — text-3xl só cabe folgado em
-          telas largas, por isso encolhe progressivamente abaixo do breakpoint sm. */}
+      {/* min-w-0 acima + break-words (não truncate) aqui: deixa o valor
+          quebrar linha — primeiro no espaço depois de "R$" (formatCurrency
+          sempre inclui esse espaço), e se mesmo assim um bloco de dígitos
+          não couber na coluna, break-words quebra NELE também (nunca
+          deixando parte invisível) — nenhum número grande deve ficar
+          ilegível ou cortado. min-w-0 sozinho já evita a coluna do grid
+          crescer/estourar a caixa (o texto quebra dentro da largura alocada
+          em vez de empurrá-la). leading-tight (não mais leading-none) dá
+          respiro caso quebre em 2+ linhas. */}
       <p
-        className={`truncate text-xl font-bold leading-none tabular-nums sm:text-2xl lg:text-3xl ${accent ? 'text-primary-800' : 'text-gray-900'}`}
-        title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
+        className={`break-words text-xl font-bold leading-tight tabular-nums sm:text-2xl lg:text-3xl ${accent ? 'text-primary-800' : 'text-gray-900'}`}
       >
         {value}
       </p>
-      {hint && <p className="mt-2 truncate text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-2 break-words text-xs text-gray-400">{hint}</p>}
     </div>
   ) : (
     <div className={`flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm ${hoverCls}`}>
@@ -55,8 +59,8 @@ export function StatCard({ label, value, icon, hint, href, size = 'sm', accent =
       )}
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-gray-500" title={label}>{label}</p>
-        <p className="truncate text-lg font-semibold text-gray-900 tabular-nums" title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}>{value}</p>
-        {hint && <p className="truncate text-xs text-gray-400" title={typeof hint === 'string' ? hint : undefined}>{hint}</p>}
+        <p className="break-words text-lg font-semibold text-gray-900 tabular-nums">{value}</p>
+        {hint && <p className="break-words text-xs text-gray-400">{hint}</p>}
       </div>
     </div>
   )
