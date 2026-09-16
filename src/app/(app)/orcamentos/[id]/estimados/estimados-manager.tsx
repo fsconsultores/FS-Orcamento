@@ -24,6 +24,14 @@ function achatar(nodes: CadernoNode[], depth = 0, out: Linha[] = []): Linha[] {
   return out
 }
 
+function collectDescendantIds(node: CadernoNode, out: string[] = []): string[] {
+  for (const filho of node.filhos) {
+    out.push(filho.id)
+    collectDescendantIds(filho, out)
+  }
+  return out
+}
+
 const fmt = formatCurrency
 
 interface EstadoItem {
@@ -123,11 +131,23 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
     return soma
   }, [estado, arvore])
 
-  function toggle(id: string) {
+  // Marcar/desmarcar um grupo cascateia pra toda a subárvore dele — sem
+  // isso, a lista mostrava os filhos como "não marcados" mesmo já sendo
+  // tratados como estimados na prática (ver marcarSubarvore/detectarEstimados
+  // em caderno.ts, que já cobre a subárvore inteira de um nó marcado), o que
+  // confundia quem está revisando. Só mexe no flag `estimado` de cada
+  // descendente — motivo/valor individuais de cada um não são tocados.
+  function toggle(node: CadernoNode) {
     setEstado(prev => {
       const next = new Map(prev)
-      const atual = next.get(id)
-      if (atual) next.set(id, { ...atual, estimado: !atual.estimado })
+      const atual = next.get(node.id)
+      if (!atual) return prev
+      const novoValor = !atual.estimado
+      next.set(node.id, { ...atual, estimado: novoValor })
+      for (const descId of collectDescendantIds(node)) {
+        const descAtual = next.get(descId)
+        if (descAtual) next.set(descId, { ...descAtual, estimado: novoValor })
+      }
       return next
     })
   }
@@ -209,7 +229,8 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
       <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
         <p className="text-sm text-amber-900">
           Marque quais itens ou grupos da planilha devem aparecer em <strong>"(B) Serviços Estimados"</strong> no
-          Caderno de Orçamento (e demais relatórios), em vez de compor o Total Orçado (A). Itens já marcados abaixo
+          Caderno de Orçamento (e demais relatórios), em vez de compor o Total Orçado (A). Marcar (ou desmarcar) um
+          grupo marca junto todos os subgrupos e itens dentro dele. Itens já marcados abaixo
           vieram de uma decisão salva anteriormente; itens com o ícone <span className="font-medium">"sugestão"</span> foram
           pré-marcados porque o nome parece indicar algo pendente — revise antes de salvar. Para um item marcado, o
           campo <span className="font-medium">Valor</span> fica editável: informe sua melhor estimativa (deixe em
@@ -300,7 +321,8 @@ export function EstimadosManager({ orcamentoId, arvore, totalGeral }: { orcament
                     <input
                       type="checkbox"
                       checked={item?.estimado ?? false}
-                      onChange={() => toggle(node.id)}
+                      onChange={() => toggle(node)}
+                      title={node.filhos.length > 0 ? 'Marca/desmarca junto todos os subgrupos e itens deste grupo' : undefined}
                       className="h-4 w-4 accent-amber-500 cursor-pointer"
                     />
                   </td>
