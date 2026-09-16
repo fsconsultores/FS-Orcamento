@@ -1,7 +1,7 @@
 import type { jsPDF } from 'jspdf'
 import type { RowInput } from 'jspdf-autotable'
 import { fmt, fmtQtd, fmtPct, type AbcItem } from '@/lib/curva-abc'
-import { formatDate } from '@/lib/format-date'
+import { formatDateOnly } from '@/lib/format-date'
 import type { CadernoData, CadernoNode, AbcClasse } from '@/lib/orcamento/caderno'
 import { slugFilename } from '../relatorios/exporters/xlsx-shared'
 import {
@@ -64,7 +64,15 @@ function buildStandardHeaderData(data: CadernoData): StandardHeaderData {
     cliente: data.orcamento.cliente,
     nomeObra: data.orcamento.nome_obra,
     revisao: formatRevisaoLabel(data.orcamento.numero_revisao),
-    data: formatDate(new Date()),
+    // data.orcamento.data (não new Date()) — a "Data" do Caderno é editável
+    // em Configurações/Relatórios (CadernoInfoForm) e por padrão já nasce
+    // como hoje (novo orçamento salva a data de criação), mas até aqui a
+    // exportação ignorava o que estava salvo e sempre mostrava a data de
+    // HOJE, na hora de exportar — mudar o campo não tinha efeito nenhum no
+    // PDF. formatDateOnly (não formatDate) porque `data` é coluna DATE pura
+    // ('AAAA-MM-DD'): formatDate/new Date(str) trata como UTC meia-noite e
+    // podia voltar 1 dia em fusos negativos (ver format-date.ts).
+    data: formatDateOnly(data.orcamento.data),
   }
 }
 
@@ -667,6 +675,7 @@ export async function exportCadernoPdf(data: CadernoData, options: ExportCaderno
     codigo: data.orcamento.codigo,
     cliente: data.orcamento.cliente,
     numeroRevisao: data.orcamento.numero_revisao,
+    data: data.orcamento.data,
   }, pageW, pageH)
 
   // 1.0 Carta de Apresentação (placeholder)

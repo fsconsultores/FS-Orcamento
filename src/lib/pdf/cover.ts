@@ -2,7 +2,7 @@
  * Capa oficial — grafismos azuis nas quinas + título central imponente.
  */
 import type { jsPDF } from 'jspdf'
-import { formatDate } from '@/lib/format-date'
+import { formatDateOnly } from '@/lib/format-date'
 import { CADERNO_BRAND, PDF_COLORS } from './theme'
 import { drawBrandCornerBars } from './layout'
 import { BRAND_LOGO_PNG_PATH, BRAND_LOGO_PNG_ASPECT } from './assets'
@@ -12,6 +12,9 @@ export interface CadernoCoverInfo {
   codigo: string | null
   cliente: string | null
   numeroRevisao?: number | null
+  /** Coluna DATE pura ('AAAA-MM-DD') — editável em Configurações/Relatórios
+   * (CadernoInfoForm), nasce como a data de criação do orçamento por padrão. */
+  data: string | null
 }
 
 export function formatRevisaoLabel(numeroRevisao?: number | null): string {
@@ -82,7 +85,7 @@ export async function drawCadernoCoverPage(
     ['Código', info.codigo || '—'],
     ['Revisão', formatRevisaoLabel(info.numeroRevisao)],
     ['Cliente', info.cliente || '—'],
-    ['Data', formatDate(new Date())],
+    ['Data', formatDateOnly(info.data)],
   ]
 
   let metaY = centerY + 18
