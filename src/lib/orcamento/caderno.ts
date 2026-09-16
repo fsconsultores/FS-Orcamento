@@ -313,7 +313,25 @@ export async function getCadernoData(
   let planilhasQuery = sb.from('orcamento_planilhas').select('id, nome, bdi_global, ordem').eq('orcamento_id', orcamentoId)
   if (planilhaIds && planilhaIds.length > 0) planilhasQuery = planilhasQuery.in('id', planilhaIds)
 
-  const [{ data: orc }, estruturaSemOrdenar, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos] = await Promise.all([
+  // Avulsos (composicao_id IS NULL) marcados como estimado, buscados à parte
+  // de getInsumosByOrcamentoDetalhado — aquela função deduplica por código
+  // (mantém 1 linha representante por código, propositalmente, pra tela de
+  // Insumos mostrar preço "avulso" único por código). Quando o mesmo código
+  // avulso é reaproveitado em várias linhas (ex.: um código genérico de
+  // "mão de obra" usado por vários itens com descrições/valores próprios),
+  // usar a lista deduplicada aqui perderia a marcação de estimado sempre que
+  // a linha sobrevivente da dedup não fosse a marcada — itens de verdade
+  // marcados como estimado sumiam de "(B) Serviços Estimados" sem aviso.
+  const avulsosEstimadosPromise = fetchAllPaginatedParallel<{ codigo: string; descricao: string }>((from, to) =>
+    sb.from('orcamento_insumos')
+      .select('codigo, descricao', { count: 'exact' })
+      .eq('orcamento_id', orcamentoId)
+      .is('composicao_id', null)
+      .eq('estimado', true)
+      .range(from, to)
+  )
+
+  const [{ data: orc }, estruturaSemOrdenar, { data: servicosEstimadosRows }, { insumos: todosInsumos, insumosDeComposicao }, { data: planilhasBdi }, pavimentos, avulsosEstimados] = await Promise.all([
     sb.from('tabela_orcamentos')
       .select('nome_obra, codigo, cliente, local, data, bdi_global, area_total, area_coberta, area_equivalente, categorias_grafico, categorias_resumo, numero_revisao')
       .eq('id', orcamentoId)
@@ -326,6 +344,7 @@ export async function getCadernoData(
     getInsumosByOrcamentoDetalhado(supabase, orcamentoId),
     planilhasQuery,
     getPavimentosByOrcamento(supabase, orcamentoId),
+    avulsosEstimadosPromise,
   ])
   const estrutura = estruturaSemOrdenar.sort((a, b) => a.nivel - b.nivel || a.ordem - b.ordem)
   // Reaproveita insumosDeComposicao/avulsos já buscados acima em vez de deixar
@@ -562,10 +581,12 @@ export async function getCadernoData(
     insumosEstimadosPorComp.set(ins.composicao_id, arr)
   }
   // codigo → descrição do próprio insumo avulso estimado (item que referencia
-  // um insumo diretamente, sem composição intermediária).
+  // um insumo diretamente, sem composição intermediária) — de
+  // avulsosEstimados (busca à parte, não deduplicada por código, ver
+  // avulsosEstimadosPromise acima), não de todosInsumos.
   const avulsoEstimadoDescricao = new Map<string, string>()
-  for (const ins of todosInsumos) {
-    if (ins.composicao_id === null && ins.estimado) avulsoEstimadoDescricao.set(ins.codigo, ins.descricao)
+  for (const ins of avulsosEstimados) {
+    if (ins.codigo) avulsoEstimadoDescricao.set(ins.codigo, ins.descricao)
   }
   interface InfoInsumoEstimado { descricao: string; qtd: number }
 
@@ -585,9 +606,15 @@ export async function getCadernoData(
     const compId = compCodeToId.get(node.codigo)
     if (compId) {
       const insumosDesc = insumosEstimadosPorComp.get(compId)
-      if (!insumosDesc || insumosDesc.length === 0) return null
-      const compDescricao = compIdToDescricao.get(compId) ?? node.codigo
-      return { descricao: `${insumosDesc.join(', ')} (${compDescricao})`, qtd: insumosDesc.length }
+      if (insumosDesc && insumosDesc.length > 0) {
+        const compDescricao = compIdToDescricao.get(compId) ?? node.codigo
+        return { descricao: `${insumosDesc.join(', ')} (${compDescricao})`, qtd: insumosDesc.length }
+      }
+      // Cai pro avulso abaixo mesmo com compId encontrado — o mesmo código
+      // pode coincidir entre uma composição e um insumo avulso (catálogos
+      // diferentes, código reaproveitado), e essa composição em si não ter
+      // nenhum insumo estimado não significa que o avulso homônimo também
+      // não tenha.
     }
     const avulso = avulsoEstimadoDescricao.get(node.codigo)
     return avulso ? { descricao: avulso, qtd: 1 } : null
