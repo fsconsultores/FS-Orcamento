@@ -6,6 +6,7 @@ import { formatDate, formatDateOnly } from '@/lib/format-date'
 import type { EstruturaItem } from './planilha-crud-action'
 import type { Nodo } from './planilha-tree'
 import { fetchAllPaginatedParallel } from '@/lib/orcamento/paginate'
+import { getBreakdownCustoPlanilha, type BreakdownCusto } from './planilha-breakdown-action'
 
 /**
  * Insumo mostrado na sub-linha do modo Analítica. `id`/`estimado`/
@@ -129,13 +130,22 @@ export function usePlanilhaExport({
 
       ws.columns = [
         { width: 10 }, { width: 13 }, { width: 52 },
-        { width:  6 }, { width: 12 }, { width: 15 }, { width: 16 },
+        { width:  6 }, { width: 12 }, { width: 15 },
+        { width: 14 }, { width: 14 }, { width: 14 },
+        { width: 16 },
       ]
+
+      // Material/Equip, Mão de Obra e Terceiros de cada item — mesma
+      // classificação (pelo grupo cadastrado do insumo, nunca pelo texto da
+      // descrição) já usada na Planilha de Preços Unitários do Caderno em
+      // PDF. Busca à parte (não vem no `items`/`flat` já carregados na tela)
+      // porque depende dos insumos de cada composição, não só do item em si.
+      const breakdown = await getBreakdownCustoPlanilha(orcamentoId).catch(() => ({}) as Record<string, BreakdownCusto>)
 
       await addSheetHeader(wb, ws, 'PLANILHA DE ORÇAMENTO')
 
       // Cabeçalho de colunas
-      const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'R$ Total'])
+      const hRow = ws.addRow(['Item', 'Código', 'Descrição', 'Und', 'Qtde', 'R$ Unit.', 'Mat/Equip', 'M.O.', 'Terceiros', 'R$ Total'])
       hRow.height = 20
       hRow.eachCell({ includeEmpty: true }, (cell, c) => {
         cell.fill = fill(C.headerBg)
@@ -144,11 +154,18 @@ export function usePlanilhaExport({
         cell.border = { top: bdr('medium', C.borderDk), bottom: bdr('medium', C.borderDk), left: bdr('thin', C.border), right: bdr('thin', C.border) }
       })
 
-      // Linhas de dados — usar '' em vez de null garante que todas as 7 células
-      // existam na linha, permitindo que eachCell itere corretamente até a col 7
+      // Linhas de dados — usar '' em vez de null garante que todas as 10
+      // células existam na linha, permitindo que eachCell itere corretamente
+      // até a col 10
+      let totalMatGeral = 0, totalMoGeral = 0, totalTerceirosGeral = 0
       for (const { nodo, depth } of flat) {
         const isItem = nodo.tipo === 'item'
         const total  = isItem ? (nodo.quantidade ?? 0) * (nodo.custo_unitario ?? 0) : nodo.total
+        const b = breakdown[nodo.id]
+        // Soma só a raiz (depth 0) — totalMat/Mo/Terceiros de cada nó já vem
+        // com a subárvore somada (grupo = soma dos filhos), somar toda linha
+        // contaria cada valor várias vezes.
+        if (depth === 0 && b) { totalMatGeral += b.mat; totalMoGeral += b.mo; totalTerceirosGeral += b.terceiros }
         const row = ws.addRow([
           sanitize(nodo.numero)  || '',
           sanitize(nodo.codigo)  || '',
@@ -156,6 +173,9 @@ export function usePlanilhaExport({
           sanitize(nodo.unidade) || '',
           isItem && nodo.quantidade     != null ? nodo.quantidade     : '',
           isItem && nodo.custo_unitario != null ? nodo.custo_unitario : '',
+          b && b.mat > 0 ? b.mat : '',
+          b && b.mo > 0 ? b.mo : '',
+          b && b.terceiros > 0 ? b.terceiros : '',
           total > 0 ? total : '',
         ])
 
@@ -172,19 +192,19 @@ export function usePlanilhaExport({
           cell.font = { name: 'Calibri', size: sz, bold, color: { argb: fg } }
           cell.alignment = { horizontal: c >= 5 ? 'right' : 'left', vertical: 'middle', wrapText: c === 3 }
           cell.border = { top: bdr('thin', dk ? C.borderDk : C.border), bottom: bdr('thin', dk ? C.borderDk : C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
-          if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+          if (c >= 6 && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
         })
       }
 
       // Total geral
-      const tRow = ws.addRow(['', '', 'TOTAL GERAL', '', '', '', grandTotal])
+      const tRow = ws.addRow(['', '', 'TOTAL GERAL', '', '', '', totalMatGeral || '', totalMoGeral || '', totalTerceirosGeral || '', grandTotal])
       tRow.height = 20
       tRow.eachCell({ includeEmpty: true }, (cell, c) => {
         cell.fill = fill(C.slate800)
         cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: c === 3 ? C.headerFg : C.white } }
         cell.alignment = { horizontal: c >= 5 ? 'right' : c === 3 ? 'right' : 'left', vertical: 'middle' }
         cell.border = { top: bdr('medium', C.slate700), bottom: bdr('thin', C.border), left: bdr('thin', C.border), right: bdr('thin', C.border) }
-        if ((c === 6 || c === 7) && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
+        if (c >= 6 && typeof cell.value === 'number') cell.numFmt = '#,##0.00'
       })
 
       const slug = (nomeOrcamento ?? 'planilha').replace(/[/\\?%*:|"<>]/g, '-').trim()
