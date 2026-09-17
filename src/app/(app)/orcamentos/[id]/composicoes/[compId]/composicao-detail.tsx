@@ -8,7 +8,7 @@ import { recalcularComposicaoAction } from '../../planilha/calcular-action'
 import { atualizarInsumoComposicaoAction } from '../../atualizar-insumo-composicao-action'
 import { EstimadoBadge } from '@/components/estimado-badge'
 import { CotacaoInsumoModal, type CotacaoSalva } from '@/components/cotacao-insumo-modal'
-import { formatCurrency } from '@/lib/costs'
+import { formatCurrency, arredondar2 } from '@/lib/costs'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { HighlightMatch } from '@/components/ui/highlight-match'
@@ -184,7 +184,7 @@ export function ComposicaoDetail({
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'erro'>('idle')
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const custoTotal = insumos.reduce((s, i) => s + (i.custo ?? 0) * (i.indice ?? 1), 0) || custoInicial
+  const custoTotal = arredondar2(insumos.reduce((s, i) => s + arredondar2((i.custo ?? 0) * (i.indice ?? 1)), 0)) || custoInicial
 
   async function sincronizar(novosInsumos?: typeof insumos) {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current)

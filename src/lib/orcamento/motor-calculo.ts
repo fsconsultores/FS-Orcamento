@@ -3,6 +3,7 @@ import type { ModoCalculo, CalculoOptions, OrfaosDetectados } from './types'
 import { registrarHistorico } from '@/lib/log'
 import { getTaxaAdministracaoItens, sincronizarItensTaxaAdministracao } from './modelo-acrescimo'
 import { fetchAllPaginatedParallel } from './paginate'
+import { arredondar2 } from '@/lib/costs'
 
 export interface ConsistenciaReport {
   ok: boolean
@@ -181,8 +182,12 @@ function calcularCustos(
           // Insumo simples: preço avulso tem prioridade (atualizado pelo usuário na aba Insumos)
           preco = avulsoPrecos.get(ins.codigo) ?? ins.custo ?? 0
         }
-        custo += preco * (ins.indice ?? 1)
+        // Arredonda cada insumo (ARRED do Excel) ANTES de somar — replica a
+        // metodologia original (ARRED por linha + SOMA), não soma bruta com
+        // arredondamento só no total.
+        custo += arredondar2(preco * (ins.indice ?? 1))
       }
+      custo = arredondar2(custo)
       const prev = custoPorId.get(comp.id) ?? 0
       if (Math.abs(custo - prev) > 0.0001) {
         changed = true
@@ -590,8 +595,10 @@ export async function recalcularComposicaoUnica(
     } else {
       preco = avulsoPrecos.get(r.codigo) ?? r.custo ?? 0
     }
-    custoUnitario += preco * (r.indice ?? 1)
+    // Mesmo critério de calcularCustos: arredonda cada insumo antes de somar.
+    custoUnitario += arredondar2(preco * (r.indice ?? 1))
   }
+  custoUnitario = arredondar2(custoUnitario)
 
   // 5. Persiste em orcamento_composicoes
   const agora = new Date().toISOString()

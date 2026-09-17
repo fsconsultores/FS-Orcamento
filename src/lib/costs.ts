@@ -1,4 +1,16 @@
 
+/**
+ * Arredonda pra 2 casas decimais (padrão ARRED() do Excel). Usado pra
+ * arredondar CADA insumo antes de somar no custo da composição — somar
+ * primeiro e arredondar só o total (como o motor fazia antes) diverge do
+ * Excel/SINAPI, que arredonda cada linha (ARRED(F*G;2)) e só depois soma
+ * (SOMA()); em composições com muitos insumos essa ordem gera diferenças
+ * grandes o suficiente pro Caderno não bater com a planilha original.
+ */
+export function arredondar2(valor: number): number {
+  return Math.round((valor + Number.EPSILON) * 100) / 100
+}
+
 export function calcularCustoComposicao(
   itens: { indice: number; insumo: { preco_base: number } }[]
 ): number {
