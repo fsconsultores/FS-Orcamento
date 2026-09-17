@@ -52,10 +52,14 @@ export interface ResumoGeralTabelasOptions {
 
 /** Uma linha da tabela (A): cabeçalho de categoria (com subtotal) ou um grupo
  * de nível 1 — solto (sem categoria atribuída) ou membro de uma categoria
- * (indentado). Ver buildDetalhamentoRows. */
+ * (indentado). Ver buildDetalhamentoRows. `percentual` é sempre sobre o TOTAL
+ * DA OBRA (A+B, pedido explícito do usuário) — não usar
+ * `node.percentualComBdi` pra exibição aqui, que é uma % diferente (sobre A
+ * só, calculada em getCadernoData e usada por outras seções do Caderno como
+ * Distribuição de Custos/Principais Itens). */
 export type ResumoDetalhamentoRow =
   | { tipo: 'categoria'; letra: string; nome: string; total: number; percentual: number }
-  | { tipo: 'grupo'; node: CadernoNode; indentado: boolean }
+  | { tipo: 'grupo'; node: CadernoNode; indentado: boolean; percentual: number }
 
 /** Resultado da separação (A) categorias padrão × (B) serviços estimados. */
 export interface ResumoGeralSplitResult {
@@ -83,16 +87,21 @@ export interface ResumoGeralSplitResult {
  * referenciado em nenhuma categoria (configuração parcial, ou nenhuma
  * categoria criada ainda) vira linha solta no final, exatamente como antes
  * dessa feature existir — nunca cai num bucket "Outros" automático.
+ *
+ * `totalGeral` (A+B, pedido explícito do usuário) é o denominador de TODO
+ * percentual desta tabela — categoria ou grupo solto — nunca o total da
+ * própria categoria/tabela.
  */
 function buildDetalhamentoRows(
   categoriasAComPct: CadernoNode[],
   categorias: CategoriaResumoGrupo[],
-  totalOrcadoA: number,
+  totalGeral: number,
 ): ResumoDetalhamentoRow[] {
   const porNumero = new Map(categoriasAComPct.map(n => [n.numero, n]))
   const usados = new Set<string>()
   const rows: ResumoDetalhamentoRow[] = []
   let letraIndex = 0
+  const pctDoTotalGeral = (valor: number) => totalGeral > 0 ? (valor / totalGeral) * 100 : 0
 
   for (const cat of categorias) {
     const membros = cat.numeros
@@ -102,16 +111,16 @@ function buildDetalhamentoRows(
 
     for (const n of membros) usados.add(n.numero)
     const total = membros.reduce((s, n) => s + n.totalComBdi, 0)
-    const percentual = totalOrcadoA > 0 ? (total / totalOrcadoA) * 100 : 0
+    const percentual = pctDoTotalGeral(total)
     const letra = letraIndex < 26 ? String.fromCharCode(65 + letraIndex) : String(letraIndex + 1)
     letraIndex++
 
     rows.push({ tipo: 'categoria', letra, nome: cat.nome, total, percentual })
-    for (const n of membros) rows.push({ tipo: 'grupo', node: n, indentado: true })
+    for (const n of membros) rows.push({ tipo: 'grupo', node: n, indentado: true, percentual: pctDoTotalGeral(n.totalComBdi) })
   }
 
   for (const n of categoriasAComPct) {
-    if (!usados.has(n.numero)) rows.push({ tipo: 'grupo', node: n, indentado: false })
+    if (!usados.has(n.numero)) rows.push({ tipo: 'grupo', node: n, indentado: false, percentual: pctDoTotalGeral(n.totalComBdi) })
   }
 
   return rows
@@ -150,7 +159,12 @@ export function splitResumoGeralDados(input: ResumoGeralTabelasInput): ResumoGer
   const servicosEstimados = resolveServicosEstimadosParaTabela(input)
   const totalOrcadoA = categoriasA.reduce((sum, n) => sum + n.totalComBdi, 0)
   const totalServicosEstimadosB = servicosEstimados.reduce((sum, s) => sum + s.valor, 0)
+  const totalGeral = totalOrcadoA + totalServicosEstimadosB
 
+  // percentualComBdi aqui continua sobre (A) só — usado pelo gráfico
+  // "Principais Itens do Orçamento" do dashboard (página 1), que é uma seção
+  // diferente de "(A) DETALHAMENTO DOS CUSTOS" (buildDetalhamentoRows abaixo
+  // já calcula o percentual certo, sobre o total da obra, por conta própria).
   const categoriasAComPct = categoriasA.map(n => ({
     ...n,
     percentualComBdi: totalOrcadoA > 0 ? (n.totalComBdi / totalOrcadoA) * 100 : 0,
@@ -170,7 +184,7 @@ export function splitResumoGeralDados(input: ResumoGeralTabelasInput): ResumoGer
 
   return {
     categoriasA: categoriasAComPct,
-    detalhamentoRows: buildDetalhamentoRows(categoriasAComPct, input.categoriasResumo, totalOrcadoA),
+    detalhamentoRows: buildDetalhamentoRows(categoriasAComPct, input.categoriasResumo, totalGeral),
     principaisItens,
     servicosEstimados,
     totalOrcadoA,
@@ -317,6 +331,12 @@ export async function drawResumoGeralDetailTables(
   const split = splitResumoGeralDados(input)
   const A = split.totalOrcadoA
   const B = split.totalServicosEstimadosB
+  // Total da obra (A+B) — denominador de todo percentual das tabelas (A) e
+  // (B) abaixo, pedido explícito do usuário: percentual de cada linha/
+  // subtotal é sempre sobre o total da obra, nunca sobre o total da própria
+  // categoria (A ou B).
+  const totalGeral = A + B
+  const pctDoTotalGeral = (valor: number) => totalGeral > 0 ? (valor / totalGeral) * 100 : 0
   const pageW = doc.internal.pageSize.getWidth()
   const tableLayout = pdfTableLayout(pageW)
   const headerHooks = standardHeaderAutoTableHooks(doc, headerData, sectionTitle, {
@@ -363,8 +383,8 @@ export async function drawResumoGeralDetailTables(
     head: RESUMO_DETALHAMENTO_HEAD,
     body: split.detalhamentoRows.map(row => row.tipo === 'categoria'
       ? [row.letra, row.nome, fmt(row.total), fmtPct(row.percentual)]
-      : [row.node.numero, row.node.descricao, fmt(row.node.totalComBdi), fmtPct(row.node.percentualComBdi)]),
-    foot: [['', 'TOTAL GERAL', fmt(A), '100,00%']],
+      : [row.node.numero, row.node.descricao, fmt(row.node.totalComBdi), fmtPct(row.percentual)]),
+    foot: [['', 'TOTAL GERAL', fmt(A), fmtPct(pctDoTotalGeral(A))]],
     showFoot: 'lastPage',
     ...globalTableStyles,
     columnStyles: detalhamentoColumnStyles,
@@ -405,9 +425,9 @@ export async function drawResumoGeralDetailTables(
         s.numero ?? '',
         s.itemPaiDescricao ? `${s.descricao}\n${s.itemPaiDescricao}` : s.descricao,
         fmt(s.valor),
-        fmtPct(B > 0 ? (s.valor / B) * 100 : 0),
+        fmtPct(pctDoTotalGeral(s.valor)),
       ]),
-      foot: [['', 'TOTAL', fmt(B), '100,00%']],
+      foot: [['', 'TOTAL', fmt(B), fmtPct(pctDoTotalGeral(B))]],
       showFoot: 'lastPage',
       ...globalTableStyles,
       columnStyles: detalhamentoColumnStyles,
