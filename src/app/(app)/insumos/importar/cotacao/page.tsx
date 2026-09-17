@@ -11,6 +11,7 @@ import { StatRow, StatCard } from '@/components/ui/stat-row'
 import { ImportResultBox } from '@/components/import-result-box'
 import { WizardSteps } from '@/components/ui/import-wizard'
 import { formatCurrency } from '@/lib/costs'
+import { parseLocaleNumber } from '@/lib/parse-locale-number'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -86,8 +87,12 @@ function autoDetect(headers: string[]): ColumnMapping {
 function parsePreco(raw: string): number {
   const s = raw.trim().replace(/[R$\s'"]/g, '')
   if (!s) return NaN
-  if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.'))
-  return parseFloat(s)
+  // parseLocaleNumber (não assumir sempre BR): quando o arquivo é .xlsx, a
+  // leitura passa pela própria célula convertida via XLSX.utils.sheet_to_csv,
+  // que formata número >= 1000 como "1,650.62" (vírgula = milhar, ponto =
+  // decimal — convenção do SheetJS, não do BR) — tratar toda vírgula como
+  // decimal BR incondicionalmente virava 1.65062 em vez de 1650.62.
+  return parseLocaleNumber(s)
 }
 
 function parseData(raw: string): string | null {

@@ -1,4 +1,5 @@
 import type { EstruturaRow } from '@/app/(app)/orcamentos/[id]/planilha/planilha-import-action'
+import { parseLocaleNumber } from '@/lib/parse-locale-number'
 
 /**
  * Parser de Excel/CSV pra estrutura de planilha (EAP) — compartilhado entre
@@ -43,10 +44,10 @@ const ALIASES: Record<CampoAlvo, string[]> = {
 // ─── Helpers de parse ────────────────────────────────────────────────────────
 
 export function parseBrNumber(s: unknown): number {
-  const c = String(s ?? '').replace(/R\$\s*/g, '').trim()
-  if (!c || c === '-' || c === '') return 0
   if (typeof s === 'number') return s
-  return parseFloat(c.replace(/\./g, '').replace(',', '.')) || 0
+  const c = String(s ?? '').replace(/R\$\s*/g, '').trim()
+  if (!c || c === '-') return 0
+  return parseLocaleNumber(c)
 }
 
 export function normNum(n: string): string {
@@ -232,10 +233,36 @@ export async function parseXlsxTodasAbas(ab: ArrayBuffer): Promise<{ abas: AbaBr
   return { abas, melhorIndice }
 }
 
+/**
+ * Excel exporta uma célula "forçada como texto" (comum na coluna de
+ * numeração, pra preservar zeros à esquerda como "01" em vez de virar o
+ * número 1) usando a sintaxe `="valor"` — sem desembrulhar isso, sobra
+ * literalmente `="01` (um strip de aspas ingênuo remove só a aspas final,
+ * já que a célula começa com `=`, não com `"`), que não bate no regex de
+ * numeração válida (`/^[\d.]+$/`) e derruba a linha inteira como "numero
+ * inválido" — reproduzido com um arquivo real de orçamento onde TODA linha
+ * de item vinha assim, zerando a importação inteira.
+ */
+function limparCelulaCsv(raw: string): string {
+  const c = raw.trim()
+  const formula = /^=\s*"([\s\S]*)"$/.exec(c)
+  if (formula) return formula[1]
+  // Célula comum entre aspas — só remove se abrir E fechar aspas (nunca só
+  // um lado, que mutilaria texto legítimo que por acaso comece/termine com ").
+  if (c.length >= 2 && c.startsWith('"') && c.endsWith('"')) return c.slice(1, -1)
+  return c
+}
+
 export function matrixFromCsv(text: string): unknown[][] {
   const cleaned = text.replace(/^﻿/, '')
   const lines = cleaned.split(/\r?\n/)
-  return lines.map(line => line.split(';').map(c => c.trim().replace(/^"|"$/g, '')))
+  // Split ingênuo por ";" — não respeita ponto-e-vírgula dentro de um campo
+  // entre aspas (ex.: uma fórmula "=ARRED(F7*G7;2)" na coluna Total vira 2
+  // colunas). Inofensivo hoje porque nenhum CAMPO mapeado (numero, codigo,
+  // descricao, unidade, quantidade, custo_unitario) fica depois de uma
+  // coluna assim nos arquivos reais vistos até agora — mas seria a próxima
+  // coisa a corrigir se algum dia isso mudar.
+  return lines.map(line => line.split(';').map(limparCelulaCsv))
 }
 
 /** Lê um arquivo (.xlsx/.xls/.ods/.csv/.txt) e devolve todas as abas já

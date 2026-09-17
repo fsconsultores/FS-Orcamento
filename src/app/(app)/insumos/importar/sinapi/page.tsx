@@ -11,6 +11,7 @@ import { ImportResultBox } from '@/components/import-result-box'
 import { Checkbox } from '@/components/ui/checkbox'
 import { WizardSteps } from '@/components/ui/import-wizard'
 import { formatCurrency } from '@/lib/costs'
+import { parseLocaleNumber } from '@/lib/parse-locale-number'
 
 const STEPS = [
   { key: 'arquivo', label: 'Arquivo' },
@@ -93,11 +94,13 @@ function normUp(s: string): string {
 function parsePreco(raw: string): number {
   if (!raw || !raw.trim()) return 0
   const s = raw.trim().replace(/['"]/g, '')
-  if (s.includes(',')) {
-    // Brazilian format: 1.234,56 → remove dot-thousands, replace comma
-    return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0
-  }
-  return parseFloat(s) || 0
+  // parseLocaleNumber (não assumir sempre BR): quando o arquivo é .xlsx, a
+  // leitura passa pela própria célula convertida via XLSX.utils.sheet_to_csv,
+  // que formata número >= 1000 como "1,650.56" (vírgula = milhar, ponto =
+  // decimal — convenção do SheetJS, não do BR) — tratar toda vírgula como
+  // decimal BR incondicionalmente virava 1.234,56 (dígitos certos, casa
+  // decimal errada) em vez de 1234.56.
+  return parseLocaleNumber(s)
 }
 
 async function readFileAsText(file: File): Promise<string> {
