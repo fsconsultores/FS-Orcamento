@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Download, FileText, Printer, BarChart3 } from 'lucide-react'
 import type { AbcItem, AbcItemComCategoria, CategoriaAbc } from '@/lib/curva-abc'
 import { fmt, fmtQtd, fmtPct } from '@/lib/curva-abc'
@@ -146,13 +146,31 @@ export function CurvaAbcView({
   orcamentoId,
   items: todosItens,
   orcamentoNome,
+  incluirEstimados,
 }: {
   orcamentoId: string
   items: AbcItemComCategoria[]
   orcamentoNome?: string
+  incluirEstimados: boolean
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [, startTransition] = useTransition()
+  const [alternandoEstimados, setAlternandoEstimados] = useState(false)
+
+  function toggleEstimados() {
+    setAlternandoEstimados(true)
+    const params = new URLSearchParams(searchParams.toString())
+    if (incluirEstimados) params.delete('estimados')
+    else params.set('estimados', '1')
+    const query = params.toString()
+    startTransition(() => {
+      router.push((query ? `${pathname}?${query}` : pathname) as any)
+      router.refresh()
+    })
+  }
+  useEffect(() => { setAlternandoEstimados(false) }, [incluirEstimados])
   const toast = useToast()
   const [categoria, setCategoria] = useState<CategoriaFiltro>('todas')
   const [filtro, setFiltro] = useState<'todos' | 'A' | 'B' | 'C'>('todos')
@@ -335,25 +353,38 @@ export function CurvaAbcView({
       </div>
 
       {/* Filtro por categoria — a curva é única; isto só restringe as linhas exibidas */}
-      <div className="flex flex-wrap gap-1.5">
-        {(['todas', 'materiais', 'mao_de_obra', 'equipamentos', 'servicos'] as const).map((key) => {
-          const count = key === 'todas' ? todosItens.length : todosItens.filter(i => i.categoria === key).length
-          const active = categoria === key
-          return (
-            <button
-              key={key}
-              onClick={() => { setCategoria(key); setFiltro('todos') }}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                active
-                  ? 'bg-primary-700 border-primary-700 text-white'
-                  : 'bg-white border-gray-300 text-gray-600 hover:border-primary-400'
-              }`}
-            >
-              {CATEGORIA_LABELS[key]}
-              <span className={active ? 'ml-1.5 text-primary-100' : 'ml-1.5 text-gray-400'}>({count})</span>
-            </button>
-          )
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {(['todas', 'materiais', 'mao_de_obra', 'equipamentos', 'servicos'] as const).map((key) => {
+            const count = key === 'todas' ? todosItens.length : todosItens.filter(i => i.categoria === key).length
+            const active = categoria === key
+            return (
+              <button
+                key={key}
+                onClick={() => { setCategoria(key); setFiltro('todos') }}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? 'bg-primary-700 border-primary-700 text-white'
+                    : 'bg-white border-gray-300 text-gray-600 hover:border-primary-400'
+                }`}
+              >
+                {CATEGORIA_LABELS[key]}
+                <span className={active ? 'ml-1.5 text-primary-100' : 'ml-1.5 text-gray-400'}>({count})</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={incluirEstimados}
+            disabled={alternandoEstimados}
+            onChange={toggleEstimados}
+            className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500/40"
+          />
+          Incluir estimados
+        </label>
       </div>
 
       {/* Chart */}

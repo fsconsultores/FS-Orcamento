@@ -11,10 +11,11 @@ export default async function CurvaAbcPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ planilha?: string }>
+  searchParams: Promise<{ planilha?: string; estimados?: string }>
 }) {
   const { id: orcamentoId } = await params
-  const { planilha: planilhaParam } = await searchParams
+  const { planilha: planilhaParam, estimados: estimadosParam } = await searchParams
+  const incluirEstimados = estimadosParam === '1'
   const supabase = await createClient()
   const sb = supabase as any
 
@@ -32,12 +33,12 @@ export default async function CurvaAbcPage({
   // sem paginar; as buscas de insumos abaixo já foram corrigidas antes).
   const [{ data: orcamento }, estrutura, composicoes] = await Promise.all([
     sb.from('tabela_orcamentos')
-      .select('nome_obra, bdi_global')
+      .select('nome_obra')
       .eq('id', orcamentoId)
       .single(),
     fetchAllPaginatedParallel<any>((from, to) =>
       sb.from('orcamento_estrutura')
-        .select('id, parent_id, tipo, codigo, descricao, unidade, quantidade, custo_unitario, bdi_especifico, estimado', { count: 'exact' })
+        .select('id, parent_id, tipo, codigo, descricao, unidade, quantidade, custo_unitario, estimado', { count: 'exact' })
         .eq('orcamento_id', orcamentoId)
         .eq('planilha_id', activePlanilha.id)
         .range(from, to)
@@ -51,26 +52,24 @@ export default async function CurvaAbcPage({
   ])
 
   // Itens marcados como "Estimado" (aba Estimados) — ou descendentes de um
-  // grupo marcado — não são custo real do orçamento e não podem entrar no
+  // grupo marcado — não são custo real do orçamento; por padrão ficam fora do
   // ranking/percentuais da Curva ABC (mesmo critério de getCadernoData, ver
-  // computeIdsEstimados). Sem isso, esta página e a Curva ABC dentro do
-  // Caderno mostrariam classificações A/B/C diferentes pro mesmo orçamento.
+  // computeIdsEstimados), mas o usuário pode optar por incluí-los (toggle
+  // "Incluir estimados" em CurvaAbcView, via ?estimados=1).
   const estruturaFull = estrutura
   const idsEstimados = computeIdsEstimados(
     estruturaFull.map((e: any) => ({ id: e.id, parent_id: e.parent_id, estimado: e.estimado ?? false }))
   )
-  // bdi_especifico do item > bdi_global da planilha ativa > bdi_global do
-  // orçamento — mesma cadeia usada por getCadernoData() pra "(A) Total
-  // Orçado", pra Curva ABC nunca divergir dele por causa do BDI.
+  // Curva ABC é sempre sobre o preço de CUSTO, sem BDI (ver buildAbcBase em
+  // curva-abc.ts) — BDI é margem sobre o custo, não faz parte do custo em si.
   const estItems: EstruturaItemBasico[] = estruturaFull
-    .filter((e: any) => e.tipo === 'item' && !idsEstimados.has(e.id))
+    .filter((e: any) => e.tipo === 'item' && (incluirEstimados || !idsEstimados.has(e.id)))
     .map((e: any) => ({
       codigo: e.codigo,
       descricao: e.descricao,
       unidade: e.unidade,
       quantidade: e.quantidade,
       custo_unitario: e.custo_unitario,
-      bdiPercentual: e.bdi_especifico ?? activePlanilha.bdi_global ?? orcamento?.bdi_global ?? 0,
     }))
 
   // 2. Insumos dentro de composições + 3. avulsos (composicao_id null, usados
@@ -107,7 +106,7 @@ export default async function CurvaAbcPage({
         description={`Classificação dos itens por impacto financeiro na planilha "${activePlanilha.nome}".`}
       />
       <DevProfiler id="CurvaAbcView">
-        <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} />
+        <CurvaAbcView orcamentoId={orcamentoId} items={items} orcamentoNome={orcamento?.nome_obra} incluirEstimados={incluirEstimados} />
       </DevProfiler>
     </div>
   )
